@@ -1,5 +1,11 @@
 #![feature(try_trait)]
 
+use std::ops::Try;
+
+pub fn try_into_result<T: Try>(element: T) -> Result<T::Ok, T::Error> {
+    element.into_result()
+}
+
 #[macro_export]
 macro_rules! attempt {
     ( $inner:expr ; catch ($($infallible:tt)*) => $handle:expr ) => {{
@@ -10,7 +16,7 @@ macro_rules! attempt {
             #[allow(unused_macros)]
             macro_rules! catch {
                 ($possible:expr) => {
-                    match std::ops::Try::into_result($possible){
+                    match $crate::try_into_result($possible){
                         Ok(x) => x,
                         Err(error) => {
                             result = Err(std::convert::From::from(error));
@@ -33,7 +39,7 @@ macro_rules! attempt {
 }
 
 #[test]
-fn sum_option_test(){
+fn sum_option_test() {
     use std::option::NoneError;
     use std::{ops, result};
     fn sum_option_with_ascription<T: ops::Add<Output=T>>(x: Option<T>, y: Option<T>) -> Option<T> {
