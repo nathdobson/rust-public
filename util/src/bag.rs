@@ -20,14 +20,14 @@ impl<T> Bag<T> {
         self.next += 1;
         Token(result)
     }
-    pub fn into_iter(self) -> impl Iterator<Item=T> {
-        self.map.into_iter().map(|(_, v)| v)
+    pub fn into_iter(self) -> impl Iterator<Item=(Token, T)> {
+        self.map.into_iter().map(|(k, v)| (Token(k), v))
     }
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=&'a T> {
-        self.map.values()
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Token, &'a T)> {
+        self.map.iter().map(|(k, v)| (Token(*k), v))
     }
-    pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item=&'a mut T> {
-        self.map.values_mut()
+    pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item=(Token, &'a mut T)> {
+        self.map.iter_mut().map(|(k, v)| (Token(*k), v))
     }
     pub fn drain<'a>(&'a mut self) -> impl Iterator<Item=T> + 'a {
         self.map.drain().map(|(_, v)| v)

@@ -3,7 +3,7 @@ use std::fmt;
 use std::hash::{Hasher, Hash};
 use std::cmp::Ordering;
 
-pub trait ObjectInner: Any + fmt::Debug + 'static {
+pub trait ObjectInner: Any + fmt::Debug + 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn eq_any(&self, other: &dyn Any) -> bool;
     fn hash_any(&self, state: &mut dyn Hasher);
@@ -12,7 +12,7 @@ pub trait ObjectInner: Any + fmt::Debug + 'static {
     fn clone_inner(&self) -> Box<dyn ObjectInner>;
 }
 
-impl<T> ObjectInner for T where T: PartialEq + fmt::Debug + Hash + 'static + PartialOrd + Ord + Eq + Clone {
+impl<T> ObjectInner for T where T: PartialEq + fmt::Debug + Hash + 'static + PartialOrd + Ord + Eq + Clone + Send + Sync {
     fn as_any(&self) -> &dyn Any {
         self
     }

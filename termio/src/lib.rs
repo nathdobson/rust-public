@@ -9,6 +9,7 @@ pub mod prompt;
 pub mod output;
 pub mod gui;
 pub mod tokenizer;
+pub mod demo;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash, Copy, Clone)]
 pub enum Direction {

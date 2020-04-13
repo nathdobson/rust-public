@@ -13,9 +13,6 @@ use crate::tokenizer::Tokenizer;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy)]
 pub enum Mouse {
-    Left,
-    Middle,
-    Right,
     Up,
     ScrollDown,
     ScrollUp,
@@ -270,9 +267,6 @@ impl<R: Read> EventReader<R> {
             }
         }
         let mouse = match button {
-            0 => Mouse::Left,
-            1 => Mouse::Middle,
-            2 => Mouse::Right,
             3 => Mouse::Up,
             4 => Mouse::ScrollUp,
             5 => Mouse::ScrollDown,
