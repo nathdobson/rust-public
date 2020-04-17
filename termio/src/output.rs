@@ -9,6 +9,7 @@ use std::io::Write;
 use std::ops::Deref;
 
 use crate::Direction;
+use crate::color::Color;
 
 pub struct AsDisplay<F: Fn(&mut Formatter) -> Result<(), Error>>(pub F);
 
@@ -77,9 +78,9 @@ pub fn MoveWindow(x: usize, y: usize) -> impl Display { concat!("\x1B[3;", x, ";
 
 pub fn ResizeWindow(w: usize, h: usize) -> impl Display { concat!( "\x1B[4;", h, ";", w, "t") }
 
-pub fn Foreground(color: u8) -> impl Display { concat!("\x1B[38;5;", color, "m") }
+pub fn Foreground(color: Color) -> impl Display { concat!("\x1B[38;5;", color.into_u8(), "m") }
 
-pub fn Background(color: u8) -> impl Display { concat!("\x1b[48;5;", color, "m") }
+pub fn Background(color: Color) -> impl Display { concat!("\x1b[48;5;", color.into_u8(), "m") }
 
 pub const DeleteLine: &'static str = "\x1b[2K";
 pub const NoFormat: &'static str = "\x1b[0m";

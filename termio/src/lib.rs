@@ -7,9 +7,10 @@ use std::ops::DerefMut;
 pub mod input;
 pub mod prompt;
 pub mod output;
-pub mod gui;
 pub mod tokenizer;
-pub mod demo;
+pub mod color;
+pub mod canvas;
+pub mod gui;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash, Copy, Clone)]
 pub enum Direction {

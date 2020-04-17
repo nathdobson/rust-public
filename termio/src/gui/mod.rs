@@ -9,6 +9,10 @@ use crate::input::Event;
 use crate::input::Mouse;
 use crate::output::{CursorRestore, CursorSave, Foreground, Background, SafeWrite, AlternateEnable, FocusTrackingEnable, ReportWindowSize};
 use crate::input::Event::MouseEvent;
+use crate::color::Color;
+use crate::canvas::{Canvas, Rectangle};
+
+pub mod button;
 
 pub struct Gui {
     size: (isize, isize),
@@ -16,7 +20,7 @@ pub struct Gui {
     pub writer: Box<dyn SafeWrite + 'static + Send>,
     pub keyboard_focus: Option<NodeToken>,
     pub mouse_focus: Option<NodeToken>,
-    pub background: Option<u8>,
+    pub background: Option<Color>,
 }
 
 pub struct NodeHeader {
@@ -33,17 +37,6 @@ pub trait Node: 'static + Send {
     fn bounds(&self) -> Rectangle {
         Rectangle { position: self.header().position, size: self.size() }
     }
-}
-
-#[derive(Eq, PartialEq, PartialOrd, Hash, Copy, Clone)]
-pub struct Rectangle {
-    pub position: (isize, isize),
-    pub size: (isize, isize),
-}
-
-pub struct Canvas<'a> {
-    writer: &'a mut dyn SafeWrite,
-    bounds: Rectangle,
 }
 
 pub type NodeToken = Token;
@@ -147,84 +140,3 @@ impl Gui {
     }
 }
 
-impl<'a> Canvas<'a> {
-    pub fn draw(&mut self, p: (isize, isize), text: &str) {
-        write!(self.writer, "{}", CursorPosition(self.bounds.position.0 + p.0, self.bounds.position.1 + p.1));
-        write!(self.writer, "{}", text);
-    }
-}
-
-pub struct Button {
-    header: NodeHeader,
-    text: String,
-    down: bool,
-}
-
-//pub fn draw_box(c11: bool, c21: bool, c12: bool, c22: bool) -> char {
-//    match (c11, c21, c12, c22) {
-//        (false, false, false, false) => ' ',
-//
-//        (true, false, false, false) => '▘',
-//        (false, true, false, false) => '▝',
-//        (false, false, true, false) => '▖',
-//        (false, false, false, true) => '▗',
-//
-//        (true, true, false, false) => '▀',
-//        (false, false, true, true) => '▄',
-//        (true, false, true, false) => '▌',
-//        (false, true, false, true) => '▐',
-//
-//        (true, false, false, true) => '▚',
-//        (false, true, true, false) => '▞',
-//
-//        (false, true, true, true) => '▟',
-//        (true, false, true, true) => '▙',
-//        (true, true, false, true) => '▜',
-//        (true, true, true, false) => '▛',
-
-impl Node for Button {
-    fn header(&self) -> &NodeHeader { &self.header }
-
-    fn header_mut(&mut self) -> &mut NodeHeader { &mut self.header }
-
-    fn paint(&self, w: &mut Canvas) {
-        write!(w.writer, "{}", Background(242));
-        write!(w.writer, "{}", Foreground(231));
-        w.draw((0, 0), &iter::once('▛').chain(iter::repeat('▀').take(self.text.len())).chain(iter::once('▜')).collect::<String>());
-        w.draw((0, 1), &format!("▌{}▐", self.text, ));
-        w.draw((0, 2), &iter::once('▙').chain(iter::repeat('▄').take(self.text.len())).chain(iter::once('▟')).collect::<String>());
-    }
-
-    fn handle_event(&mut self, event: &Event) -> Option<NodeEvent> {
-        match event {
-            Event::MouseEvent(e) => {
-                if self.bounds().contains(e.position) {
-                    if e.mouse == Mouse::Down(0) {
-                        self.down = true;
-                    }
-                    if e.mouse == Mouse::Up && self.down {
-                        self.down = false;
-                        return Some(NodeEvent::Button(self.header.token()));
-                    }
-                } else if e.mouse == Mouse::Up {
-                    self.down = false;
-                }
-            }
-            _ => {}
-        }
-        None
-    }
-    fn size(&self) -> (isize, isize) {
-        ((self.text.len() + 2) as isize, 3)
-    }
-}
-
-impl Button {
-    pub fn new(text: String) -> Button {
-        Button {
-            header: NodeHeader::new(),
-            text,
-            down: false,
-        }
-    }
-}
