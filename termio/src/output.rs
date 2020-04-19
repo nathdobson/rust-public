@@ -5,11 +5,12 @@ use std::fmt;
 use std::fmt::{Arguments, Display, Error, Formatter};
 use std::fmt::rt::v1::Argument;
 use std::io;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::ops::Deref;
 
 use crate::Direction;
 use crate::color::Color;
+use std::collections::VecDeque;
 
 pub struct AsDisplay<F: Fn(&mut Formatter) -> Result<(), Error>>(pub F);
 
@@ -82,6 +83,15 @@ pub fn Foreground(color: Color) -> impl Display { concat!("\x1B[38;5;", color.in
 
 pub fn Background(color: Color) -> impl Display { concat!("\x1b[48;5;", color.into_u8(), "m") }
 
+pub const DefaultForeground: &'static str = "\x1b[39m";
+pub const DefaultBackground: &'static str = "\x1b[49m";
+pub const VideoPush: &'static str = "\x1b[#{";
+pub const VideoPop: &'static str = "\x1b[#}";
+pub const VideoNormal: &'static str = "\x1b[0m";
+
+pub const DoubleHeightTop: &'static str = "\x1B#3";
+pub const DoubleHeightBottom: &'static str = "\x1B#4";
+
 pub const DeleteLine: &'static str = "\x1b[2K";
 pub const NoFormat: &'static str = "\x1b[0m";
 
@@ -111,43 +121,8 @@ pub const MaximizeWindow: &'static str = "\x1B[1t";
 pub const EraseAll: &'static str = "\x1B[2J";
 
 pub fn ScrollRegion(start: usize, end: usize) -> impl Display { concat!("\x1B[", start, ";", end, "r") }
-//Scroll = "\x1B[{},{}r"
-//pub const ClickTracking: &'static str = "\x1B[?1000h";
 
-pub trait SafeWrite {
-    fn write_fmt(&mut self, args: Arguments);
-    fn flush(&mut self);
-}
 
-impl SafeWrite for Vec<u8> {
-    fn write_fmt(&mut self, args: Arguments) {
-        std::io::Write::write_fmt(self, args).unwrap()
-    }
-
-    fn flush(&mut self) {}
-}
-
-impl<'a, W: SafeWrite + ?Sized> SafeWrite for &'a mut W {
-    fn write_fmt(&mut self, args: Arguments) {
-        (**self).write_fmt(args)
-    }
-
-    fn flush(&mut self) {
-        (**self).flush()
-    }
-}
-
-pub struct PanicSafeWrite<W: Write>(pub W);
-
-impl<W: Write> SafeWrite for PanicSafeWrite<W> {
-    fn write_fmt(&mut self, args: Arguments) {
-        self.0.write_fmt(args).unwrap()
-    }
-
-    fn flush(&mut self) {
-        self.0.flush().unwrap()
-    }
-}
 
 pub fn draw_box(c11: bool, c21: bool, c12: bool, c22: bool) -> char {
     match (c11, c21, c12, c22) {

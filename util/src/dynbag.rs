@@ -2,13 +2,15 @@ use std::any::Any;
 use std::marker::{PhantomData, Unsize};
 
 use crate::union::Union2;
+use std::ops::{Index, IndexMut};
+use crate::bag::{Bag, Token};
 
 pub struct DynBag<T: ?Sized + 'static> {
-    vec: Vec<Box<dyn Union2<dyn Any, T>>>,
+    vec: Bag<dyn Union2<dyn Any, T>>,
 }
 
-pub struct DynKey<A: Any> {
-    index: usize,
+pub struct DynToken<A: 'static + ?Sized> {
+    index: Token,
     phantom: PhantomData<A>,
 }
 
@@ -23,19 +25,27 @@ impl<T: ?Sized + 'static> DynBag<T> {
         self.vec.push(Box::new(element));
         result
     }
-    pub fn get<A: Any>(&mut self, key: DynKey<A>) -> &A {
-        let result: &dyn Any = (&*self.vec[key.index]).upcast1();
-        result.downcast_ref().unwrap()
-    }
-    pub fn get_mut<A: Any>(&mut self, key: DynKey<A>) -> &mut A {
-        let result: &mut dyn Any = (&mut *self.vec[key.index]).upcast1_mut();
-        result.downcast_mut().unwrap()
-    }
     pub fn nth(&self, index: usize) -> &T {
         (&*self.vec[index]).upcast2()
     }
     pub fn nth_mut(&mut self, index: usize) -> &mut T {
         (&mut *self.vec[index]).upcast2_mut()
+    }
+}
+
+impl<A: 'static, B: ?Sized> Index<DynKey<A>> for DynBag<B> {
+    type Output = A;
+
+    fn index(&self, key: DynKey<A>) -> &A {
+        let result: &dyn Any = (&*self.vec[key.index]).upcast1();
+        result.downcast_ref().unwrap()
+    }
+}
+
+impl<A: 'static, B: ?Sized> IndexMut<DynKey<A>> for DynBag<B> {
+    fn index_mut(&mut self, key: DynKey<A>) -> &mut A {
+        let result: &mut dyn Any = (&mut *self.vec[key.index]).upcast1_mut();
+        result.downcast_mut().unwrap()
     }
 }
 
@@ -63,8 +73,8 @@ fn test_dyn_vec() {
     let mut vec: DynBag<dyn Named> = DynBag::new();
     let a = vec.push(A);
     let b = vec.push(B);
-    assert!(*vec.get(a) == A);
-    assert!(*vec.get(b) == B);
+    assert!(vec[a] == A);
+    assert!(vec[b] == B);
     assert_eq!("A", vec.nth(0).name());
     assert_eq!("B", vec.nth(1).name());
 }

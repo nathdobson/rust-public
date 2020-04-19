@@ -1,117 +1,173 @@
-use std::ops::Range;
+use std::{fmt, iter};
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashSet};
+use std::io::{BufWriter, Write};
+use std::marker::Unsize;
+use std::ops::{CoerceUnsized, Deref, Range};
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::iter;
-use crate::output::{AllMotionTrackingEnable, CursorPosition, EraseAll};
 
+use itertools::Itertools;
 use util::bag::{Bag, Token};
+use util::shared::{HasHeaderExt, Shared, WkShared};
 
-use crate::input::Event;
-use crate::input::Mouse;
-use crate::output::{CursorRestore, CursorSave, Foreground, Background, SafeWrite, AlternateEnable, FocusTrackingEnable, ReportWindowSize};
-use crate::input::Event::MouseEvent;
+use crate::canvas::{Canvas, LineSetting, Rectangle};
 use crate::color::Color;
-use crate::canvas::{Canvas, Rectangle};
+use crate::gui::button::Button;
+use crate::input::Event;
+use crate::input::Event::MouseEvent;
+use crate::input::Mouse;
+use crate::output::{AllMotionTrackingDisable,
+                    AllMotionTrackingEnable,
+                    AlternateDisable,
+                    CursorPosition,
+                    DoubleHeightBottom,
+                    DoubleHeightTop,
+                    EraseAll,
+                    FocusTrackingDisable,
+                    VideoNormal,
+                    VideoPop,
+                    VideoPush};
+use crate::output::{AlternateEnable, Background, CursorRestore, CursorSave, FocusTrackingEnable, Foreground, ReportWindowSize};
+use crate::write;
+use crate::write::SafeWrite;
 
 pub mod button;
+pub mod label;
 
 pub struct Gui {
     size: (isize, isize),
-    nodes: Bag<Box<dyn Node>>,
-    pub writer: Box<dyn SafeWrite + 'static + Send>,
-    pub keyboard_focus: Option<NodeToken>,
-    pub mouse_focus: Option<NodeToken>,
+    nodes: HashSet<DynNode>,
+    pub writer: Box<dyn SafeWrite + 'static + Send + Sync>,
+    pub keyboard_focus: Option<DynNode>,
+    pub mouse_focus: Option<DynNode>,
     pub background: Option<Color>,
 }
 
+pub type Node<T> = Shared<T>;
+pub type DynNode = Node<dyn IsNode>;
+
+#[derive(Debug)]
 pub struct NodeHeader {
-    pub token: Option<NodeToken>,
     pub position: (isize, isize),
 }
 
-pub trait Node: 'static + Send {
-    fn header(&self) -> &NodeHeader;
-    fn header_mut(&mut self) -> &mut NodeHeader;
+pub trait IsNode: HasHeaderExt<NodeHeader> + Send + Sync + 'static + fmt::Debug {
     fn paint(&self, w: &mut Canvas);
     fn handle_event(&mut self, event: &Event) -> Option<NodeEvent>;
     fn size(&self) -> (isize, isize);
+    fn position(&self) -> (isize, isize) {
+        self.header().position
+    }
     fn bounds(&self) -> Rectangle {
-        Rectangle { position: self.header().position, size: self.size() }
+        Rectangle {
+            position: self.position(),
+            size: self.size(),
+        }
+    }
+    fn line_setting(&self, y: isize) -> Option<LineSetting> {
+        Some(LineSetting::Normal)
     }
 }
 
-pub type NodeToken = Token;
 
 #[derive(Debug)]
 pub enum NodeEvent {
-    Button(NodeToken),
-    Enter(NodeToken),
+    Button(Node<Button>),
 }
 
 impl NodeHeader {
     pub fn new() -> Self {
         NodeHeader {
-            token: None,
             position: (0, 0),
         }
-    }
-    pub fn token(&self) -> NodeToken {
-        self.token.unwrap()
-    }
-}
-
-impl Rectangle {
-    fn contains(&self, (x, y): (isize, isize)) -> bool {
-        (self.position.0..self.position.0 + self.size.0).contains(&x) && (self.position.1..self.position.1 + self.size.1).contains(&y)
     }
 }
 
 impl Gui {
-    pub fn new(mut writer: Box<dyn SafeWrite + 'static + Send>) -> Gui {
-        write!(writer, "{}", AllMotionTrackingEnable);
-        write!(writer, "{}", FocusTrackingEnable);
-        write!(writer, "{}", ReportWindowSize);
-        write!(writer, "{}", AlternateEnable);
-        let gui = Gui {
+    pub fn new(writer: Box<dyn SafeWrite + 'static + Send + Sync>) -> Gui {
+        let mut gui = Gui {
             size: (0, 0),
-            nodes: Bag::new(),
+            nodes: HashSet::new(),
             writer,
             keyboard_focus: None,
             mouse_focus: None,
             background: None,
         };
+        gui.open();
         gui
     }
-    pub fn add_node(&mut self, node: Box<dyn Node>) -> NodeToken {
-        let token = self.nodes.push(node);
-        self.nodes[token].header_mut().token = Some(token);
-        token
+    fn open(&mut self) {
+        swrite!(self.writer, "{}", AllMotionTrackingEnable);
+        swrite!(self.writer, "{}", FocusTrackingEnable);
+        swrite!(self.writer, "{}", ReportWindowSize);
+        swrite!(self.writer, "{}", AlternateEnable);
     }
+    pub fn close(&mut self) {
+        swrite!(self.writer, "{}", AllMotionTrackingDisable);
+        swrite!(self.writer, "{}", FocusTrackingDisable);
+        swrite!(self.writer, "{}", AlternateDisable);
+    }
+
+    pub fn add_node(&mut self, node: DynNode) {
+        self.nodes.insert(node);
+    }
+
     pub fn paint(&mut self) {
-        write!(self.writer, "{}", CursorSave);
+        swrite!(self.writer, "{}", CursorSave);
         if let Some(background) = self.background {
-            write!(self.writer, "{}", Background(background));
+            swrite!(self.writer, "{}", Background(background));
         }
-        write!(self.writer, "{}", EraseAll);
-        for (token, node) in self.nodes.iter_mut() {
-            let mut canvas = Canvas { writer: &mut *self.writer, bounds: node.bounds() };
-            node.paint(&mut canvas);
+        swrite!(self.writer, "{}", EraseAll);
+        let line_settings: Vec<LineSetting> = (0..self.size.1).map(|y| {
+            let for_line: BTreeSet<LineSetting> = self.nodes.iter().filter_map(|node| {
+                let node = node.borrow();
+                if node.bounds().ys().contains(&y) {
+                    node.line_setting(y - node.bounds().position.1)
+                } else { None }
+            }).collect();
+            if for_line.len() > 1 {
+                eprintln!("line {:?} has line_settings {:?}", y, for_line);
+            }
+            for_line.into_iter().min().unwrap_or(LineSetting::Normal)
+        }).collect();
+        for (y, setting) in line_settings.iter().enumerate() {
+            swrite!(self.writer, "{}", CursorPosition(0, y as isize));
+            match setting {
+                LineSetting::Normal => {}
+                LineSetting::DoubleHeightTop => swrite!(self.writer, "{}", DoubleHeightTop),
+                LineSetting::DoubleHeightBottom => swrite!(self.writer, "{}", DoubleHeightBottom),
+            }
         }
-        write!(self.writer, "{}", CursorRestore);
-        self.writer.flush();
+        for node in self.nodes.iter() {
+            swrite!(self.writer, "{}", VideoNormal);
+            let borrow = node.deref().borrow_mut();
+            let mut canvas = Canvas {
+                writer: &mut *self.writer,
+                bounds: borrow.bounds(),
+                line_settings: &line_settings,
+            };
+            borrow.paint(&mut canvas);
+        }
+        swrite!(self.writer, "{}", CursorRestore);
+        self.writer.safe_flush();
     }
-    pub fn node_at(&self, position: (isize, isize)) -> Option<Token> {
-        for (token, node) in self.nodes.iter() {
-            if node.bounds().contains(position) {
-                return Some(token);
+
+    pub fn node_at(&self, position: (isize, isize)) -> Option<DynNode> {
+        for node in self.nodes.iter() {
+            let borrow = node.borrow();
+            if node.borrow().bounds().contains(position) {
+                return Some(node.clone());
             }
         }
         None
     }
+
     pub fn handle_event(&mut self, event: &Event) -> Option<NodeEvent> {
         match event {
             Event::KeyEvent(key_event) => {
-                if let Some(focus) = self.keyboard_focus {
-                    return self.nodes[focus].handle_event(event);
+                if let Some(focus) = self.keyboard_focus.as_mut() {
+                    return focus.borrow_mut().handle_event(event);
                 }
             }
             Event::MouseEvent(mouse_event) => {
@@ -119,14 +175,30 @@ impl Gui {
                     Mouse::ScrollUp => {}
                     Mouse::ScrollDown => {}
                     Mouse::Up => {
-                        if let Some(mouse_focus) = self.mouse_focus.take().or_else(|| self.node_at(mouse_event.position)) {
-                            return self.nodes[mouse_focus].handle_event(event);
+                        let old_focus = self.mouse_focus.take();
+                        let new_focus = self.node_at(mouse_event.position);
+                        self.mouse_focus = new_focus.clone();
+                        match (old_focus, new_focus) {
+                            (Some(old_focus), Some(new_focus)) =>
+                                if &old_focus == &new_focus {
+                                    return new_focus.borrow_mut().handle_event(event);
+                                } else {
+                                    assert!(old_focus.borrow_mut().handle_event(event).is_none());
+                                    return new_focus.borrow_mut().handle_event(event);
+                                }
+                            (Some(old_focus), None) => {
+                                return old_focus.borrow_mut().handle_event(event);
+                            }
+                            (None, Some(new_focus)) => {
+                                return new_focus.borrow_mut().handle_event(event);
+                            }
+                            (None, None) => {}
                         }
                     }
                     Mouse::Down(n) => {
-                        self.mouse_focus = self.mouse_focus.or_else(|| self.node_at(mouse_event.position));
-                        if let Some(mouse_focus) = self.mouse_focus {
-                            return self.nodes[mouse_focus].handle_event(event);
+                        self.mouse_focus = self.mouse_focus.take().or_else(|| self.node_at(mouse_event.position));
+                        if let Some(mouse_focus) = self.mouse_focus.clone() {
+                            return mouse_focus.borrow_mut().handle_event(event);
                         }
                     }
                 }

@@ -45,7 +45,7 @@ impl Modifier {
     }
 }
 
-mod modifiers {
+pub mod modifiers {
     use crate::input::Modifier;
 
     pub const PLAIN: Modifier = Modifier::new();

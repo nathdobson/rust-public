@@ -1,12 +1,15 @@
-#![feature(half_open_range_patterns, exclusive_range_pattern, str_internals, fmt_internals)]
+#![feature(half_open_range_patterns, exclusive_range_pattern, str_internals, fmt_internals, coerce_unsized, unsize)]
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code)]
 
 use std::iter::FromIterator;
 use std::ops::DerefMut;
 
+#[macro_use]
+pub mod write;
+
+pub mod output;
 pub mod input;
 pub mod prompt;
-pub mod output;
 pub mod tokenizer;
 pub mod color;
 pub mod canvas;

@@ -1,9 +1,11 @@
+extern crate std;
+
 use std::{fmt, io};
-use std::io::Write;
 
 use crate::Direction;
 use crate::input::{Event, Key, KeyEvent, Modifier};
-use crate::output::{Column, CursorRestore, CursorSave, Delete, DeleteLine, Insert, MoveDirection, SafeWrite};
+use crate::output::{Column, CursorRestore, CursorSave, Delete, DeleteLine, Insert, MoveDirection};
+use crate::write::SafeWrite;
 
 pub struct Prompt<W: SafeWrite> {
     inner: W,
@@ -21,40 +23,40 @@ impl<W: SafeWrite> Prompt<W> {
             input: "".to_string(),
         };
         for i in result.prompt[..result.prompt.len() - 1].iter() {
-            write!(result.inner, "{}\r\n", i);
+            swrite!(result.inner, "{}\r\n", i);
         }
-        write!(result.inner, "{}{}", result.prompt.last().unwrap(), result.input);
+        swrite!(result.inner, "{}{}", result.prompt.last().unwrap(), result.input);
         result
     }
-    pub fn inner(&mut self)->&mut W{
+    pub fn inner(&mut self) -> &mut W {
         &mut self.inner
     }
     pub fn log(&mut self, content: &str) {
-        write!(self.inner, "{}", CursorSave);
-        write!(self.inner, "\r\n");
-        write!(self.inner, "{}\r", MoveDirection(Direction::Up, self.prompt.len()));
-        write!(self.inner, "{}{}", DeleteLine, content);
+        swrite!(self.inner, "{}", CursorSave);
+        swrite!(self.inner, "\r\n");
+        swrite!(self.inner, "{}\r", MoveDirection(Direction::Up, self.prompt.len()));
+        swrite!(self.inner, "{}{}", DeleteLine, content);
         for i in self.prompt.iter() {
-            write!(self.inner, "\r\n{}{}", DeleteLine, i);
+            swrite!(self.inner, "\r\n{}{}", DeleteLine, i);
         }
-        write!(self.inner, "{}", self.input);
-        write!(self.inner, "{}", CursorRestore);
-        write!(self.inner, "{}", MoveDirection(Direction::Down, 1));
+        swrite!(self.inner, "{}", self.input);
+        swrite!(self.inner, "{}", CursorRestore);
+        swrite!(self.inner, "{}", MoveDirection(Direction::Down, 1));
     }
     pub fn update(&mut self, index: usize, content: &str) {
-        write!(self.inner, "{}", CursorSave);
-        write!(self.inner, "{}\r", MoveDirection(Direction::Up, self.prompt.len() - index - 1));
-        write!(self.inner, "{}{}", DeleteLine, content);
+        swrite!(self.inner, "{}", CursorSave);
+        swrite!(self.inner, "{}\r", MoveDirection(Direction::Up, self.prompt.len() - index - 1));
+        swrite!(self.inner, "{}{}", DeleteLine, content);
         if index == self.prompt.len() - 1 {
-            write!(self.inner, "{}", self.input);
+            swrite!(self.inner, "{}", self.input);
         }
         self.prompt[index] = content.to_string();
-        write!(self.inner, "{}", CursorRestore);
+        swrite!(self.inner, "{}", CursorRestore);
     }
     pub fn clear(&mut self) {
         self.input.clear();
         self.cursor = 0;
-        write!(self.inner, "{}{}{}", DeleteLine, Column(1), self.prompt.last().unwrap());
+        swrite!(self.inner, "{}{}{}", DeleteLine, Column(1), self.prompt.last().unwrap());
     }
     pub fn get(&mut self) -> &str {
         &self.input
@@ -70,33 +72,33 @@ impl<W: SafeWrite> Prompt<W> {
         match key {
             Key::Arrow(Direction::Left) => if self.cursor > 0 {
                 self.cursor -= 1;
-                write!(self.inner, "{}", MoveDirection(Direction::Left, 1));
+                swrite!(self.inner, "{}", MoveDirection(Direction::Left, 1));
             },
             Key::Arrow(Direction::Right) => if self.cursor < self.input.len() {
                 self.cursor += 1;
-                write!(self.inner, "{}", MoveDirection(Direction::Right, 1));
+                swrite!(self.inner, "{}", MoveDirection(Direction::Right, 1));
             },
             Key::Type('\r') => return false,
             Key::Type('\t') => return false,
             Key::Type(t) => {
                 self.input.insert(self.cursor, t);
                 self.cursor += 1;
-                write!(self.inner, "{}{}", Insert(1), t);
+                swrite!(self.inner, "{}{}", Insert(1), t);
             }
             Key::Delete => if self.cursor > 0 {
                 self.input.remove(self.cursor - 1);
                 self.cursor -= 1;
-                write!(self.inner, "\x08{}", Delete(1));
+                swrite!(self.inner, "\x08{}", Delete(1));
             }
             Key::ForwardDelete => if self.cursor < self.input.len() {
                 self.input.remove(self.cursor);
-                write!(self.inner, "{}", Delete(1));
+                swrite!(self.inner, "{}", Delete(1));
             }
             _ => return false
         }
         true
     }
-    pub fn flush(&mut self){
-        self.inner.flush();
+    pub fn flush(&mut self) {
+        self.inner.safe_flush()
     }
 }

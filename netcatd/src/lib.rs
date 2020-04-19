@@ -1,16 +1,16 @@
+#[macro_use]
+extern crate termio;
+
 use std::{io, mem, result, thread};
-use std::fmt::Arguments;
 use std::io::{ErrorKind, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use termio::input::{Event, EventReader};
-use termio::output::SafeWrite;
 use util::listen::{Listen, Listeners};
 use util::object::Object;
-
-use attempt::attempt;
+use termio::write::SafeWrite;
 
 pub mod demo;
 
@@ -72,49 +72,59 @@ impl<'a, T> Drop for HandlerGuard<'a, T> {
     }
 }
 
+#[derive(Clone)]
 pub struct NetcatPeer {
     stream: Option<Arc<TcpStream>>,
-    buffer: Vec<u8>,
 }
 
 pub struct NetcatServer<H: NetcatHandler> {
     handler: Arc<Handler<H>>,
 }
 
-
 impl NetcatPeer {
     pub fn new(stream: Arc<TcpStream>) -> Self {
         NetcatPeer {
             stream: Some(stream),
-            buffer: vec![],
         }
     }
     pub fn close(&mut self) {
-        self.flush();
-        if let Some(stream) = &mut self.stream {
+        if let Some(stream) = self.stream.as_ref() {
+            if let Err(err) = (&mut &**stream).flush() {
+                eprintln!("Flush error: {:?}", err);
+            }
             stream.shutdown(Shutdown::Both).ok();
+            self.stream = None;
         }
     }
 }
 
-impl SafeWrite for NetcatPeer {
-    fn write_fmt(&mut self, args: Arguments) {
-        SafeWrite::write_fmt(&mut self.buffer, args)
+impl Write for NetcatPeer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if let Some(stream) = self.stream.as_ref() {
+            match (&mut &**stream).write(buf) {
+                Ok(n) => return Ok(n),
+                Err(err) => {
+                    eprintln!("Write error: {:?}", err);
+                    stream.shutdown(Shutdown::Both).ok();
+                    self.stream = None;
+                }
+            }
+        }
+        Ok(buf.len())
     }
-    fn flush(&mut self) {
-        if let Some(stream) = &mut self.stream {
-            attempt!({
-                catch!((&**stream).write_all(&self.buffer));
-                catch!((&**stream).flush());
-            }; catch (e : io::Error) => {
-                println!("IO error during flush: {:?}", e);
+    fn flush(&mut self) -> io::Result<()> {
+        if let Some(stream) = self.stream.as_ref() {
+            if let Err(err) = (&mut &**stream).flush() {
+                eprintln!("Flush error: {:?}", err);
                 stream.shutdown(Shutdown::Both).ok();
                 self.stream = None;
-            });
+            }
         }
-        self.buffer.clear();
+        Ok(())
     }
 }
+
+impl SafeWrite for NetcatPeer {}
 
 
 impl<H: NetcatHandler> Clone for NetcatServer<H> {
