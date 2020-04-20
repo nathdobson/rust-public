@@ -11,6 +11,7 @@ use termio::input::{Event, EventReader};
 use util::listen::{Listen, Listeners};
 use util::object::Object;
 use termio::write::SafeWrite;
+use util::socket::fix_listener;
 
 pub mod demo;
 
@@ -78,6 +79,7 @@ pub struct NetcatPeer {
 }
 
 pub struct NetcatServer<H: NetcatHandler> {
+    listener: Arc<TcpListener>,
     handler: Arc<Handler<H>>,
 }
 
@@ -130,32 +132,20 @@ impl SafeWrite for NetcatPeer {}
 impl<H: NetcatHandler> Clone for NetcatServer<H> {
     fn clone(&self) -> Self {
         NetcatServer {
+            listener: self.listener.clone(),
             handler: self.handler.clone(),
         }
     }
 }
 
-fn fix_listener(listener: &TcpListener) {
-    use std::os::unix::io::AsRawFd;
-    unsafe {
-        let optval: libc::c_int = 1;
-        let ret = libc::setsockopt(listener.as_raw_fd(),
-                                   libc::SOL_SOCKET,
-                                   libc::SO_REUSEPORT,
-                                   &optval as *const _ as *const libc::c_void,
-                                   mem::size_of_val(&optval) as libc::socklen_t);
-        if ret != 0 {
-            let err: io::Result<()> = Err(io::Error::last_os_error());
-            err.expect("setsockopt failed");
-        }
-    }
-}
-
 impl<H: NetcatHandler> NetcatServer<H> {
-    pub fn new(handler: Arc<Handler<H>>) -> Self {
-        NetcatServer {
+    pub fn new(handler: Arc<Handler<H>>,address:&str) -> io::Result<Self> {
+        let listener = Arc::new(TcpListener::bind(address)?);
+        fix_listener(&listener);
+        Ok(NetcatServer {
+            listener,
             handler,
-        }
+        })
     }
 }
 
@@ -186,10 +176,8 @@ impl<H: NetcatHandler> NetcatServer<H> {
         Ok(())
     }
 
-    pub fn listen(&self, address: &str) -> io::Result<()> {
-        let listener = Arc::new(TcpListener::bind(address)?);
-        fix_listener(&listener);
-        for (id, stream_result) in listener.incoming().enumerate() {
+    pub fn listen(&self) -> io::Result<()> {
+        for (id, stream_result) in self.listener.incoming().enumerate() {
             let stream = stream_result?;
             let self2 = self.clone();
             thread::spawn(move || {
