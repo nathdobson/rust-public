@@ -1,21 +1,20 @@
-
 use std::collections::{HashMap, HashSet};
 
 use termio::gui::{Gui, NodeHeader, IsNode, NodeEvent};
 use termio::input::{Event, Key, Mouse};
-use util::object::Object;
 
 use crate::{NetcatHandler, NetcatPeer};
 use termio::color::Color;
 use termio::gui::button::Button;
-use util::shared::{HasHeaderExt, Header, HasHeader, Shared};
+use termio::gui::Node;
+use util::shared::{HasHeaderExt, Header, HasHeader};
 use termio::canvas::Canvas;
 use termio::output::{Foreground, DoubleHeightTop, DoubleHeightBottom};
 use termio::input::modifiers::*;
 use std::process;
 
 pub struct DemoHandler {
-    gui: HashMap<Object, Gui>,
+    gui: HashMap<NetcatPeer, Gui>,
 }
 
 impl DemoHandler {
@@ -93,7 +92,7 @@ impl IsNode for Hand {
 }
 
 impl Hand {
-    fn new(length: usize) -> Shared<Hand> {
+    fn new(length: usize) -> Node<Hand> {
         Header::new_shared(Hand {
             header: Header::new_header(NodeHeader::new()),
             length,
@@ -104,8 +103,8 @@ impl Hand {
 }
 
 impl NetcatHandler for DemoHandler {
-    fn add_peer(&mut self, id: &Object, peer: NetcatPeer) {
-        let mut gui = Gui::new(Box::new(peer));
+    fn add_peer(&mut self, peer: &NetcatPeer) {
+        let mut gui = Gui::new(Box::new(peer.clone()));
         gui.background = Some(Color::RGB666(0, 0, 0));
         let button1 = Button::new(format!("Hello!"));
         button1.borrow_mut().header_mut().position = (10, 13);
@@ -117,12 +116,12 @@ impl NetcatHandler for DemoHandler {
         hand.borrow_mut().header_mut().position = (3, 3);
         gui.add_node(hand);
         gui.paint();
-        self.gui.insert(id.clone(), gui);
+        self.gui.insert(peer.clone(), gui);
     }
 
-    fn remove_peer(&mut self, _: &Object) {}
+    fn remove_peer(&mut self, _: &NetcatPeer) {}
 
-    fn handle_event(&mut self, id: &Object, event: &Event) {
+    fn handle_event(&mut self, peer: &NetcatPeer, event: &Event) {
         println!("{:?}", event);
         if let Event::KeyEvent(event) = event {
             if let Key::Type('c') = event.key {
@@ -131,7 +130,7 @@ impl NetcatHandler for DemoHandler {
                 }
             }
         }
-        let gui = self.gui.get_mut(id).unwrap();
+        let gui = self.gui.get_mut(peer).unwrap();
         if let Some(event) = gui.handle_event(event) {
             println!("{:?}", event);
         }

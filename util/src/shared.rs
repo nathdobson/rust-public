@@ -1,30 +1,27 @@
 use std::sync::{Arc, Weak, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
-use std::{hash, fmt, mem};
+use std::{hash, fmt, mem, io};
 use std::hash::Hasher;
-use std::fmt::Formatter;
+use std::fmt::{Formatter, Arguments};
 use std::marker::Unsize;
-use std::ops::CoerceUnsized;
+use std::ops::{CoerceUnsized, Deref};
+use std::io::{Write, IoSlice};
+use std::any::Any;
 
+pub struct Shared<T: ?Sized>(Arc<T>);
 
-// A ref counted pointer with interior mutable and identity of the memory address itself.
-pub struct Shared<T: ?Sized>(Arc<RwLock<T>>);
+pub struct WkShared<T: ?Sized>(Weak<T>);
 
-pub struct WkShared<T: ?Sized>(Weak<RwLock<T>>);
+pub struct SharedMut<T: ?Sized>(Shared<RwLock<T>>);
+
+pub struct WkSharedMut<T: ?Sized>(WkShared<RwLock<T>>);
 
 impl<T: ?Sized> Shared<T> {
-    pub fn new(x: T) -> Shared<T> where T: Sized {
-        Shared(Arc::new(RwLock::new(x)))
+    pub fn new(x: T) -> Self where T: Sized {
+        Shared(Arc::new(x))
     }
     pub fn into_inner(self) -> Result<T, Self> where T: Sized {
-        let inner = Arc::try_unwrap(self.0).map_err(Shared)?;
-        Ok(inner.into_inner().unwrap())
-    }
-    pub fn borrow(&self) -> RwLockReadGuard<T> {
-        self.0.try_read().unwrap()
-    }
-    pub fn borrow_mut(&self) -> RwLockWriteGuard<T> {
-        self.0.try_write().unwrap()
+        Ok(Arc::try_unwrap(self.0).map_err(Shared)?)
     }
     pub fn downgrade(&self) -> WkShared<T> {
         WkShared(Arc::downgrade(&self.0))
@@ -43,11 +40,66 @@ impl<T: ?Sized> WkShared<T> {
     }
 }
 
+impl<T: ?Sized> SharedMut<T> {
+    pub fn new(x: T) -> Self where T: Sized {
+        SharedMut(Shared::new(RwLock::new(x)))
+    }
+    pub fn into_inner(self) -> Result<T, Self> where T: Sized {
+        let result = self.0.into_inner().map_err(SharedMut)?;
+        Ok(result.into_inner().unwrap())
+    }
+    pub fn borrow(&self) -> RwLockReadGuard<T> {
+        self.0.try_read().unwrap()
+    }
+    pub fn borrow_mut(&self) -> RwLockWriteGuard<T> {
+        self.0.try_write().unwrap()
+    }
+    pub fn downgrade(&self) -> WkSharedMut<T> {
+        WkSharedMut(self.0.downgrade())
+    }
+    pub fn as_ptr(&self) -> *const u8 {
+        unsafe { mem::transmute_copy::<Self, *const u8>(self) }
+    }
+}
+
+impl<T: ?Sized> WkSharedMut<T> {
+    pub fn upgrade(&self) -> Option<SharedMut<T>> {
+        self.0.upgrade().map(SharedMut)
+    }
+    pub fn as_ptr(&self) -> *const u8 {
+        unsafe { mem::transmute_copy::<Self, *const u8>(self) }
+    }
+}
+
 impl<T: ?Sized> Eq for Shared<T> {}
+
+impl<T: ?Sized> Eq for WkShared<T> {}
+
+impl<T: ?Sized> Eq for SharedMut<T> {}
+
+impl<T: ?Sized> Eq for WkSharedMut<T> {}
 
 impl<T: ?Sized> PartialEq for Shared<T> {
     fn eq(&self, other: &Self) -> bool {
         self.as_ptr().eq(&other.as_ptr())
+    }
+}
+
+impl<T: ?Sized> PartialEq for SharedMut<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T: ?Sized> PartialEq for WkShared<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ptr().eq(&other.as_ptr())
+    }
+}
+
+impl<T: ?Sized> PartialEq for WkSharedMut<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -57,15 +109,70 @@ impl<T: ?Sized> PartialOrd for Shared<T> {
     }
 }
 
+impl<T: ?Sized> PartialOrd for SharedMut<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl<T: ?Sized> PartialOrd for WkShared<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.as_ptr().partial_cmp(&other.as_ptr())
+    }
+}
+
+impl<T: ?Sized> PartialOrd for WkSharedMut<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
 impl<T: ?Sized> Ord for Shared<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_ptr().cmp(&other.as_ptr())
     }
 }
 
+impl<T: ?Sized> Ord for SharedMut<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+
+impl<T: ?Sized> Ord for WkShared<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_ptr().cmp(&other.as_ptr())
+    }
+}
+
+impl<T: ?Sized> Ord for WkSharedMut<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
 impl<T: ?Sized> hash::Hash for Shared<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        ((&*self.0) as *const RwLock<T>).hash(state)
+        self.as_ptr().hash(state)
+    }
+}
+
+impl<T: ?Sized> hash::Hash for SharedMut<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
+
+impl<T: ?Sized> hash::Hash for WkShared<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_ptr().hash(state)
+    }
+}
+
+impl<T: ?Sized> hash::Hash for WkSharedMut<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
     }
 }
 
@@ -75,13 +182,37 @@ impl<T: ?Sized> Clone for Shared<T> {
     }
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for Shared<T> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?} -> ", self.as_ptr())?;
-        self.borrow().fmt(f)
+impl<T: ?Sized> Clone for SharedMut<T> {
+    fn clone(&self) -> Self {
+        SharedMut(self.0.clone())
     }
 }
 
+impl<T: ?Sized> Clone for WkShared<T> {
+    fn clone(&self) -> Self {
+        WkShared(self.0.clone())
+    }
+}
+
+impl<T: ?Sized> Clone for WkSharedMut<T> {
+    fn clone(&self) -> Self {
+        WkSharedMut(self.0.clone())
+    }
+}
+
+impl<T: ?Sized + fmt::Debug> fmt::Debug for Shared<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?} -> ", self.as_ptr())?;
+        self.0.fmt(f)
+    }
+}
+
+impl<T: ?Sized + fmt::Debug> fmt::Debug for SharedMut<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?} -> ", self.as_ptr())?;
+        self.0.fmt(f)
+    }
+}
 
 impl<T: ?Sized + fmt::Debug> fmt::Debug for WkShared<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -89,11 +220,87 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for WkShared<T> {
     }
 }
 
+impl<T: ?Sized + fmt::Debug> fmt::Debug for WkSharedMut<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.as_ptr())
+    }
+}
+
+impl<T: ?Sized> Deref for Shared<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
 impl<T, U> CoerceUnsized<Shared<U>> for Shared<T> where T: ?Sized + Unsize<U>, U: ?Sized {}
+
+impl<T, U> CoerceUnsized<SharedMut<U>> for SharedMut<T> where T: ?Sized + Unsize<U>, U: ?Sized {}
+
+impl<'a, T: ?Sized> Write for &'a Shared<T> where &'a T: Write {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.deref().write(buf)
+    }
+    fn write_vectored(&mut self, bufs: &[IoSlice]) -> io::Result<usize> {
+        self.0.deref().write_vectored(bufs)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.deref().flush()
+    }
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.0.deref().write_all(buf)
+    }
+    fn write_all_vectored(&mut self, bufs: &mut [IoSlice]) -> io::Result<()> {
+        self.0.deref().write_all_vectored(bufs)
+    }
+    fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()> {
+        self.0.deref().write_fmt(fmt)
+    }
+}
+
+impl<T: ?Sized + 'static> Write for Shared<T> where for<'a> &'a T: Write {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.deref().write(buf)
+    }
+    fn write_vectored(&mut self, bufs: &[IoSlice]) -> io::Result<usize> {
+        self.0.deref().write_vectored(bufs)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.deref().flush()
+    }
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.0.deref().write_all(buf)
+    }
+    fn write_all_vectored(&mut self, bufs: &mut [IoSlice]) -> io::Result<()> {
+        self.0.deref().write_all_vectored(bufs)
+    }
+    fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()> {
+        self.0.deref().write_fmt(fmt)
+    }
+}
+
+pub trait ObjectInner: Any + fmt::Debug + 'static + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T> ObjectInner for T where T: fmt::Debug + 'static + Send + Sync {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+pub type Object = WkShared<dyn ObjectInner>;
+
+impl<T: ObjectInner> Shared<T> {
+    pub fn as_object(&self) -> Object {
+        let result: Shared<dyn ObjectInner> = self.clone();
+        result.downgrade()
+    }
+}
 
 #[derive(Debug)]
 pub struct Header<T: HasHeader<H>, H> {
-    this: Option<WkShared<T>>,
+    this: Option<WkSharedMut<T>>,
     header: H,
 }
 
@@ -104,8 +311,8 @@ impl<T: HasHeader<H>, H> Header<T, H> {
             header,
         }
     }
-    pub fn new_shared(value: T) -> Shared<T> {
-        let result = Shared::new(value);
+    pub fn new_shared(value: T) -> SharedMut<T> {
+        let result = SharedMut::new(value);
         result.borrow_mut().shared_header_mut().this = Some(result.downgrade());
         result
     }
@@ -114,7 +321,7 @@ impl<T: HasHeader<H>, H> Header<T, H> {
 pub trait HasHeader<H>: Sized {
     fn shared_header(&self) -> &Header<Self, H>;
     fn shared_header_mut(&mut self) -> &mut Header<Self, H>;
-    fn this(&self) -> Shared<Self> {
+    fn this(&self) -> SharedMut<Self> {
         self.shared_header().this.as_ref().unwrap().upgrade().unwrap()
     }
 }
@@ -157,7 +364,7 @@ fn test_shared() {
         fn shared_header_mut(&mut self) -> &mut Header<Self, usize> { &mut self.header }
     }
     impl Foo {
-        fn new(x: usize) -> Shared<Foo> {
+        fn new(x: usize) -> SharedMut<Foo> {
             Header::new_shared(Foo { header: Header::new_header(x + 10), footer: x + 20 })
         }
     }

@@ -85,7 +85,7 @@ impl IsNode for Button {
 }
 
 impl Button {
-    pub fn new(text: String) -> Shared<Button> {
+    pub fn new(text: String) -> Node<Button> {
         Header::new_shared(Button {
             header: Header::new_header(NodeHeader::new()),
             text,

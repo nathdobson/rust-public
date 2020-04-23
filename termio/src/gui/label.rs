@@ -3,6 +3,7 @@ use crate::gui::{NodeHeader, IsNode, NodeEvent};
 use crate::canvas::Canvas;
 use crate::input::Event;
 use crate::gui::button::Button;
+use crate::gui::Node;
 use itertools::Itertools;
 
 #[derive(Debug)]
@@ -45,7 +46,7 @@ impl IsNode for Label {
 
 
 impl Label {
-    pub fn new(text: String, size: (isize, isize)) -> Shared<Label> {
+    pub fn new(text: String, size: (isize, isize)) -> Node<Label> {
         Header::new_shared(Label {
             header: Header::new_header(NodeHeader::new()),
             text,

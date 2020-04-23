@@ -1,5 +1,6 @@
 use std::io::{Write, BufWriter};
 use std::fmt::Arguments;
+use util::shared::Shared;
 
 #[macro_export]
 macro_rules! swrite {
@@ -23,3 +24,5 @@ impl SafeWrite for Vec<u8> {}
 impl<'a, W: SafeWrite + ?Sized> SafeWrite for &'a mut W {}
 
 impl<W: SafeWrite> SafeWrite for BufWriter<W> {}
+
+impl<T:'static> SafeWrite for Shared<T> where for<'a> &'a T: SafeWrite {}

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use util::bag::{Bag, Token};
-use util::shared::{HasHeaderExt, Shared, WkShared};
+use util::shared::{HasHeaderExt, SharedMut, WkSharedMut};
 
 use crate::canvas::{Canvas, LineSetting, Rectangle};
 use crate::color::Color;
@@ -31,6 +31,7 @@ use crate::output::{AllMotionTrackingDisable,
 use crate::output::{AlternateEnable, Background, CursorRestore, CursorSave, FocusTrackingEnable, Foreground, ReportWindowSize};
 use crate::write;
 use crate::write::SafeWrite;
+use util::shared::Shared;
 
 pub mod button;
 pub mod label;
@@ -44,7 +45,7 @@ pub struct Gui {
     pub background: Option<Color>,
 }
 
-pub type Node<T> = Shared<T>;
+pub type Node<T> = SharedMut<T>;
 pub type DynNode = Node<dyn IsNode>;
 
 #[derive(Debug)]

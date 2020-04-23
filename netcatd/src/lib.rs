@@ -1,19 +1,25 @@
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 #[macro_use]
 extern crate termio;
 
-use std::{io, mem, result, thread};
+use std::{error, io, mem, thread};
 use std::io::{ErrorKind, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use termio::input::{Event, EventReader};
-use util::listen::{Listen, Listeners};
-use util::object::Object;
 use termio::write::SafeWrite;
-use util::socket::fix_listener;
+use util::listen::{Listen, Listeners};
+use util::socket::{set_reuse_port, set_linger};
+use util::shared::Shared;
+use util::shared::Object;
 
 pub mod demo;
+pub mod replay;
 
 pub struct Handler<T> {
     inner: Mutex<T>,
@@ -73,9 +79,16 @@ impl<'a, T> Drop for HandlerGuard<'a, T> {
     }
 }
 
-#[derive(Clone)]
-pub struct NetcatPeer {
-    stream: Option<Arc<TcpStream>>,
+pub type NetcatPeer = Shared<NetcatPeerInner>;
+
+#[derive(Debug)]
+pub struct NetcatPeerInner {
+    stream: TcpStream,
+    id: String,
+}
+
+fn _is_object(peer: NetcatPeer) -> Object {
+    peer.as_object()
 }
 
 pub struct NetcatServer<H: NetcatHandler> {
@@ -83,51 +96,42 @@ pub struct NetcatServer<H: NetcatHandler> {
     handler: Arc<Handler<H>>,
 }
 
-impl NetcatPeer {
-    pub fn new(stream: Arc<TcpStream>) -> Self {
-        NetcatPeer {
-            stream: Some(stream),
-        }
+impl NetcatPeerInner {
+    pub fn new(stream: TcpStream) -> io::Result<Self> {
+        Ok(NetcatPeerInner {
+            id: stream.peer_addr()?.to_string(),
+            stream,
+        })
     }
-    pub fn close(&mut self) {
-        if let Some(stream) = self.stream.as_ref() {
-            if let Err(err) = (&mut &**stream).flush() {
-                eprintln!("Flush error: {:?}", err);
-            }
-            stream.shutdown(Shutdown::Both).ok();
-            self.stream = None;
-        }
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub fn close(&self) {
+        self.stream.shutdown(Shutdown::Both).ok();
     }
 }
 
-impl Write for NetcatPeer {
+impl Write for &NetcatPeerInner {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Some(stream) = self.stream.as_ref() {
-            match (&mut &**stream).write(buf) {
-                Ok(n) => return Ok(n),
-                Err(err) => {
-                    eprintln!("Write error: {:?}", err);
-                    stream.shutdown(Shutdown::Both).ok();
-                    self.stream = None;
-                }
+        match (&self.stream).write(buf) {
+            Ok(n) => return Ok(n),
+            Err(err) => {
+                eprintln!("Write error: {:?}", err);
+                self.stream.shutdown(Shutdown::Both).ok();
             }
         }
         Ok(buf.len())
     }
     fn flush(&mut self) -> io::Result<()> {
-        if let Some(stream) = self.stream.as_ref() {
-            if let Err(err) = (&mut &**stream).flush() {
-                eprintln!("Flush error: {:?}", err);
-                stream.shutdown(Shutdown::Both).ok();
-                self.stream = None;
-            }
+        if let Err(err) = (&self.stream).flush() {
+            eprintln!("Flush error: {:?}", err);
+            self.stream.shutdown(Shutdown::Both).ok();
         }
         Ok(())
     }
 }
 
-impl SafeWrite for NetcatPeer {}
-
+impl SafeWrite for &NetcatPeerInner {}
 
 impl<H: NetcatHandler> Clone for NetcatServer<H> {
     fn clone(&self) -> Self {
@@ -139,9 +143,10 @@ impl<H: NetcatHandler> Clone for NetcatServer<H> {
 }
 
 impl<H: NetcatHandler> NetcatServer<H> {
-    pub fn new(handler: Arc<Handler<H>>,address:&str) -> io::Result<Self> {
+    pub fn new(handler: Arc<Handler<H>>, address: &str) -> io::Result<Self> {
         let listener = Arc::new(TcpListener::bind(address)?);
-        fix_listener(&listener);
+        set_reuse_port(&listener);
+        //set_reuse_addr(&listener);
         Ok(NetcatServer {
             listener,
             handler,
@@ -149,25 +154,28 @@ impl<H: NetcatHandler> NetcatServer<H> {
     }
 }
 
+
 impl<H: NetcatHandler> NetcatServer<H> {
-    fn handle_stream(&self, id: &Object, stream: Arc<TcpStream>) -> result::Result<(), PoisonError<()>> {
+    fn handle_stream(&self, stream: TcpStream) -> Result<(), Box<dyn error::Error>> {
+        set_linger(&stream);
+        let peer = Shared::new(NetcatPeerInner::new(stream)?);
         let poison_listener = self.handler.lock()?.on_poison({
-            let stream = stream.clone();
-            move || { stream.shutdown(Shutdown::Both).ok(); }
+            let peer = peer.clone();
+            move || { peer.close(); }
         });
-        self.handler.lock()?.add_peer(id, NetcatPeer::new(stream.clone()));
-        let mut event_reader = EventReader::new(&*stream);
+        self.handler.lock()?.add_peer(&peer);
+        let mut event_reader = EventReader::new(&peer.stream);
         loop {
             match event_reader.read() {
-                Ok(event) => self.handler.lock()?.handle_event(id, &event),
+                Ok(event) => self.handler.lock()?.handle_event(&peer, &event),
                 Err(error) => {
                     if error.kind() == ErrorKind::UnexpectedEof {
-                        println!("Peer {:?} disconnected", id);
+                        println!("Peer {:?} disconnected", peer);
                     } else {
-                        println!("Peer {:?} failed: {:?}", id, error);
+                        println!("Peer {:?} failed: {:?}", peer, error);
                     }
-                    stream.shutdown(Shutdown::Both).ok();
-                    self.handler.lock()?.remove_peer(id);
+                    peer.close();
+                    self.handler.lock()?.remove_peer(&peer);
                     break;
                 }
             }
@@ -177,11 +185,11 @@ impl<H: NetcatHandler> NetcatServer<H> {
     }
 
     pub fn listen(&self) -> io::Result<()> {
-        for (id, stream_result) in self.listener.incoming().enumerate() {
+        for stream_result in self.listener.incoming() {
             let stream = stream_result?;
             let self2 = self.clone();
             thread::spawn(move || {
-                self2.handle_stream(&Object::new(format!("peer_{}", id)), Arc::new(stream)).ok();
+                println!("Receive error {:?}", self2.handle_stream(stream));
             });
         }
         Ok(())
@@ -189,7 +197,8 @@ impl<H: NetcatHandler> NetcatServer<H> {
 }
 
 pub trait NetcatHandler: 'static + Send + Sized {
-    fn add_peer(&mut self, id: &Object, peer: NetcatPeer);
-    fn remove_peer(&mut self, id: &Object);
-    fn handle_event(&mut self, id: &Object, event: &Event);
+    fn add_peer(&mut self, peer: &NetcatPeer);
+    fn remove_peer(&mut self, id: &NetcatPeer);
+    fn handle_event(&mut self, id: &NetcatPeer, event: &Event);
 }
+
