@@ -14,6 +14,9 @@ pub trait SafeWrite: Write {
     fn safe_write(&mut self, buf: &[u8]) -> usize {
         Write::write(self, buf).unwrap()
     }
+    fn safe_write_all(&mut self, buf: &[u8]) {
+        Write::write_all(self, buf).unwrap()
+    }
     fn safe_flush(&mut self) {
         Write::flush(self).unwrap()
     }
@@ -25,4 +28,4 @@ impl<'a, W: SafeWrite + ?Sized> SafeWrite for &'a mut W {}
 
 impl<W: SafeWrite> SafeWrite for BufWriter<W> {}
 
-impl<T:'static> SafeWrite for Shared<T> where for<'a> &'a T: SafeWrite {}
+impl<T: 'static> SafeWrite for Shared<T> where for<'a> &'a T: SafeWrite {}

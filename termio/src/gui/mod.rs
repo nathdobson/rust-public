@@ -36,13 +36,21 @@ use util::shared::Shared;
 pub mod button;
 pub mod label;
 
+#[derive(Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
+enum GuiState {
+    Starting,
+    Painting,
+    Closing,
+    Closed,
+}
+
 pub struct Gui {
     size: (isize, isize),
     nodes: HashSet<DynNode>,
-    pub writer: Box<dyn SafeWrite + 'static + Send + Sync>,
     pub keyboard_focus: Option<DynNode>,
     pub mouse_focus: Option<DynNode>,
     pub background: Option<Color>,
+    state: GuiState,
 }
 
 pub type Node<T> = SharedMut<T>;
@@ -86,40 +94,47 @@ impl NodeHeader {
 }
 
 impl Gui {
-    pub fn new(writer: Box<dyn SafeWrite + 'static + Send + Sync>) -> Gui {
-        let mut gui = Gui {
+    pub fn new() -> Gui {
+        let gui = Gui {
             size: (0, 0),
             nodes: HashSet::new(),
-            writer,
             keyboard_focus: None,
             mouse_focus: None,
             background: None,
+            state: GuiState::Starting,
         };
-        gui.open();
         gui
     }
-    fn open(&mut self) {
-        swrite!(self.writer, "{}", AllMotionTrackingEnable);
-        swrite!(self.writer, "{}", FocusTrackingEnable);
-        swrite!(self.writer, "{}", ReportWindowSize);
-        swrite!(self.writer, "{}", AlternateEnable);
-    }
     pub fn close(&mut self) {
-        swrite!(self.writer, "{}", AllMotionTrackingDisable);
-        swrite!(self.writer, "{}", FocusTrackingDisable);
-        swrite!(self.writer, "{}", AlternateDisable);
+        self.state = GuiState::Closed;
     }
 
     pub fn add_node(&mut self, node: DynNode) {
         self.nodes.insert(node);
     }
 
-    pub fn paint(&mut self) {
-        swrite!(self.writer, "{}", CursorSave);
-        if let Some(background) = self.background {
-            swrite!(self.writer, "{}", Background(background));
+    pub fn paint(&mut self, writer: &mut dyn SafeWrite) {
+        if self.state == GuiState::Starting {
+            swrite!(writer, "{}", AllMotionTrackingEnable);
+            swrite!(writer, "{}", FocusTrackingEnable);
+            swrite!(writer, "{}", ReportWindowSize);
+            swrite!(writer, "{}", AlternateEnable);
+            self.state = GuiState::Painting;
         }
-        swrite!(self.writer, "{}", EraseAll);
+        if self.state == GuiState::Closing {
+            swrite!(writer, "{}", AllMotionTrackingDisable);
+            swrite!(writer, "{}", FocusTrackingDisable);
+            swrite!(writer, "{}", AlternateDisable);
+            self.state = GuiState::Closed;
+        }
+        if self.state == GuiState::Closed {
+            return;
+        }
+        swrite!(writer, "{}", CursorSave);
+        if let Some(background) = self.background {
+            swrite!(writer, "{}", Background(background));
+        }
+        swrite!(writer, "{}", EraseAll);
         let line_settings: Vec<LineSetting> = (0..self.size.1).map(|y| {
             let for_line: BTreeSet<LineSetting> = self.nodes.iter().filter_map(|node| {
                 let node = node.borrow();
@@ -133,25 +148,25 @@ impl Gui {
             for_line.into_iter().min().unwrap_or(LineSetting::Normal)
         }).collect();
         for (y, setting) in line_settings.iter().enumerate() {
-            swrite!(self.writer, "{}", CursorPosition(0, y as isize));
+            swrite!(writer, "{}", CursorPosition(0, y as isize));
             match setting {
                 LineSetting::Normal => {}
-                LineSetting::DoubleHeightTop => swrite!(self.writer, "{}", DoubleHeightTop),
-                LineSetting::DoubleHeightBottom => swrite!(self.writer, "{}", DoubleHeightBottom),
+                LineSetting::DoubleHeightTop => swrite!(writer, "{}", DoubleHeightTop),
+                LineSetting::DoubleHeightBottom => swrite!(writer, "{}", DoubleHeightBottom),
             }
         }
         for node in self.nodes.iter() {
-            swrite!(self.writer, "{}", VideoNormal);
+            swrite!(writer, "{}", VideoNormal);
             let borrow = node.deref().borrow_mut();
             let mut canvas = Canvas {
-                writer: &mut *self.writer,
+                writer: &mut *writer,
                 bounds: borrow.bounds(),
                 line_settings: &line_settings,
             };
             borrow.paint(&mut canvas);
         }
-        swrite!(self.writer, "{}", CursorRestore);
-        self.writer.safe_flush();
+        swrite!(writer, "{}", CursorRestore);
+        writer.safe_flush();
     }
 
     pub fn node_at(&self, position: (isize, isize)) -> Option<DynNode> {
