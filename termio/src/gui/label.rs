@@ -1,25 +1,31 @@
-use util::shared::{Header, HasHeader, Shared};
-use crate::gui::{NodeHeader, IsNode, NodeEvent};
+use util::shared::{Shared, SharedMut};
 use crate::canvas::Canvas;
 use crate::input::Event;
-use crate::gui::button::Button;
-use crate::gui::Node;
 use itertools::Itertools;
+use crate::color::Color;
+use crate::output::{Background, Foreground};
+use std::ops;
+use crate::gui::GuiEvent;
+use crate::gui::node::{NodeHeader, NodeImpl, Node};
+use crate::gui::node::NodeExt;
 
 #[derive(Debug)]
 pub struct Label {
-    header: Header<Label, NodeHeader>,
-    pub text: String,
+    header: NodeHeader,
+    text: String,
     pub size: (isize, isize),
 }
 
-impl HasHeader<NodeHeader> for Label {
-    fn shared_header(&self) -> &Header<Self, NodeHeader> { &self.header }
-    fn shared_header_mut(&mut self) -> &mut Header<Self, NodeHeader> { &mut self.header }
-}
+impl NodeImpl for Label {
+    fn header(&self) -> &NodeHeader {
+        &self.header
+    }
 
-impl IsNode for Label {
-    fn paint(&self, w: &mut Canvas) {
+    fn header_mut(&mut self) -> &mut NodeHeader {
+        &mut self.header
+    }
+
+    fn paint(&self, mut w: Canvas) {
         let lines =
             self.text
                 .split('\n')
@@ -35,7 +41,7 @@ impl IsNode for Label {
         }
     }
 
-    fn handle_event(&mut self, event: &Event) -> Option<NodeEvent> {
+    fn handle(&mut self, event: &Event) -> Option<GuiEvent> {
         None
     }
 
@@ -47,10 +53,14 @@ impl IsNode for Label {
 
 impl Label {
     pub fn new(text: String, size: (isize, isize)) -> Node<Label> {
-        Header::new_shared(Label {
-            header: Header::new_header(NodeHeader::new()),
+        Self::new_internal(|header| Label {
+            header,
             text,
             size,
         })
+    }
+    pub fn text_mut(&mut self) -> &mut String {
+        self.header.mark_dirty();
+        &mut self.text
     }
 }

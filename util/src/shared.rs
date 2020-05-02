@@ -1,6 +1,6 @@
 use std::sync::{Arc, Weak, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
-use std::{hash, fmt, mem, io};
+use std::{hash, fmt, mem, io, raw};
 use std::hash::Hasher;
 use std::fmt::{Formatter, Arguments};
 use std::marker::Unsize;
@@ -68,6 +68,25 @@ impl<T: ?Sized> WkSharedMut<T> {
     }
     pub fn as_ptr(&self) -> *const u8 {
         unsafe { mem::transmute_copy::<Self, *const u8>(self) }
+    }
+}
+
+impl SharedMut<dyn Any + 'static + Send + Sync> {
+    pub fn downcast<T: Any>(self) -> Result<SharedMut<T>, Self> {
+        unsafe {
+            if self.borrow().is::<T>() {
+                let raw: raw::TraitObject = mem::transmute(self);
+                Ok(mem::transmute(raw.data))
+            } else {
+                Err(self)
+            }
+        }
+    }
+}
+
+impl Shared<dyn Any + 'static + Sync + Send> {
+    pub fn downcast<T: Any + Sync + Send>(self) -> Result<Shared<T>, Self> {
+        Ok(Shared(Arc::downcast(self.0).map_err(Shared)?))
     }
 }
 
@@ -298,48 +317,48 @@ impl<T: ObjectInner> Shared<T> {
     }
 }
 
-#[derive(Debug)]
-pub struct Header<T: HasHeader<H>, H> {
-    this: Option<WkSharedMut<T>>,
-    header: H,
-}
-
-impl<T: HasHeader<H>, H> Header<T, H> {
-    pub fn new_header(header: H) -> Self {
-        Header {
-            this: None,
-            header,
-        }
-    }
-    pub fn new_shared(value: T) -> SharedMut<T> {
-        let result = SharedMut::new(value);
-        result.borrow_mut().shared_header_mut().this = Some(result.downgrade());
-        result
-    }
-}
-
-pub trait HasHeader<H>: Sized {
-    fn shared_header(&self) -> &Header<Self, H>;
-    fn shared_header_mut(&mut self) -> &mut Header<Self, H>;
-    fn this(&self) -> SharedMut<Self> {
-        self.shared_header().this.as_ref().unwrap().upgrade().unwrap()
-    }
-}
-
-pub trait HasHeaderExt<H> {
-    fn header(&self) -> &H;
-    fn header_mut(&mut self) -> &mut H;
-}
-
-impl<H, T> HasHeaderExt<H> for T where T: HasHeader<H> {
-    fn header(&self) -> &H {
-        &self.shared_header().header
-    }
-
-    fn header_mut(&mut self) -> &mut H {
-        &mut self.shared_header_mut().header
-    }
-}
+//#[derive(Debug)]
+//pub struct Header<T: HasHeader<H>, H> {
+//    this: Option<WkSharedMut<T>>,
+//    header: H,
+//}
+//
+//impl<T: HasHeader<H>, H> Header<T, H> {
+//    pub fn new_header(header: H) -> Self {
+//        Header {
+//            this: None,
+//            header,
+//        }
+//    }
+//    pub fn new_shared(value: T) -> SharedMut<T> {
+//        let result = SharedMut::new(value);
+//        result.borrow_mut().shared_header_mut().this = Some(result.downgrade());
+//        result
+//    }
+//}
+//
+//pub trait HasHeader<H>: Sized {
+//    fn shared_header(&self) -> &Header<Self, H>;
+//    fn shared_header_mut(&mut self) -> &mut Header<Self, H>;
+//    fn this(&self) -> SharedMut<Self> {
+//        self.shared_header().this.as_ref().unwrap().upgrade().unwrap()
+//    }
+//}
+//
+//pub trait HasHeaderExt<H> {
+//    fn header(&self) -> &H;
+//    fn header_mut(&mut self) -> &mut H;
+//}
+//
+//impl<H, T> HasHeaderExt<H> for T where T: HasHeader<H> {
+//    fn header(&self) -> &H {
+//        &self.shared_header().header
+//    }
+//
+//    fn header_mut(&mut self) -> &mut H {
+//        &mut self.shared_header_mut().header
+//    }
+//}
 
 #[test]
 fn test_ptr() {
@@ -351,27 +370,27 @@ fn test_ptr() {
     assert_eq!(a.as_ptr(), c.as_ptr());
     assert_eq!(a.as_ptr(), d.as_ptr());
 }
-
-#[test]
-fn test_shared() {
-    #[derive(Debug)]
-    struct Foo {
-        header: Header<Foo, usize>,
-        footer: usize,
-    }
-    impl HasHeader<usize> for Foo {
-        fn shared_header(&self) -> &Header<Self, usize> { &self.header }
-        fn shared_header_mut(&mut self) -> &mut Header<Self, usize> { &mut self.header }
-    }
-    impl Foo {
-        fn new(x: usize) -> SharedMut<Foo> {
-            Header::new_shared(Foo { header: Header::new_header(x + 10), footer: x + 20 })
-        }
-    }
-    let foo = Foo::new(0);
-    assert_eq!(foo.borrow().this(), foo);
-    assert_eq!(foo.borrow().header(), &10);
-    *foo.borrow_mut().header_mut() += 1;
-    assert_eq!(foo.borrow().header(), &11);
-    assert_eq!(foo.borrow().footer, 20);
-}
+//
+//#[test]
+//fn test_shared() {
+//    #[derive(Debug)]
+//    struct Foo {
+//        header: Header<Foo, usize>,
+//        footer: usize,
+//    }
+//    impl HasHeader<usize> for Foo {
+//        fn shared_header(&self) -> &Header<Self, usize> { &self.header }
+//        fn shared_header_mut(&mut self) -> &mut Header<Self, usize> { &mut self.header }
+//    }
+//    impl Foo {
+//        fn new(x: usize) -> SharedMut<Foo> {
+//            Header::new_shared(Foo { header: Header::new_header(x + 10), footer: x + 20 })
+//        }
+//    }
+//    let foo = Foo::new(0);
+//    assert_eq!(foo.borrow().this(), foo);
+//    assert_eq!(foo.borrow().header(), &10);
+//    *foo.borrow_mut().header_mut() += 1;
+//    assert_eq!(foo.borrow().header(), &11);
+//    assert_eq!(foo.borrow().footer, 20);
+//}

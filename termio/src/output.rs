@@ -79,18 +79,31 @@ pub fn MoveWindow(x: usize, y: usize) -> impl Display { concat!("\x1B[3;", x, ";
 
 pub fn ResizeWindow(w: usize, h: usize) -> impl Display { concat!( "\x1B[4;", h, ";", w, "t") }
 
-pub fn Foreground(color: Color) -> impl Display { concat!("\x1B[38;5;", color.into_u8(), "m") }
+pub fn Foreground(color: Color) -> impl Display {
+    AsDisplay(move |f| {
+        match color.into_u8() {
+            None => write!(f, "\x1b[39m"),
+            Some(x) => write!(f, "\x1B[38;5;{}m", x),
+        }
+    })
+}
 
-pub fn Background(color: Color) -> impl Display { concat!("\x1b[48;5;", color.into_u8(), "m") }
+pub fn Background(color: Color) -> impl Display {
+    AsDisplay(move |f| {
+        match color.into_u8() {
+            None => write!(f, "\x1b[49m"),
+            Some(x) => write!(f, "\x1B[48;5;{}m", x),
+        }
+    })
+}
 
-pub const DefaultForeground: &'static str = "\x1b[39m";
-pub const DefaultBackground: &'static str = "\x1b[49m";
 pub const VideoPush: &'static str = "\x1b[#{";
 pub const VideoPop: &'static str = "\x1b[#}";
 pub const VideoNormal: &'static str = "\x1b[0m";
 
 pub const DoubleHeightTop: &'static str = "\x1B#3";
 pub const DoubleHeightBottom: &'static str = "\x1B#4";
+pub const SingleWidthLine: &'static str = "\x1B#5";
 
 pub const DeleteLine: &'static str = "\x1b[2K";
 pub const NoFormat: &'static str = "\x1b[0m";
@@ -112,7 +125,8 @@ pub const AlternateDisable: &'static str = "\x1B[?1049l";
 
 pub const ReportWindowPosition: &'static str = "\x1B[13t";
 pub const ReportWindowSize: &'static str = "\x1B[14t";
-pub const ReportTextAreaSize: &'static str = "\x1B[14t";
+pub const ReportTextAreaSize: &'static str = "\x1B[18t";
+pub const ScreenSize: &'static str = "\x1B[19t";
 pub const RaiseWindow: &'static str = "\x1B[5t";
 pub const LowerWindow: &'static str = "\x1B[6t";
 pub const ReportVisibleState: &'static str = "\x1B[11t";
@@ -121,7 +135,6 @@ pub const MaximizeWindow: &'static str = "\x1B[1t";
 pub const EraseAll: &'static str = "\x1B[2J";
 
 pub fn ScrollRegion(start: usize, end: usize) -> impl Display { concat!("\x1B[", start, ";", end, "r") }
-
 
 
 pub fn draw_box(c11: bool, c21: bool, c12: bool, c22: bool) -> char {

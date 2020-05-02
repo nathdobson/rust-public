@@ -20,7 +20,7 @@ use util::socket::{set_reuse_port, set_linger};
 use util::shared::Shared;
 use util::shared::Object;
 
-pub mod demo;
+//pub mod demo;
 pub mod replay;
 pub mod tcp;
 //

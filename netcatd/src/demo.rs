@@ -38,7 +38,7 @@ impl HasHeader<NodeHeader> for Hand {
 }
 
 impl IsNode for Hand {
-    fn paint(&self, w: &mut Canvas) {
+    fn paint(&self, mut w: Canvas) {
         swrite!(w.writer, "{}", Foreground(Color::Gray24(0)));
         let xp = 0;
         w.draw((xp, 0), DoubleHeightTop);
@@ -105,7 +105,7 @@ impl Hand {
 impl NetcatHandler for DemoHandler {
     fn add_peer(&mut self, peer: &NetcatPeer) {
         let mut gui = Gui::new();
-        gui.background = Some(Color::RGB666(0, 0, 0));
+        gui.background = Color::RGB666(0, 0, 0);
         let button1 = Button::new(format!("Hello!"));
         button1.borrow_mut().header_mut().position = (10, 13);
         gui.add_node(button1);

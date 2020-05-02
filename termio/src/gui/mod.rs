@@ -1,19 +1,21 @@
-use std::{fmt, iter};
+use std::{fmt, iter, mem};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashSet};
 use std::io::{BufWriter, Write};
 use std::marker::Unsize;
-use std::ops::{CoerceUnsized, Deref, Range};
+use std::ops::{CoerceUnsized, Deref, Range, DerefMut};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use itertools::Itertools;
 use util::bag::{Bag, Token};
-use util::shared::{HasHeaderExt, SharedMut, WkSharedMut};
+use util::grid;
+use util::rect::Rect;
+use util::shared::{SharedMut, WkSharedMut};
+use util::shared::Shared;
 
-use crate::canvas::{Canvas, LineSetting, Rectangle};
+use crate::canvas::{Canvas, LineSetting, Screen, Style};
 use crate::color::Color;
-use crate::gui::button::Button;
 use crate::input::Event;
 use crate::input::Event::MouseEvent;
 use crate::input::Mouse;
@@ -27,14 +29,23 @@ use crate::output::{AllMotionTrackingDisable,
                     FocusTrackingDisable,
                     VideoNormal,
                     VideoPop,
-                    VideoPush};
-use crate::output::{AlternateEnable, Background, CursorRestore, CursorSave, FocusTrackingEnable, Foreground, ReportWindowSize};
+                    VideoPush,
+                    AlternateEnable,
+                    Background,
+                    CursorHide,
+                    CursorRestore,
+                    CursorSave,
+                    CursorShow,
+                    FocusTrackingEnable,
+                    Foreground,
+                    ReportTextAreaSize};
 use crate::write;
 use crate::write::SafeWrite;
-use util::shared::Shared;
+use crate::gui::node::Node;
 
 pub mod button;
 pub mod label;
+pub mod node;
 
 #[derive(Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
 enum GuiState {
@@ -46,51 +57,19 @@ enum GuiState {
 
 pub struct Gui {
     size: (isize, isize),
-    nodes: HashSet<DynNode>,
-    pub keyboard_focus: Option<DynNode>,
-    pub mouse_focus: Option<DynNode>,
-    pub background: Option<Color>,
+    nodes: HashSet<Node>,
+    pub keyboard_focus: Option<Node>,
+    pub mouse_focus: Option<Node>,
+    pub style: Style,
     state: GuiState,
-}
-
-pub type Node<T> = SharedMut<T>;
-pub type DynNode = Node<dyn IsNode>;
-
-#[derive(Debug)]
-pub struct NodeHeader {
-    pub position: (isize, isize),
-}
-
-pub trait IsNode: HasHeaderExt<NodeHeader> + Send + Sync + 'static + fmt::Debug {
-    fn paint(&self, w: &mut Canvas);
-    fn handle_event(&mut self, event: &Event) -> Option<NodeEvent>;
-    fn size(&self) -> (isize, isize);
-    fn position(&self) -> (isize, isize) {
-        self.header().position
-    }
-    fn bounds(&self) -> Rectangle {
-        Rectangle {
-            position: self.position(),
-            size: self.size(),
-        }
-    }
-    fn line_setting(&self, y: isize) -> Option<LineSetting> {
-        Some(LineSetting::Normal)
-    }
+    old_screen: Screen,
+    new_screen: Screen,
 }
 
 
 #[derive(Debug)]
-pub enum NodeEvent {
-    Button(Node<Button>),
-}
-
-impl NodeHeader {
-    pub fn new() -> Self {
-        NodeHeader {
-            position: (0, 0),
-        }
-    }
+pub enum GuiEvent {
+    Button(Node),
 }
 
 impl Gui {
@@ -100,8 +79,10 @@ impl Gui {
             nodes: HashSet::new(),
             keyboard_focus: None,
             mouse_focus: None,
-            background: None,
+            style: Style::default(),
             state: GuiState::Starting,
+            old_screen: Screen::new((0, 0)),
+            new_screen: Screen::new((0, 0)),
         };
         gui
     }
@@ -109,67 +90,57 @@ impl Gui {
         self.state = GuiState::Closed;
     }
 
-    pub fn add_node(&mut self, node: DynNode) {
+    pub fn add_node(&mut self, node: Node) {
         self.nodes.insert(node);
     }
 
-    pub fn paint(&mut self, writer: &mut dyn SafeWrite) {
+    pub fn paint(&mut self, writer: &mut Vec<u8>) {
         if self.state == GuiState::Starting {
             swrite!(writer, "{}", AllMotionTrackingEnable);
             swrite!(writer, "{}", FocusTrackingEnable);
-            swrite!(writer, "{}", ReportWindowSize);
+            swrite!(writer, "{}", ReportTextAreaSize);
             swrite!(writer, "{}", AlternateEnable);
+            swrite!(writer, "{}", CursorHide);
             self.state = GuiState::Painting;
         }
         if self.state == GuiState::Closing {
             swrite!(writer, "{}", AllMotionTrackingDisable);
             swrite!(writer, "{}", FocusTrackingDisable);
             swrite!(writer, "{}", AlternateDisable);
+            swrite!(writer,"{}",CursorShow);
             self.state = GuiState::Closed;
         }
         if self.state == GuiState::Closed {
             return;
         }
-        swrite!(writer, "{}", CursorSave);
-        if let Some(background) = self.background {
-            swrite!(writer, "{}", Background(background));
-        }
-        swrite!(writer, "{}", EraseAll);
-        let line_settings: Vec<LineSetting> = (0..self.size.1).map(|y| {
-            let for_line: BTreeSet<LineSetting> = self.nodes.iter().filter_map(|node| {
-                let node = node.borrow();
-                if node.bounds().ys().contains(&y) {
-                    node.line_setting(y - node.bounds().position.1)
-                } else { None }
-            }).collect();
-            if for_line.len() > 1 {
-                eprintln!("line {:?} has line_settings {:?}", y, for_line);
-            }
-            for_line.into_iter().min().unwrap_or(LineSetting::Normal)
-        }).collect();
-        for (y, setting) in line_settings.iter().enumerate() {
-            swrite!(writer, "{}", CursorPosition(0, y as isize));
-            match setting {
-                LineSetting::Normal => {}
-                LineSetting::DoubleHeightTop => swrite!(writer, "{}", DoubleHeightTop),
-                LineSetting::DoubleHeightBottom => swrite!(writer, "{}", DoubleHeightBottom),
-            }
-        }
+        let mut dirty = false;
         for node in self.nodes.iter() {
-            swrite!(writer, "{}", VideoNormal);
-            let borrow = node.deref().borrow_mut();
-            let mut canvas = Canvas {
-                writer: &mut *writer,
-                bounds: borrow.bounds(),
-                line_settings: &line_settings,
-            };
-            borrow.paint(&mut canvas);
+            let mut node = node.borrow_mut();
+            dirty |= node.header_mut().check_dirty();
         }
-        swrite!(writer, "{}", CursorRestore);
-        writer.safe_flush();
+        if !dirty {
+            return;
+        }
+        if self.new_screen.size() != self.size {
+            self.new_screen = Screen::new((self.size.0 + 1, self.size.1 + 1));
+        }
+        let mut canvas = Canvas::new(&mut self.new_screen, self.style);
+        canvas.clear();
+        for node in self.nodes.iter() {
+            let borrow = node.deref().borrow_mut();
+            let canvas = canvas.push_bounds(borrow.bounds());
+            borrow.paint(canvas)
+        }
+        if self.new_screen != self.old_screen {
+            swrite!(writer, "{}", CursorSave);
+            self.new_screen.flush(writer);
+            swrite!(writer, "{}", CursorRestore);
+            writer.safe_flush();
+            mem::swap(&mut self.old_screen, &mut self.new_screen);
+        }
     }
 
-    pub fn node_at(&self, position: (isize, isize)) -> Option<DynNode> {
+    pub fn node_at(&self, position: (isize, isize)) -> Option<Node> {
         for node in self.nodes.iter() {
             let borrow = node.borrow();
             if node.borrow().bounds().contains(position) {
@@ -179,11 +150,11 @@ impl Gui {
         None
     }
 
-    pub fn handle_event(&mut self, event: &Event) -> Option<NodeEvent> {
+    pub fn handle(&mut self, event: &Event) -> Option<GuiEvent> {
         match event {
             Event::KeyEvent(key_event) => {
                 if let Some(focus) = self.keyboard_focus.as_mut() {
-                    return focus.borrow_mut().handle_event(event);
+                    return focus.borrow_mut().handle(event);
                 }
             }
             Event::MouseEvent(mouse_event) => {
@@ -197,16 +168,16 @@ impl Gui {
                         match (old_focus, new_focus) {
                             (Some(old_focus), Some(new_focus)) =>
                                 if &old_focus == &new_focus {
-                                    return new_focus.borrow_mut().handle_event(event);
+                                    return new_focus.borrow_mut().handle(event);
                                 } else {
-                                    assert!(old_focus.borrow_mut().handle_event(event).is_none());
-                                    return new_focus.borrow_mut().handle_event(event);
+                                    assert!(old_focus.borrow_mut().handle(event).is_none());
+                                    return new_focus.borrow_mut().handle(event);
                                 }
                             (Some(old_focus), None) => {
-                                return old_focus.borrow_mut().handle_event(event);
+                                return old_focus.borrow_mut().handle(event);
                             }
                             (None, Some(new_focus)) => {
-                                return new_focus.borrow_mut().handle_event(event);
+                                return new_focus.borrow_mut().handle(event);
                             }
                             (None, None) => {}
                         }
@@ -214,12 +185,13 @@ impl Gui {
                     Mouse::Down(n) => {
                         self.mouse_focus = self.mouse_focus.take().or_else(|| self.node_at(mouse_event.position));
                         if let Some(mouse_focus) = self.mouse_focus.clone() {
-                            return mouse_focus.borrow_mut().handle_event(event);
+                            return mouse_focus.borrow_mut().handle(event);
                         }
                     }
                 }
             }
-            Event::WindowSize(w, h) => {
+            Event::TextAreaSize(w, h) => {
+                println!("Window size {} {}", w, h);
                 self.size = (*w, *h);
             }
             _ => {}
