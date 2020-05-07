@@ -1,12 +1,15 @@
-use crate::canvas::{LineSetting, Canvas};
+use crate::canvas::Canvas;
 use std::fmt;
 use crate::input::Event;
-use crate::gui::GuiEvent;
 use util::shared::{SharedMut, WkSharedMut, ObjectInner};
 use std::ops::{Deref, DerefMut};
 use util::rect::Rect;
 use serde::export::fmt::Debug;
 use std::any::Any;
+use crate::screen::LineSetting;
+use crate::gui::{InputEvent, OutputEvent};
+use std::sync::Arc;
+use backtrace::Backtrace;
 
 pub type Node<T = dyn NodeImpl> = SharedMut<T>;
 
@@ -14,13 +17,17 @@ pub trait NodeImpl: Send + Sync + 'static + fmt::Debug {
     fn header(&self) -> &NodeHeader;
     fn header_mut(&mut self) -> &mut NodeHeader;
     fn paint(&self, w: Canvas);
-    fn handle(&mut self, event: &Event) -> Option<GuiEvent>;
+    fn handle(&mut self, event: &InputEvent, output: &mut Vec<Arc<dyn OutputEvent>>);
     fn size(&self) -> (isize, isize);
     fn position(&self) -> (isize, isize) {
         self.header().position
     }
     fn bounds(&self) -> Rect {
         Rect::from_position_size(self.position(), self.size())
+    }
+    fn line_setting(&self, y: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
+    fn check_dirty(&mut self) -> bool {
+        self.header_mut().check_dirty()
     }
 }
 
@@ -37,6 +44,7 @@ impl NodeHeader {
         self.this_node.as_ref().unwrap().upgrade().unwrap()
     }
     pub fn mark_dirty(&mut self) {
+        let bt = Backtrace::new();
         self.dirty = true;
     }
     pub fn check_dirty(&mut self) -> bool {

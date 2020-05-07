@@ -4,8 +4,8 @@ use std::{fmt, io};
 
 use crate::Direction;
 use crate::input::{Event, Key, KeyEvent, Modifier};
-use crate::output::{Column, CursorRestore, CursorSave, Delete, DeleteLine, Insert, MoveDirection};
-use crate::write::SafeWrite;
+use crate::output::*;
+use util::io::SafeWrite;
 
 pub struct Prompt<W: SafeWrite> {
     inner: W,
@@ -35,9 +35,9 @@ impl<W: SafeWrite> Prompt<W> {
         swrite!(self.inner, "{}", CursorSave);
         swrite!(self.inner, "\r\n");
         swrite!(self.inner, "{}\r", MoveDirection(Direction::Up, self.prompt.len()));
-        swrite!(self.inner, "{}{}", DeleteLine, content);
+        swrite!(self.inner, "{}{}", DeleteLineAll, content);
         for i in self.prompt.iter() {
-            swrite!(self.inner, "\r\n{}{}", DeleteLine, i);
+            swrite!(self.inner, "\r\n{}{}", DeleteLineAll, i);
         }
         swrite!(self.inner, "{}", self.input);
         swrite!(self.inner, "{}", CursorRestore);
@@ -46,7 +46,7 @@ impl<W: SafeWrite> Prompt<W> {
     pub fn update(&mut self, index: usize, content: &str) {
         swrite!(self.inner, "{}", CursorSave);
         swrite!(self.inner, "{}\r", MoveDirection(Direction::Up, self.prompt.len() - index - 1));
-        swrite!(self.inner, "{}{}", DeleteLine, content);
+        swrite!(self.inner, "{}{}", DeleteLineAll, content);
         if index == self.prompt.len() - 1 {
             swrite!(self.inner, "{}", self.input);
         }
@@ -56,7 +56,7 @@ impl<W: SafeWrite> Prompt<W> {
     pub fn clear(&mut self) {
         self.input.clear();
         self.cursor = 0;
-        swrite!(self.inner, "{}{}{}", DeleteLine, Column(1), self.prompt.last().unwrap());
+        swrite!(self.inner, "{}{}{}", DeleteLineAll, Column(1), self.prompt.last().unwrap());
     }
     pub fn get(&mut self) -> &str {
         &self.input

@@ -5,20 +5,22 @@ use std::iter::FromIterator;
 use std::ops::DerefMut;
 
 #[macro_use]
-pub mod write;
-
-#[macro_use]
 extern crate serde_derive;
-
-extern crate serde;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate util;
+#[macro_use]
+extern crate strum_macros;
 
 pub mod output;
 pub mod input;
-pub mod prompt;
 pub mod tokenizer;
 pub mod color;
 pub mod canvas;
 pub mod gui;
+pub mod screen;
+pub mod writer;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub enum Direction {

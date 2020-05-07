@@ -5,9 +5,11 @@ use itertools::Itertools;
 use crate::color::Color;
 use crate::output::{Background, Foreground};
 use std::ops;
-use crate::gui::GuiEvent;
 use crate::gui::node::{NodeHeader, NodeImpl, Node};
 use crate::gui::node::NodeExt;
+use crate::screen::LineSetting;
+use crate::gui::{InputEvent, OutputEvent};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Label {
@@ -41,9 +43,7 @@ impl NodeImpl for Label {
         }
     }
 
-    fn handle(&mut self, event: &Event) -> Option<GuiEvent> {
-        None
-    }
+    fn handle(&mut self, event: &InputEvent,output:&mut Vec<Arc<dyn OutputEvent>>) {}
 
     fn size(&self) -> (isize, isize) {
         self.size

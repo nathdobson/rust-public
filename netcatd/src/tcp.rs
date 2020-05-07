@@ -5,9 +5,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use termio::input::{Event, EventReader};
-use termio::write::SafeWrite;
 use util::shared::{Object, Shared};
 use util::socket::{set_linger, set_reuse_port};
+use util::io::SafeWrite;
 
 pub type NetcatPeer = Shared<NetcatPeerInner>;
 

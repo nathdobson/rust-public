@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Eq, PartialOrd, PartialEq, Ord, Hash, Copy, Clone, Debug)]
 pub enum BaseColor {
     Black = 0,

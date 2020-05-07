@@ -41,39 +41,33 @@ pub fn OneParameter(prefix: &'static str, param: usize, suffix: &'static str) ->
     })
 }
 
-pub fn MoveDirection(dir: Direction, len: usize) -> impl Display {
-    let suffix = match dir {
-        Direction::Up => "A",
-        Direction::Down => "B",
-        Direction::Right => "C",
-        Direction::Left => "D",
-    };
-    OneParameter("\x1B[", len, suffix)
-}
+pub fn MoveUp(count: usize) -> impl Display { OneParameter("\x1B[", count, "A") }
+pub fn MoveDown(count: usize) -> impl Display { OneParameter("\x1B[", count, "B") }
+pub fn MoveRight(count: usize) -> impl Display { OneParameter("\x1B[", count, "C") }
+pub fn MoveLeft(count: usize) -> impl Display { OneParameter("\x1B[", count, "D") }
 
-pub fn MoveVector(x: isize, y: isize) -> impl Display {
-    AsDisplay(move |f| {
-        if x < 0 {
-            write!(f, "{}", MoveDirection(Direction::Left, -x as usize))?
-        } else if x > 0 {
-            write!(f, "{}", MoveDirection(Direction::Right, x as usize))?
-        }
-        if y < 0 {
-            write!(f, "{}", MoveDirection(Direction::Up, -y as usize))?
-        } else if y > 0 {
-            write!(f, "{}", MoveDirection(Direction::Down, y as usize))?
-        }
-        Ok(())
-    })
-}
+pub fn NextLine(count: usize) -> impl Display { OneParameter("\x1B[", count, "E") }
 
-pub fn CursorPosition(x: isize, y: isize) -> impl Display { concat!("\x1b[", y, ";", x, "H") }
+pub fn PreviousLine(count: usize) -> impl Display { OneParameter("\x1B[", count, "F") }
+
+pub fn Column(x: usize) -> impl Display { OneParameter("\x1B[", x, "G") }
+
+pub fn CursorPosition(x: usize, y: usize) -> impl Display { concat!("\x1b[", y, ";", x, "H") }
+
+pub fn Row(x: usize) -> impl Display { OneParameter("\x1B[", x, "d") }
 
 pub fn Delete(count: usize) -> impl Display { OneParameter("\x1B[", count, "P") }
 
+pub fn Erase(count: usize) -> impl Display { OneParameter("\x1B[", count, "X") }
+
 pub fn Insert(count: usize) -> impl Display { OneParameter("\x1B[", count, "@") }
 
-pub fn Column(x: usize) -> impl Display { OneParameter("\x1B[", x, "G") }
+pub fn Repeat(count:usize) -> impl Display{ OneParameter("\x1B[", count, "b") }
+
+
+pub fn ScrollUp(x: usize) -> impl Display { OneParameter("\x1B[", x, "S") }
+
+pub fn ScrollDown(x: usize) -> impl Display { OneParameter("\x1B[", x, "T") }
 
 pub fn MoveWindow(x: usize, y: usize) -> impl Display { concat!("\x1B[3;", x, ";", y, "t") }
 
@@ -105,7 +99,12 @@ pub const DoubleHeightTop: &'static str = "\x1B#3";
 pub const DoubleHeightBottom: &'static str = "\x1B#4";
 pub const SingleWidthLine: &'static str = "\x1B#5";
 
-pub const DeleteLine: &'static str = "\x1b[2K";
+pub const DeleteLineRight: &'static str = "\x1b[0K";
+pub const DeleteLineLeft: &'static str = "\x1b[1K";
+pub const DeleteLineAll: &'static str = "\x1b[2K";
+
+pub fn DeleteChars(x: usize) -> impl Display { OneParameter("\x1b[", x, "X") }
+
 pub const NoFormat: &'static str = "\x1b[0m";
 
 pub const CursorHide: &'static str = "\x1B[?25l";
@@ -122,6 +121,12 @@ pub const FocusTrackingDisable: &'static str = "\x1B[?1004l";
 
 pub const AlternateEnable: &'static str = "\x1B[?1049h";
 pub const AlternateDisable: &'static str = "\x1B[?1049l";
+
+pub const BracketedPasteEnable: &'static str = "\x1B[?2004h";
+pub const BracketedPasteDisable: &'static str = "\x1B[?2004l";
+
+pub const SendPrimaryDeviceAttributes: &'static str = "\x1B[c";
+pub const SendSecondaryDeviceAttributes: &'static str = "\x1B[>c";
 
 pub const ReportWindowPosition: &'static str = "\x1B[13t";
 pub const ReportWindowSize: &'static str = "\x1B[14t";

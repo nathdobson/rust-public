@@ -1,6 +1,6 @@
 use std::{fmt, iter, mem};
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet, BTreeMap, HashMap};
 use std::io::{BufWriter, Write};
 use std::marker::Unsize;
 use std::ops::{CoerceUnsized, Deref, Range, DerefMut};
@@ -14,189 +14,132 @@ use util::rect::Rect;
 use util::shared::{SharedMut, WkSharedMut};
 use util::shared::Shared;
 
-use crate::canvas::{Canvas, LineSetting, Screen, Style};
+use crate::canvas::Canvas;
 use crate::color::Color;
-use crate::input::Event;
-use crate::input::Event::MouseEvent;
+use crate::input::{Event, KeyEvent};
+use crate::input::MouseEvent;
 use crate::input::Mouse;
-use crate::output::{AllMotionTrackingDisable,
-                    AllMotionTrackingEnable,
-                    AlternateDisable,
-                    CursorPosition,
-                    DoubleHeightBottom,
-                    DoubleHeightTop,
-                    EraseAll,
-                    FocusTrackingDisable,
-                    VideoNormal,
-                    VideoPop,
-                    VideoPush,
-                    AlternateEnable,
-                    Background,
-                    CursorHide,
-                    CursorRestore,
-                    CursorSave,
-                    CursorShow,
-                    FocusTrackingEnable,
-                    Foreground,
-                    ReportTextAreaSize};
-use crate::write;
-use crate::write::SafeWrite;
+use crate::output::*;
 use crate::gui::node::Node;
+use crate::screen::{Style, Screen, LineSetting};
+use crate::writer::TermWriter;
+use util::io::{SafeWrite, PipelineWriter};
+use std::any::Any;
 
 pub mod button;
 pub mod label;
 pub mod node;
-
-#[derive(Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
-enum GuiState {
-    Starting,
-    Painting,
-    Closing,
-    Closed,
-}
+pub mod container;
 
 pub struct Gui {
     size: (isize, isize),
-    nodes: HashSet<Node>,
+    node: Node,
     pub keyboard_focus: Option<Node>,
-    pub mouse_focus: Option<Node>,
     pub style: Style,
-    state: GuiState,
-    old_screen: Screen,
-    new_screen: Screen,
+    output: TermWriter,
 }
 
-
-#[derive(Debug)]
-pub enum GuiEvent {
-    Button(Node),
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum InputEvent {
+    MouseEvent(MouseEvent),
+    KeyEvent(KeyEvent),
 }
+
+pub trait OutputEvent: Any + 'static + Send + Sync + fmt::Debug {
+    fn as_any(&self) -> &(dyn 'static + Any);
+}
+
 
 impl Gui {
-    pub fn new() -> Gui {
+    pub fn new(node: Node, output: PipelineWriter) -> Gui {
         let gui = Gui {
             size: (0, 0),
-            nodes: HashSet::new(),
+            node: node,
             keyboard_focus: None,
-            mouse_focus: None,
             style: Style::default(),
-            state: GuiState::Starting,
-            old_screen: Screen::new((0, 0)),
-            new_screen: Screen::new((0, 0)),
+            output: TermWriter::new(output),
         };
         gui
     }
     pub fn close(&mut self) {
-        self.state = GuiState::Closed;
+        self.output.close();
     }
 
-    pub fn add_node(&mut self, node: Node) {
-        self.nodes.insert(node);
-    }
-
-    pub fn paint(&mut self, writer: &mut Vec<u8>) {
-        if self.state == GuiState::Starting {
-            swrite!(writer, "{}", AllMotionTrackingEnable);
-            swrite!(writer, "{}", FocusTrackingEnable);
-            swrite!(writer, "{}", ReportTextAreaSize);
-            swrite!(writer, "{}", AlternateEnable);
-            swrite!(writer, "{}", CursorHide);
-            self.state = GuiState::Painting;
-        }
-        if self.state == GuiState::Closing {
-            swrite!(writer, "{}", AllMotionTrackingDisable);
-            swrite!(writer, "{}", FocusTrackingDisable);
-            swrite!(writer, "{}", AlternateDisable);
-            swrite!(writer,"{}",CursorShow);
-            self.state = GuiState::Closed;
-        }
-        if self.state == GuiState::Closed {
+    pub fn paint(&mut self) {
+        let mut borrow = self.node.borrow_mut();
+        if !borrow.check_dirty() {
             return;
         }
-        let mut dirty = false;
-        for node in self.nodes.iter() {
-            let mut node = node.borrow_mut();
-            dirty |= node.header_mut().check_dirty();
-        }
-        if !dirty {
-            return;
-        }
-        if self.new_screen.size() != self.size {
-            self.new_screen = Screen::new((self.size.0 + 1, self.size.1 + 1));
-        }
-        let mut canvas = Canvas::new(&mut self.new_screen, self.style);
-        canvas.clear();
-        for node in self.nodes.iter() {
-            let borrow = node.deref().borrow_mut();
-            let canvas = canvas.push_bounds(borrow.bounds());
-            borrow.paint(canvas)
-        }
-        if self.new_screen != self.old_screen {
-            swrite!(writer, "{}", CursorSave);
-            self.new_screen.flush(writer);
-            swrite!(writer, "{}", CursorRestore);
-            writer.safe_flush();
-            mem::swap(&mut self.old_screen, &mut self.new_screen);
-        }
-    }
-
-    pub fn node_at(&self, position: (isize, isize)) -> Option<Node> {
-        for node in self.nodes.iter() {
-            let borrow = node.borrow();
-            if node.borrow().bounds().contains(position) {
-                return Some(node.clone());
+        let mut screen = Screen::new();
+        for y in 1..borrow.size().1 {
+            let line_setting = borrow.line_setting(y);
+            if let Some(line_setting) = line_setting {
+                screen.row(y as isize).line_setting = line_setting;
             }
         }
-        None
+        let canvas = Canvas::new(&mut screen, borrow.bounds(), self.style);
+        borrow.paint(canvas);
+        self.output.render(&screen, &self.style);
     }
 
-    pub fn handle(&mut self, event: &Event) -> Option<GuiEvent> {
+    pub fn flush(&mut self) {
+        self.output.flush();
+    }
+
+
+    pub fn handle(&mut self, event: &Event, output: &mut Vec<Arc<dyn OutputEvent>>) {
         match event {
             Event::KeyEvent(key_event) => {
                 if let Some(focus) = self.keyboard_focus.as_mut() {
-                    return focus.borrow_mut().handle(event);
+                    focus.borrow_mut().handle(&InputEvent::KeyEvent(*key_event), output);
                 }
             }
-            Event::MouseEvent(mouse_event) => {
-                match mouse_event.mouse {
-                    Mouse::ScrollUp => {}
-                    Mouse::ScrollDown => {}
-                    Mouse::Up => {
-                        let old_focus = self.mouse_focus.take();
-                        let new_focus = self.node_at(mouse_event.position);
-                        self.mouse_focus = new_focus.clone();
-                        match (old_focus, new_focus) {
-                            (Some(old_focus), Some(new_focus)) =>
-                                if &old_focus == &new_focus {
-                                    return new_focus.borrow_mut().handle(event);
-                                } else {
-                                    assert!(old_focus.borrow_mut().handle(event).is_none());
-                                    return new_focus.borrow_mut().handle(event);
-                                }
-                            (Some(old_focus), None) => {
-                                return old_focus.borrow_mut().handle(event);
-                            }
-                            (None, Some(new_focus)) => {
-                                return new_focus.borrow_mut().handle(event);
-                            }
-                            (None, None) => {}
+            Event::MouseEvent(mouse_event) =>
+                {
+                    let mut mouse_event = mouse_event.clone();
+                    if let Some(line_setting) = self.node.borrow().line_setting(mouse_event.position.1) {
+                        if line_setting != LineSetting::Normal {
+                            mouse_event.position.0 *= 2;
                         }
                     }
-                    Mouse::Down(n) => {
-                        self.mouse_focus = self.mouse_focus.take().or_else(|| self.node_at(mouse_event.position));
-                        if let Some(mouse_focus) = self.mouse_focus.clone() {
-                            return mouse_focus.borrow_mut().handle(event);
-                        }
-                    }
+                    self.node.borrow_mut().handle(&InputEvent::MouseEvent(mouse_event), output);
                 }
-            }
             Event::TextAreaSize(w, h) => {
                 println!("Window size {} {}", w, h);
                 self.size = (*w, *h);
             }
             _ => {}
         }
-        None
     }
 }
-
+//match mouse_event.mouse {
+//Mouse::ScrollUp => {}
+//Mouse::ScrollDown => {}
+//Mouse::Up => {
+//let old_focus = self.mouse_focus.take();
+//let new_focus = self.node_at(mouse_event.position);
+//self.mouse_focus = new_focus.clone();
+//match (old_focus, new_focus) {
+//(Some(old_focus), Some(new_focus)) =>
+//if &old_focus == &new_focus {
+//return new_focus.borrow_mut().handle(event);
+//} else {
+//assert!(old_focus.borrow_mut().handle(event).is_none());
+//return new_focus.borrow_mut().handle(event);
+//}
+//(Some(old_focus), None) => {
+//return old_focus.borrow_mut().handle(event);
+//}
+//(None, Some(new_focus)) => {
+//return new_focus.borrow_mut().handle(event);
+//}
+//(None, None) => {}
+//}
+//}
+//Mouse::Down(n) => {
+//self.mouse_focus = self.mouse_focus.take().or_else(|| self.node_at(mouse_event.position));
+//if let Some(mouse_focus) = self.mouse_focus.clone() {
+//return mouse_focus.borrow_mut().handle(event);
+//}
+//}
+//}

@@ -11,7 +11,7 @@ use itertools::Itertools;
 use crate::Direction;
 use crate::tokenizer::Tokenizer;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Mouse {
     Up,
     ScrollDown,
@@ -19,7 +19,7 @@ pub enum Mouse {
     Down(u8),
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Key {
     Arrow(Direction),
     Type(char),
@@ -28,7 +28,7 @@ pub enum Key {
     ForwardDelete,
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Default, Serialize, Deserialize, Hash)]
 pub struct Modifier {
     pub shift: bool,
     pub control: bool,
@@ -66,13 +66,13 @@ impl BitOr<Modifier> for Modifier {
     }
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub struct KeyEvent {
     pub modifier: Modifier,
     pub key: Key,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub struct MouseEvent {
     pub modifier: Modifier,
     pub mouse: Mouse,

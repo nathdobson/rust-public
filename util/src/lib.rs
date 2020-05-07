@@ -1,4 +1,4 @@
-#![feature(unsize, coerce_unsized, rustc_private, negative_impls, never_type, write_all_vectored, vec_into_raw_parts, raw)]
+#![feature(unsize, coerce_unsized, rustc_private, negative_impls, never_type, write_all_vectored, vec_into_raw_parts, raw, can_vector, bound_cloned, backtrace)]
 
 use std::mem;
 use std::collections::{BTreeMap, };
@@ -14,6 +14,9 @@ pub mod grid;
 pub mod range;
 pub mod rect;
 //pub mod itertools;
+pub mod io;
+pub mod rangemap;
+pub mod profile;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,

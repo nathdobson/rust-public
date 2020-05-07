@@ -14,7 +14,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use termio::input::{Event, EventReader};
-use termio::write::SafeWrite;
 use util::listen::{Listen, Listeners};
 use util::socket::{set_reuse_port, set_linger};
 use util::shared::Shared;

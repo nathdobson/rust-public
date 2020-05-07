@@ -1,27 +1,49 @@
 use std::backtrace::Backtrace;
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::fmt;
+use std::{fmt, fs};
+use std::path::PathBuf;
+use std::sync::{Mutex, Arc};
 
-pub struct Profile {
-    children: BTreeMap<String, Profile>,
+#[derive(Default)]
+struct ProfileNode {
+    children: BTreeMap<String, ProfileNode>,
     value: usize,
 }
 
+pub struct ProfileInner {
+    root: ProfileNode,
+    filename: PathBuf,
+}
+
+#[derive(Clone)]
+pub struct Profile(Arc<Mutex<ProfileInner>>);
+
 impl Profile {
-    pub fn new() -> Self {
-        Profile {
-            children: BTreeMap::new(),
-            value: 0,
-        }
+    pub fn new(filename: PathBuf) -> Self {
+        Profile(
+            Arc::new(Mutex::new(ProfileInner {
+                filename,
+                root: ProfileNode::default(),
+            }))
+        )
     }
     pub fn add(&mut self, value: usize) {
-        let mut node = self;
-        for line in Backtrace::capture().to_string().split("\n") {
-            node = node.children.entry(line.to_string()).or_insert(Profile::new());
-            node.value += value;
+        let mut lock = self.0.lock().unwrap();
+        let mut node = &mut lock.root;
+        for line in Backtrace::capture().to_string().rsplit("\n") {
+            let line = line.splitn(2, ":").nth(1).unwrap_or("???");
+            node = node.children.entry(line.to_string()).or_insert(ProfileNode::default());
         }
+        node.value += value;
     }
+    pub fn flush(&self) {
+        let lock = self.0.lock().unwrap();
+        fs::write(&lock.filename, lock.to_string()).unwrap();
+    }
+}
+
+impl ProfileNode {
     fn render<W: fmt::Write>(&self, w: &mut W, stack: &str) -> fmt::Result {
         writeln!(w, "{} {}", stack, self.value)?;
         for (frame, inner) in self.children.iter() {
@@ -31,8 +53,8 @@ impl Profile {
     }
 }
 
-impl Display for Profile {
+impl Display for ProfileInner {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.render(f, "")
+        self.root.render(f, "")
     }
 }
