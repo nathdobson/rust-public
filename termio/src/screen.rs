@@ -15,6 +15,7 @@ pub struct Row {
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Screen {
+    pub title: String,
     pub rows: BTreeMap<isize, Row>,
 }
 
@@ -75,6 +76,7 @@ pub fn advance(string: &str) -> isize {
 impl Screen {
     pub fn new() -> Self {
         Screen {
+            title: "".to_string(),
             rows: BTreeMap::new(),
         }
     }
@@ -82,7 +84,16 @@ impl Screen {
         self.rows.clear();
     }
     pub fn row(&mut self, y: isize) -> &mut Row {
-        self.rows.entry(y).or_insert(Row { runes: RangeMap::new(), line_setting: Default::default() })
+        self.rows.entry(y).or_insert(Row::new())
+    }
+    pub fn title(&mut self)->&mut String{
+        &mut self.title
+    }
+}
+
+impl Row {
+    pub fn new() -> Self {
+        Row { runes: RangeMap::new(), line_setting: Default::default() }
     }
 }
 

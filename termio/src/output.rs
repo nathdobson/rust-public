@@ -42,8 +42,11 @@ pub fn OneParameter(prefix: &'static str, param: usize, suffix: &'static str) ->
 }
 
 pub fn MoveUp(count: usize) -> impl Display { OneParameter("\x1B[", count, "A") }
+
 pub fn MoveDown(count: usize) -> impl Display { OneParameter("\x1B[", count, "B") }
+
 pub fn MoveRight(count: usize) -> impl Display { OneParameter("\x1B[", count, "C") }
+
 pub fn MoveLeft(count: usize) -> impl Display { OneParameter("\x1B[", count, "D") }
 
 pub fn NextLine(count: usize) -> impl Display { OneParameter("\x1B[", count, "E") }
@@ -62,7 +65,7 @@ pub fn Erase(count: usize) -> impl Display { OneParameter("\x1B[", count, "X") }
 
 pub fn Insert(count: usize) -> impl Display { OneParameter("\x1B[", count, "@") }
 
-pub fn Repeat(count:usize) -> impl Display{ OneParameter("\x1B[", count, "b") }
+pub fn Repeat(count: usize) -> impl Display { OneParameter("\x1B[", count, "b") }
 
 
 pub fn ScrollUp(x: usize) -> impl Display { OneParameter("\x1B[", x, "S") }
@@ -141,6 +144,9 @@ pub const EraseAll: &'static str = "\x1B[2J";
 
 pub fn ScrollRegion(start: usize, end: usize) -> impl Display { concat!("\x1B[", start, ";", end, "r") }
 
+pub fn WindowTitle<'a>(title: &'a str) -> impl Display + 'a {
+    concat!("\x1B]0;", title, "\x07")
+}
 
 pub fn draw_box(c11: bool, c21: bool, c12: bool, c22: bool) -> char {
     match (c11, c21, c12, c22) {

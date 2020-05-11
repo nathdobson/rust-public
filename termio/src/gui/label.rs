@@ -1,22 +1,27 @@
 use util::shared::{Shared, SharedMut};
 use crate::canvas::Canvas;
-use crate::input::Event;
+use crate::input::{Event, Mouse};
 use itertools::Itertools;
 use crate::color::Color;
 use crate::output::{Background, Foreground};
 use std::ops;
 use crate::gui::node::{NodeHeader, NodeImpl, Node};
 use crate::gui::node::NodeExt;
-use crate::screen::LineSetting;
+use crate::screen::{LineSetting, Style};
 use crate::gui::{InputEvent, OutputEvent};
 use std::sync::Arc;
+use util::io::SafeWrite;
+use unicode_segmentation::UnicodeSegmentation;
+use crate::string::StyleString;
 
 #[derive(Debug)]
 pub struct Label {
     header: NodeHeader,
-    text: String,
+    lines: Vec<StyleString>,
+    scroll: isize,
     pub size: (isize, isize),
 }
+
 
 impl NodeImpl for Label {
     fn header(&self) -> &NodeHeader {
@@ -28,22 +33,37 @@ impl NodeImpl for Label {
     }
 
     fn paint(&self, mut w: Canvas) {
-        let lines =
-            self.text
-                .split('\n')
-                .rev()
-                .filter(|x| !x.is_empty())
-                .take(self.size.1 as usize)
-                .collect_vec()
-                .into_iter()
-                .rev()
-                .enumerate();
-        for (y, line) in lines {
-            w.draw((0, y as isize), line);
+        for (i, y) in (self.scroll..self.scroll + self.size.1).enumerate() {
+            if y >= 0 {
+                if let Some(line) = self.lines.get(y as usize) {
+                    w.draw((0, i as isize), &line);
+                }
+            }
         }
     }
 
-    fn handle(&mut self, event: &InputEvent,output:&mut Vec<Arc<dyn OutputEvent>>) {}
+    fn handle(&mut self, event: &InputEvent, output: &mut Vec<Arc<dyn OutputEvent>>) {
+        match event {
+            InputEvent::MouseEvent(event) => {
+                match event.mouse {
+                    Mouse::ScrollDown => {
+                        if self.scroll < (self.lines.len() as isize) - self.size.1 {
+                            self.scroll += 1;
+                            self.header_mut().mark_dirty();
+                        }
+                    }
+                    Mouse::ScrollUp => {
+                        if self.scroll > 0 {
+                            self.scroll -= 1;
+                            self.header_mut().mark_dirty();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
 
     fn size(&self) -> (isize, isize) {
         self.size
@@ -52,15 +72,17 @@ impl NodeImpl for Label {
 
 
 impl Label {
-    pub fn new(text: String, size: (isize, isize)) -> Node<Label> {
+    pub fn new(lines: Vec<StyleString>, size: (isize, isize)) -> Node<Label> {
         Self::new_internal(|header| Label {
             header,
-            text,
+            lines,
+            scroll: 0,
             size,
         })
     }
-    pub fn text_mut(&mut self) -> &mut String {
-        self.header.mark_dirty();
-        &mut self.text
+    pub fn push(&mut self, line: StyleString) {
+        self.lines.push(line);
+        self.scroll = (self.lines.len() as isize) - self.size.1;
+        self.header_mut().mark_dirty();
     }
 }

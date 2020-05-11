@@ -18,10 +18,26 @@ use util::listen::{Listen, Listeners};
 use util::socket::{set_reuse_port, set_linger};
 use util::shared::Shared;
 use util::shared::Object;
+use util::io::SafeWrite;
+use util::Name;
 
 //pub mod demo;
 pub mod replay;
 pub mod tcp;
+
+pub trait PeerTrait: 'static + Send + Sync + Write + SafeWrite {
+    fn close(&mut self);
+}
+
+pub type Peer = Box<dyn PeerTrait>;
+
+pub trait Handler: 'static + Send {
+    fn add_peer(&mut self, username: &Name, peer: Peer);
+    fn remove_peer(&mut self, username: &Name);
+    fn handle_event(&mut self, username: &Name, event: &Event);
+}
+
+
 //
 //pub struct Handler<T: ?Sized> {
 //    poison_listeners: Listeners<Box<dyn FnOnce() + Send>>,

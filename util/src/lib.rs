@@ -1,7 +1,8 @@
 #![feature(unsize, coerce_unsized, rustc_private, negative_impls, never_type, write_all_vectored, vec_into_raw_parts, raw, can_vector, bound_cloned, backtrace)]
 
 use std::mem;
-use std::collections::{BTreeMap, };
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 pub mod bag;
 pub mod listen;
@@ -17,6 +18,8 @@ pub mod rect;
 pub mod io;
 pub mod rangemap;
 pub mod profile;
+pub mod completable;
+pub mod lossy;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,
@@ -53,3 +56,5 @@ fn btreemap_set_keys_test() {
     });
     assert_eq!(map, [("b".to_owned(), 2), ("c".to_owned(), 3)].iter().cloned().collect::<BTreeMap<_, _>>())
 }
+
+pub type Name = Arc<String>;

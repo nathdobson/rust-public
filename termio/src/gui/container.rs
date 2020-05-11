@@ -17,18 +17,12 @@ pub struct Children {
 }
 
 impl Children {
-    pub fn new() -> Self {
+    pub fn new(children: HashSet<Node>) -> Self {
         Children {
-            children: HashSet::new(),
+            children,
             mouse_down_focus: None,
             mouse_motion_focus: None,
         }
-    }
-    pub fn insert(&mut self, node: Node) {
-        self.children.insert(node);
-    }
-    pub fn remove(&mut self, node: &Node) {
-        self.children.remove(&node);
     }
 }
 
@@ -123,6 +117,22 @@ pub trait Container: NodeImpl {
         }
         return dirty;
     }
+    fn insert(&mut self, node: Node) {
+        if self.children_mut().children.insert(node) {
+            self.header_mut().mark_dirty();
+        }
+    }
+    fn remove(&mut self, node: &Node) {
+        if self.children_mut().children.remove(node) {
+            self.header_mut().mark_dirty();
+        }
+    }
+    fn set_children(&mut self, children: HashSet<Node>) {
+        if self.children_mut().children != children {
+            self.children_mut().children = children;
+            self.header_mut().mark_dirty();
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -136,7 +146,7 @@ impl Panel {
         Self::new_internal(|header| {
             Panel {
                 header,
-                children: Children::new(),
+                children: Children::new(HashSet::new()),
             }
         })
     }

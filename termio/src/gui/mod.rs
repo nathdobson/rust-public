@@ -35,7 +35,8 @@ pub struct Gui {
     size: (isize, isize),
     node: Node,
     pub keyboard_focus: Option<Node>,
-    pub style: Style,
+    style: Style,
+    title: String,
     output: TermWriter,
 }
 
@@ -49,7 +50,6 @@ pub trait OutputEvent: Any + 'static + Send + Sync + fmt::Debug {
     fn as_any(&self) -> &(dyn 'static + Any);
 }
 
-
 impl Gui {
     pub fn new(node: Node, output: PipelineWriter) -> Gui {
         let gui = Gui {
@@ -57,6 +57,7 @@ impl Gui {
             node: node,
             keyboard_focus: None,
             style: Style::default(),
+            title: "".to_string(),
             output: TermWriter::new(output),
         };
         gui
@@ -71,6 +72,7 @@ impl Gui {
             return;
         }
         let mut screen = Screen::new();
+        screen.title = self.title.clone();
         for y in 1..borrow.size().1 {
             let line_setting = borrow.line_setting(y);
             if let Some(line_setting) = line_setting {
@@ -86,6 +88,19 @@ impl Gui {
         self.output.flush();
     }
 
+    pub fn set_background(&mut self, style: Style) {
+        if self.style != style {
+            self.style = style;
+            self.node.borrow_mut().header_mut().mark_dirty();
+        }
+    }
+
+    pub fn set_title(&mut self, title: String) {
+        if self.title != title {
+            self.title = title;
+            self.node.borrow_mut().header_mut().mark_dirty();
+        }
+    }
 
     pub fn handle(&mut self, event: &Event, output: &mut Vec<Arc<dyn OutputEvent>>) {
         match event {

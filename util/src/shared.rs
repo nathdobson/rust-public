@@ -5,7 +5,7 @@ use std::hash::Hasher;
 use std::fmt::{Formatter, Arguments};
 use std::marker::Unsize;
 use std::ops::{CoerceUnsized, Deref};
-use std::io::{Write, IoSlice};
+use std::io::{Write, IoSlice, Read, IoSliceMut};
 use std::any::Any;
 
 pub struct Shared<T: ?Sized>(Arc<T>);
@@ -276,6 +276,50 @@ impl<'a, T: ?Sized> Write for &'a Shared<T> where &'a T: Write {
         self.0.deref().write_fmt(fmt)
     }
 }
+
+impl<'a, T: ?Sized> Read for &'a Shared<T> where &'a T: Read {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.deref().read(buf)
+    }
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut]) -> io::Result<usize> {
+        self.0.deref().read_vectored(bufs)
+    }
+    fn is_read_vectored(&self) -> bool {
+        self.0.deref().is_read_vectored()
+    }
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        self.0.deref().read_to_end(buf)
+    }
+    fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> {
+        self.0.deref().read_to_string(buf)
+    }
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        self.0.deref().read_exact(buf)
+    }
+}
+
+
+impl<T: ?Sized> Read for Shared<T> where for<'a> &'a T: Read {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.deref().read(buf)
+    }
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut]) -> io::Result<usize> {
+        self.0.deref().read_vectored(bufs)
+    }
+    fn is_read_vectored(&self) -> bool {
+        self.0.deref().is_read_vectored()
+    }
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        self.0.deref().read_to_end(buf)
+    }
+    fn read_to_string(&mut self, buf: &mut String) -> io::Result<usize> {
+        self.0.deref().read_to_string(buf)
+    }
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        self.0.deref().read_exact(buf)
+    }
+}
+
 
 impl<T: ?Sized + 'static> Write for Shared<T> where for<'a> &'a T: Write {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {

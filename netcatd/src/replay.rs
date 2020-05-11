@@ -2,36 +2,45 @@ use std::path::Path;
 use termio::input::{Event, KeyEvent};
 use std::collections::{HashSet, HashMap, BTreeMap, BTreeSet};
 use std::fs::File;
-use std::{fs, io};
+use std::{fs, io, mem};
 use std::io::{BufReader, BufRead, Write};
 use std::error::Error;
 use rand_xorshift::XorShiftRng;
+use util::{completable, Name};
 
 extern crate itertools;
 
 use itertools::Itertools;
-use crate::tcp::{NetcatHandler, NetcatPeer};
 use std::sync::{Mutex, Arc};
 use rand::{SeedableRng, RngCore};
 use util::rng::BoxRng;
+use crate::{Peer, Handler, PeerTrait};
+use util::io::SafeWrite;
+
+#[derive(Serialize, Deserialize, Debug)]
+enum EventType {
+    Added,
+    Input(Event),
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ReplayEvent {
     peer: String,
-    event: Event,
+    event: EventType,
+}
+
+struct ReplayPeer {
+    inner: completable::Receiver<Peer>,
 }
 
 pub struct ReplayHandler {
-    inner: Arc<Mutex<dyn NetcatHandler>>,
-    missing_peers: HashSet<String>,
-    peers: BTreeMap<String, NetcatPeer>,
-    input: Vec<ReplayEvent>,
-    output: File,
+    inner: Arc<Mutex<dyn Handler>>,
+    holes: HashMap<Name, completable::Sender<Peer>>,
+    output: Option<File>,
 }
 
 pub struct ReplayHandlerBuilder {
     input: Vec<ReplayEvent>,
-    peers: HashSet<String>,
     output: File,
 }
 
@@ -45,12 +54,10 @@ impl ReplayHandlerBuilder {
 
         input_files.sort();
         let mut input = Vec::<ReplayEvent>::new();
-        let mut peers = HashSet::new();
         for input_file in input_files.iter() {
             for line in BufReader::new(File::open(directory.join(input_file.to_string()))?).lines() {
                 let line = line?;
                 let event: ReplayEvent = serde_json::from_str(&line)?;
-                peers.insert(event.peer.clone());
                 input.push(event);
             }
         }
@@ -58,17 +65,30 @@ impl ReplayHandlerBuilder {
         let output = File::create(directory.join(format!("{}", output)))?;
         Ok(ReplayHandlerBuilder {
             input,
-            peers,
             output,
         })
     }
-    pub fn build(self, inner: Arc<Mutex<dyn NetcatHandler>>) -> Arc<Mutex<ReplayHandler>> {
+    pub fn build(self, inner: Arc<Mutex<dyn Handler>>) -> Arc<Mutex<ReplayHandler>> {
+        let mut lock = inner.lock().unwrap();
+        let mut holes = HashMap::new();
+        for input in self.input {
+            let name = Arc::new(input.peer);
+            match input.event {
+                EventType::Added => {
+                    let (sender, receiver) = completable::channel();
+                    lock.add_peer(&name, Box::new(ReplayPeer { inner: receiver }));
+                    holes.insert(name, sender);
+                }
+                EventType::Input(input) => {
+                    lock.handle_event(&name, &input);
+                }
+            }
+        }
+        mem::drop(lock);
         Arc::new(Mutex::new(ReplayHandler {
             inner,
-            missing_peers: self.peers,
-            peers: BTreeMap::new(),
-            input: self.input,
-            output: self.output,
+            holes,
+            output: Some(self.output),
         }))
     }
     pub fn make_rng(&self) -> BoxRng {
@@ -76,36 +96,55 @@ impl ReplayHandlerBuilder {
     }
 }
 
-impl NetcatHandler for ReplayHandler {
-    fn add_peer(&mut self, peer: &NetcatPeer) {
-        let id = peer.id().to_owned();
-        self.missing_peers.remove(&id);
-        self.peers.insert(id.clone(), peer.clone());
-        if self.missing_peers.is_empty() {
-            let mut lock = self.inner.lock().unwrap();
-            for (_, peer) in self.peers.iter() {
-                lock.add_peer(peer);
+impl SafeWrite for ReplayPeer {}
+
+impl Write for ReplayPeer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        Ok(self.inner.get_mut().map(|w| w.safe_write(buf)).unwrap_or(buf.len()))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.get_mut().map(|w| w.safe_flush()).ok();
+        Ok(())
+    }
+}
+
+impl PeerTrait for ReplayPeer {
+    fn close(&mut self) {
+        self.inner = completable::failure();
+    }
+}
+
+impl Handler for ReplayHandler {
+    fn add_peer(&mut self, username: &Name, peer: Peer) {
+        if let Some(hole) = self.holes.remove(username) {
+            hole.send(peer);
+        } else {
+            if let Some(output) = self.output.as_mut() {
+                writeln!(output, "{}", serde_json::to_string(&ReplayEvent {
+                    peer: (**username).clone(),
+                    event: EventType::Added,
+                }).unwrap()).unwrap();
+                output.flush().unwrap();
             }
-            for event in self.input.iter() {
-                println!("{:?}", event);
-                lock.handle_event(self.peers.get(&event.peer).unwrap(), &event.event);
-            }
-            self.peers.clear();
-            self.input.clear();
+            self.inner.lock().unwrap().add_peer(username, peer);
         }
     }
 
-    fn remove_peer(&mut self, peer: &NetcatPeer) {
-        self.inner.lock().unwrap().remove_peer(peer);
+    fn remove_peer(&mut self, username: &Name) {
+        self.output = None;
+        self.inner.lock().unwrap().remove_peer(username);
     }
 
-    fn handle_event(&mut self, peer: &NetcatPeer, event: &Event) {
-        if self.missing_peers.is_empty() {
+    fn handle_event(&mut self, username: &Name, event: &Event) {
+        if let Some(output) = self.output.as_mut() {
             if event != &Event::KeyEvent(KeyEvent::typed('q').control()) {
-                writeln!(self.output, "{}", serde_json::to_string(&ReplayEvent { peer: peer.id().to_owned(), event: *event }).unwrap()).unwrap();
+                writeln!(output, "{}", serde_json::to_string(&ReplayEvent {
+                    peer: (**username).clone(),
+                    event: EventType::Input(*event),
+                }).unwrap()).unwrap();
             }
-            self.output.flush().unwrap();
-            self.inner.lock().unwrap().handle_event(peer, event);
+            output.flush().unwrap();
         }
+        self.inner.lock().unwrap().handle_event(username, event);
     }
 }

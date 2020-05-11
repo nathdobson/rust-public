@@ -1,16 +1,18 @@
-use crate::screen::{Style, Screen, LineSetting, advance, Rune};
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
+use std::fmt::Display;
+use std::path::PathBuf;
+
+use rand::Rng;
+use rand::thread_rng;
+use util::io::{PipelineWriter, ProfiledWrite};
+use util::profile::Profile;
+
+use crate::color::Color;
 use crate::output::*;
 use crate::output::DoubleHeightTop;
-use crate::color::Color;
-use std::collections::BTreeSet;
-use util::io::{PipelineWriter, ProfiledWrite};
+use crate::screen::{advance, LineSetting, Rune, Screen, Style, Row};
 use crate::util::io::SafeWrite;
-use std::cmp::Ordering;
-use util::profile::Profile;
-use std::path::PathBuf;
-use rand::thread_rng;
-use rand::Rng;
-use std::fmt::Display;
 
 pub struct TermWriter {
     cursor: (isize, isize),
@@ -146,11 +148,17 @@ impl TermWriter {
         self.cursor = (1, 1);
     }
     pub fn render(&mut self, screen: &Screen, background: &Style) {
+        if screen.title != self.screen.title {
+            swrite!(self.inner, "{}", WindowTitle(&screen.title));
+            self.screen.title.clone_from(&screen.title);
+        }
         if &self.background != background {
             self.set_style(background);
             self.clear();
         }
-        for (&y, row) in screen.rows.iter() {
+        for y in 0..=screen.rows.keys().last().cloned().unwrap_or(-1).max(self.screen.rows.keys().last().cloned().unwrap_or(-1)) {
+            let default = Row::new();
+            let row = screen.rows.get(&y).unwrap_or(&default);
             if row == self.screen.row(y) {
                 continue;
             }
