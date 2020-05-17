@@ -12,7 +12,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use crate::{Handler, PeerTrait};
-
+use net2::TcpStreamExt;
 
 #[derive(Debug)]
 struct PeerImpl {

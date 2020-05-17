@@ -8,6 +8,7 @@ use crate::gui::node::NodeExt;
 use crate::input::MouseEvent;
 use crate::gui::{InputEvent, OutputEvent};
 use std::sync::Arc;
+use crate::line::Table;
 
 #[derive(Debug)]
 pub struct Children {
@@ -139,6 +140,7 @@ pub trait Container: NodeImpl {
 pub struct Panel {
     header: NodeHeader,
     children: Children,
+    outline: Table,
 }
 
 impl Panel {
@@ -147,8 +149,13 @@ impl Panel {
             Panel {
                 header,
                 children: Children::new(HashSet::new()),
+                outline: Table::default(),
             }
         })
+    }
+    pub fn set_outline(&mut self, outline: Table) {
+        self.outline = outline;
+        self.header_mut().mark_dirty();
     }
 }
 
@@ -168,8 +175,9 @@ impl NodeImpl for Panel {
     fn header_mut(&mut self) -> &mut NodeHeader {
         &mut self.header
     }
-    fn paint(&self, w: Canvas) {
-        self.paint_children(w);
+    fn paint(&self, mut w: Canvas) {
+        self.paint_children(w.push());
+        self.outline.render_grid(w);
     }
     fn handle(&mut self, event: &InputEvent, output: &mut Vec<Arc<dyn OutputEvent>>) {
         self.handle_children(event, output);

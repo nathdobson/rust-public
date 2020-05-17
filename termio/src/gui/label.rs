@@ -4,7 +4,7 @@ use crate::input::{Event, Mouse};
 use itertools::Itertools;
 use crate::color::Color;
 use crate::output::{Background, Foreground};
-use std::ops;
+use std::{ops, mem};
 use crate::gui::node::{NodeHeader, NodeImpl, Node};
 use crate::gui::node::NodeExt;
 use crate::screen::{LineSetting, Style};
@@ -37,6 +37,32 @@ impl NodeImpl for Label {
             if y >= 0 {
                 if let Some(line) = self.lines.get(y as usize) {
                     w.draw((0, i as isize), &line);
+                }
+            }
+        }
+        if self.size.1 < self.lines.len() as isize {
+            let top = self.scroll;
+            let middle = self.size.1;
+            let bottom = self.lines.len() as isize - middle - top;
+            let top = ((self.size.1 - 1) as f32 * 8.0 * top as f32 / (self.lines.len() as f32)).ceil() as isize;
+            let bottom = ((self.size.1 - 1) as f32 * 8.0 * bottom as f32 / (self.lines.len() as f32)).ceil() as isize;
+            let middle = self.size.1 * 8 - top - bottom;
+            println!("{:?} {:?} {:?}", top, middle, bottom);
+            for y in 0..self.size.1 {
+                if y < top / 8 {
+                    w.draw((self.size.0 - 1, y), &' ');
+                } else if y == top / 8 {
+                    w.draw((self.size.0 - 1, y),
+                           &std::char::from_u32('█' as u32 - (top % 8) as u32).unwrap());
+                } else if y < (top + middle) / 8 {
+                    w.draw((self.size.0 - 1, y), &'█');
+                } else if y == (top + middle) / 8 {
+                    let mut w2 = w.push();
+                    mem::swap(&mut w2.style.background, &mut w2.style.foreground);
+                    w2.draw((self.size.0 - 1, y),
+                            &std::char::from_u32('█' as u32 - ((top + middle) % 8) as u32).unwrap());
+                } else {
+                    w.draw((self.size.0 - 1, y), &' ');
                 }
             }
         }
@@ -83,6 +109,11 @@ impl Label {
     pub fn push(&mut self, line: StyleString) {
         self.lines.push(line);
         self.scroll = (self.lines.len() as isize) - self.size.1;
+        self.header_mut().mark_dirty();
+    }
+    pub fn clear(&mut self) {
+        self.scroll = 0;
+        self.lines.clear();
         self.header_mut().mark_dirty();
     }
 }

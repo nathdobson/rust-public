@@ -4,10 +4,19 @@ use std::ptr::NonNull;
 use std::{mem, ptr};
 use crate::rect::Rect;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Grid<T> {
     size: (isize, isize),
     vec: Vec<T>,
+}
+
+impl<T> Default for Grid<T> {
+    fn default() -> Self {
+        Grid {
+            size: (0, 0),
+            vec: vec![],
+        }
+    }
 }
 
 pub struct GridSliceRaw<T> {
@@ -36,8 +45,12 @@ impl<T> Grid<T> {
         }
         Grid { size, vec }
     }
-    fn index_of(&self, p: (isize, isize)) -> usize {
-        (p.0 + p.1 * self.size.0) as usize
+    fn index_of(&self, p: (isize, isize)) -> Option<usize> {
+        if p.0 >= 0 && p.0 < self.size.0 && p.1 >= 0 && p.1 < self.size.1 {
+            Some((p.0 + p.1 * self.size.0) as usize)
+        } else {
+            None
+        }
     }
     fn as_raw(&self) -> GridSliceRaw<T> {
         GridSliceRaw {
@@ -65,6 +78,13 @@ impl<T> Grid<T> {
                 bounds,
             }, PhantomData)
         }
+    }
+    pub fn get(&self, p: (isize, isize)) -> Option<&T> {
+        self.vec.get(self.index_of(p)?)
+    }
+    pub fn get_mut(&mut self, p: (isize, isize)) -> Option<&mut T> {
+        let index = self.index_of(p)?;
+        self.vec.get_mut(index)
     }
     pub fn size(&self) -> (isize, isize) {
         self.size
@@ -239,7 +259,7 @@ impl<T> GridSliceRaw<T> {
     fn get_raw(&self, index: (isize, isize)) -> Option<NonNull<T>> {
         unsafe {
             let grid = self.grid.as_ref();
-            let index = grid.index_of(self.bounds.translate(index)?);
+            let index = grid.index_of(self.bounds.translate(index)?)?;
             NonNull::new(grid.vec.as_ptr().add(index) as *mut T)
         }
     }
@@ -273,14 +293,14 @@ impl<T> Index<(isize, isize)> for Grid<T> {
     type Output = T;
 
     fn index(&self, index: (isize, isize)) -> &Self::Output {
-        &self.vec[self.index_of(index)]
+        &self.vec[self.index_of(index).unwrap()]
     }
 }
 
 impl<T> IndexMut<(isize, isize)> for Grid<T> {
     fn index_mut(&mut self, index: (isize, isize)) -> &mut Self::Output {
         let index = self.index_of(index);
-        &mut self.vec[index]
+        &mut self.vec[index.unwrap()]
     }
 }
 

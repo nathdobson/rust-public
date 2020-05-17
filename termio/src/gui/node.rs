@@ -44,7 +44,6 @@ impl NodeHeader {
         self.this_node.as_ref().unwrap().upgrade().unwrap()
     }
     pub fn mark_dirty(&mut self) {
-        let bt = Backtrace::new();
         self.dirty = true;
     }
     pub fn check_dirty(&mut self) -> bool {

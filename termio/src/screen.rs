@@ -13,7 +13,7 @@ pub struct Row {
     pub line_setting: LineSetting,
 }
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
 pub struct Screen {
     pub title: String,
     pub rows: BTreeMap<isize, Row>,
@@ -86,7 +86,7 @@ impl Screen {
     pub fn row(&mut self, y: isize) -> &mut Row {
         self.rows.entry(y).or_insert(Row::new())
     }
-    pub fn title(&mut self)->&mut String{
+    pub fn title(&mut self) -> &mut String {
         &mut self.title
     }
 }
@@ -113,5 +113,18 @@ impl fmt::Debug for Style {
             .field("background", &self.background)
             .field("foreground", &self.foreground)
             .finish()
+    }
+}
+
+impl fmt::Debug for Screen {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (y, row) in self.rows.iter() {
+            write!(f, "{:?} {:?} ", y, row.line_setting)?;
+            for x in row.runes.iter() {
+                write!(f, "{:?}", x)?;
+            }
+            writeln!(f)?;
+        }
+        Ok(())
     }
 }
