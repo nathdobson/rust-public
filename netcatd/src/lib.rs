@@ -27,8 +27,8 @@ use std::collections::HashMap;
 use util::watch::Watchable;
 use util::rng::BoxRng;
 use std::any::Any;
+use util::any::Upcast;
 
-//pub mod demo;
 pub mod replay;
 pub mod tcp;
 pub mod timer;
@@ -39,14 +39,14 @@ pub trait Renderer: Send + Sync + 'static {
     fn peer_shutdown(&self, username: &Name);
 }
 
-type TimerCallback = Box<dyn FnOnce(&dyn Handler) + Send + Sync + 'static>;
+type TimerCallback = Box<dyn FnOnce(&mut dyn Handler) + Send + 'static>;
 
 pub trait Timer: Send + Sync + 'static {
     fn now(&self) -> Instant;
     fn schedule(&self, time: Instant, callback: TimerCallback);
 }
 
-pub trait Handler: 'static + Send {
+pub trait Handler: 'static + Send + Upcast<dyn Any> {
     fn peer_add(&mut self, username: &Name);
     fn peer_shutdown(&mut self, username: &Name);
     fn peer_close(&mut self, username: &Name);

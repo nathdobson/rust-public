@@ -38,6 +38,7 @@ pub struct Gui {
     style: Style,
     title: String,
     enabled: bool,
+    update_text_size: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -59,19 +60,30 @@ impl Gui {
             style: Style::default(),
             title: "".to_string(),
             enabled: true,
+            update_text_size: true,
         };
         gui
     }
+
+    pub fn update_text_size(&mut self) {
+        self.update_text_size = true;
+    }
+
     pub fn paint(&mut self, output: &mut TermWriter) {
-        let mut borrow = self.node.borrow_mut();
-        if !borrow.check_dirty() {
-            return;
-        }
         output.set_enabled(self.enabled);
         if !self.enabled {
             return;
         }
-        output.get_text_size();
+        let mut borrow = self.node.borrow_mut();
+        let dirty = borrow.check_dirty();
+        let update_text_size = self.update_text_size;
+        self.update_text_size = false;
+        if update_text_size || dirty {
+            output.get_text_size();
+        }
+        if !dirty {
+            return;
+        }
         let mut screen = Screen::new();
         screen.title = self.title.clone();
         for y in 1..borrow.size().1 {
@@ -104,7 +116,6 @@ impl Gui {
     pub fn set_enabled(&mut self, enabled: bool) {
         if self.enabled != enabled {
             self.enabled = enabled;
-            self.node.borrow_mut().header_mut().mark_dirty();
         }
     }
 

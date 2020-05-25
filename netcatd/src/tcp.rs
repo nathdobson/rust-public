@@ -193,6 +193,7 @@ mod test {
     use termio::input::Event;
     use std::io::Read;
     use std::thread::JoinHandle;
+    use std::any::Any;
 
     #[derive(Eq, PartialEq, Ord, PartialOrd, Debug)]
     enum Log {

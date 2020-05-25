@@ -102,6 +102,18 @@ impl<P: Ord, T> Receiver<P, T> {
             Err(TryRecvError::Empty)
         }
     }
+    pub fn recv(&self) -> Result<(P, T), RecvError> {
+        let mut lock = self.inner.mutex.lock().unwrap();
+        loop {
+            if lock.senders == 0 {
+                return Err(RecvError);
+            } else if let Some(result) = lock.heap.pop() {
+                return Ok((result.priority, result.value));
+            } else {
+                lock = self.inner.condvar.wait(lock).unwrap();
+            }
+        }
+    }
 }
 
 impl<T> Receiver<Instant, T> {
