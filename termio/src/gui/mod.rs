@@ -71,6 +71,7 @@ impl Gui {
         if !self.enabled {
             return;
         }
+        output.get_text_size();
         let mut screen = Screen::new();
         screen.title = self.title.clone();
         for y in 1..borrow.size().1 {
@@ -79,7 +80,9 @@ impl Gui {
                 screen.row(y as isize).line_setting = line_setting;
             }
         }
-        let canvas = Canvas::new(&mut screen, borrow.bounds(), self.style);
+        let bounds = Rect::from_position_size((1, 1), self.size);
+        output.set_bounds(bounds);
+        let canvas = Canvas::new(&mut screen, bounds, (0, 0), self.style);
         borrow.paint(canvas);
         output.render(&screen, &self.style);
     }
@@ -124,7 +127,11 @@ impl Gui {
                 }
             Event::TextAreaSize(w, h) => {
                 println!("Window size {} {}", w, h);
-                self.size = (*w, *h);
+                let size = (*w, *h);
+                if self.size != size {
+                    self.size = (*w, *h);
+                    self.node.borrow_mut().header_mut().mark_dirty();
+                }
             }
             _ => {}
         }

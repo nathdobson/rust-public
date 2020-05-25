@@ -302,6 +302,7 @@ fn test_table() {
     let mut screen = Screen::new();
     let canvas = Canvas::new(&mut screen,
                              Rect::from_position_size((0, 0), (20, 20)),
+                             (0, 0),
                              Style::default());
     let table = Table {
         xs: vec![0, 5, 10],

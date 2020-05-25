@@ -13,6 +13,7 @@ use crate::output::*;
 use crate::output::DoubleHeightTop;
 use crate::screen::{advance, LineSetting, Rune, Screen, Style, Row};
 use crate::util::io::SafeWrite;
+use util::rect::Rect;
 
 pub struct TermWriter {
     cursor: (isize, isize),
@@ -21,6 +22,7 @@ pub struct TermWriter {
     inner: Vec<u8>,
     screen: Screen,
     enabled: bool,
+    bounds: Rect,
 }
 
 pub fn move_cursor_raw((x1, y1): (isize, isize), (x2, y2): (isize, isize)) -> impl Display {
@@ -75,6 +77,7 @@ impl TermWriter {
             inner: vec![],
             screen: Screen::new(),
             enabled: false,
+            bounds: Rect::from_position_size((1, 1), (1000, 1000)),
         }
     }
     pub fn buffer(&mut self) -> &mut Vec<u8> {
@@ -86,7 +89,6 @@ impl TermWriter {
             if enabled {
                 swrite!(self.inner, "{}", AllMotionTrackingEnable);
                 swrite!(self.inner, "{}", FocusTrackingEnable);
-                swrite!(self.inner, "{}", ReportTextAreaSize);
                 swrite!(self.inner, "{}", AlternateEnable);
                 swrite!(self.inner, "{}", CursorHide);
                 swrite!(self.inner, "{}", CursorPosition(1,1));
@@ -100,7 +102,15 @@ impl TermWriter {
             }
         }
     }
+    pub fn get_text_size(&mut self){
+        swrite!(self.inner, "{}", ReportTextAreaSize);
+    }
     pub fn move_cursor(&mut self, x: isize, y: isize) {
+//        if true {
+//            swrite!(self.inner, "{}", CursorPosition(x as usize, y as usize));
+//            self.cursor = (x, y);
+//            return;
+//        }
         if self.cursor == (x, y) {
             return;
         }
@@ -112,7 +122,7 @@ impl TermWriter {
         let old = &mut self.screen.row(y).line_setting;
         if *old != setting {
             *old = setting;
-            self.move_cursor(self.cursor.0, y);
+            self.move_cursor(1, y);
             match setting {
                 LineSetting::Normal => swrite!(self.inner, "{}", SingleWidthLine),
                 LineSetting::DoubleHeightTop => swrite!(self.inner, "{}", DoubleHeightTop),
@@ -138,6 +148,15 @@ impl TermWriter {
             style: self.style,
         });
         self.cursor.0 += length;
+        let max =
+            if row.line_setting == LineSetting::Normal {
+                self.bounds.xs().end
+            } else {
+                (self.bounds.xs().end+10) / 2
+            };
+        if self.cursor.0 > max {
+            self.cursor.0 = max;
+        }
     }
     pub fn delete_space(&mut self) {
         swrite!(self.inner, " ");
@@ -154,6 +173,12 @@ impl TermWriter {
         swrite!(self.inner, "{}{}", EraseAll, CursorPosition(1,1));
         self.screen.clear();
         self.cursor = (1, 1);
+    }
+    pub fn set_bounds(&mut self, bounds: Rect) {
+        if self.bounds != bounds {
+            self.bounds = bounds;
+            self.clear();
+        }
     }
     pub fn render(&mut self, screen: &Screen, background: &Style) {
         if screen.title != self.screen.title {

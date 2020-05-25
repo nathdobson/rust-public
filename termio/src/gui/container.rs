@@ -33,7 +33,7 @@ pub trait Container: NodeImpl {
     fn paint_children(&self, mut w: Canvas) {
         for node in self.children().children.iter() {
             let borrow = node.borrow_mut();
-            borrow.paint(w.push_bounds(borrow.bounds()))
+            borrow.paint(w.push_translate(borrow.position()))
         }
     }
     fn child_at(&self, position: (isize, isize)) -> Option<Node> {
