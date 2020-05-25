@@ -43,7 +43,6 @@ struct State {
     contexts: usize,
     status: Status,
     on_cancel: Bag<OnCancel>,
-    joins: Vec<JoinHandle<()>>,
 }
 
 #[derive(Debug)]
@@ -88,7 +87,6 @@ pub fn channel() -> (Context, Canceller, Receiver) {
                 contexts: 1,
                 status: Status::Active,
                 on_cancel: Bag::new(),
-                joins: vec![],
             }),
             condvar: Condvar::new(),
         });
@@ -98,26 +96,6 @@ pub fn channel() -> (Context, Canceller, Receiver) {
      Canceller { inner: canceller },
      Receiver { inner: receiver })
 }
-
-//pub fn spawn<T: Send + 'static>(callback: impl FnOnce(Context) -> Result<T> + Send + 'static) -> (Canceller, Receiver<T>) {
-//    let (context, sender, canceller, receiver) = channel();
-//    thread::spawn(|| {
-//        sender.send(callback(context))
-//    });
-//    (canceller, receiver)
-//}
-
-//impl<T> From<PoisonError<T>> for Cancel {
-//    fn from(_: PoisonError<T>) -> Self {
-//        Cancel
-//    }
-//}
-//
-//impl<T> From<PoisonError<T>> for JoinError {
-//    fn from(_: PoisonError<T>) -> Self {
-//        JoinError::Panic
-//    }
-//}
 
 impl Into<io::Error> for Cancel {
     fn into(self) -> io::Error {
@@ -183,13 +161,13 @@ impl Context {
             lock.contexts += 1;
             let context = Context { inner: self.inner.clone() };
             if lock.status == Status::Active {
-                lock.joins.push(thread::spawn(|| {
+                thread::spawn(|| {
                     if let Err(Cancel) = callback() {
                         context.inner.cancel();
                     } else {
                         mem::drop(context);
                     }
-                }))
+                });
             }
         }
     }
@@ -291,11 +269,6 @@ impl Joiner {
                 return Err(JoinError::Panic);
             }
             if lock.contexts == 0 {
-                let joins = mem::replace(&mut lock.joins, vec![]);
-                mem::drop(lock);
-                for join in joins {
-                    join.join()?;
-                }
                 return Ok(());
             }
             let timeout = deadline.saturating_duration_since(Instant::now());

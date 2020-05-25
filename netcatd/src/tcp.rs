@@ -23,10 +23,12 @@ use std::time::Duration;
 use chrono::format::Item::Error;
 use util::cancel::{Context, Cancel};
 use util::cancel::RecvError::Cancelling;
+use std::collections::hash_map::Entry;
 
 struct Peer {
     stream: Shared<TcpStream>,
-    sender: lossy::Sender<()>,
+    sender: Option<lossy::Sender<()>>,
+    terminate: Arc<Condvar>,
 }
 
 struct State {
@@ -55,7 +57,9 @@ impl NetcatServer {
 impl Renderer for NetcatServer {
     fn peer_render(&self, username: &Arc<String>) {
         if let Some(peer) = self.state.lock().unwrap().peers.get(username) {
-            peer.sender.send(());
+            if let Some(sender) = peer.sender.as_ref() {
+                sender.send(());
+            }
         }
     }
 
@@ -71,8 +75,25 @@ impl NetcatServer {
         let (host, _) = proxy::run_proxy_server(&mut stream)?;
         let username = Arc::new(host.to_string()?);
         let (sender, receiver) = lossy::channel();
-        self.state.lock().unwrap().peers.insert(username.clone(), Peer { stream: stream.clone(), sender });
-
+        let mut lock = self.state.lock().unwrap();
+        loop {
+            let condvar = match lock.peers.entry(username.clone()) {
+                Entry::Occupied(peer) => {
+                    peer.get().stream.shutdown(Shutdown::Read).ok();
+                    peer.get().terminate.clone()
+                }
+                Entry::Vacant(x) => {
+                    x.insert(Peer {
+                        stream: stream.clone(),
+                        sender: Some(sender),
+                        terminate: Arc::new(Condvar::new()),
+                    });
+                    break;
+                }
+            };
+            lock = condvar.wait(lock).unwrap();
+        }
+        mem::drop(lock);
         let send_handle = thread::spawn({
             let handler = handler.clone();
             let username = username.clone();
@@ -102,15 +123,18 @@ impl NetcatServer {
                         } else {
                             println!("Peer {:?} failed: {:?}", username, error);
                         }
-                        handler.lock().unwrap().peer_shutdown(&username);
-                        self.state.lock().unwrap().peers.remove(&username);
                         break;
                     }
                 }
             }
         }
+        handler.lock().unwrap().peer_shutdown(&username);
+        self.state.lock().unwrap().peers.get_mut(&username).unwrap().sender = None;
         send_handle.join().unwrap();
         handler.lock().unwrap().peer_close(&username);
+        let mut lock = self.state.lock().unwrap();
+        let peer = lock.peers.remove(&username).unwrap();
+        peer.terminate.notify_all();
         Ok(())
     }
 
@@ -156,8 +180,20 @@ impl NetcatServer {
 }
 
 #[cfg(test)]
-fn test() {
-    use std::sync::mpsc;
+mod test {
+    use std::sync::{mpsc, Arc, Mutex};
+    use util::{Name, expect, cancel};
+    use crate::{Handler, proxy, Renderer};
+    use crate::tcp::NetcatServer;
+    use std::net::{TcpStream, Shutdown};
+    use std::{thread, mem};
+    use crate::proxy::Host;
+    use std::time::Duration;
+    use util::cancel::RecvError::Cancelling;
+    use termio::input::Event;
+    use std::io::Read;
+    use std::thread::JoinHandle;
+
     #[derive(Eq, PartialEq, Ord, PartialOrd, Debug)]
     enum Log {
         Add(Name),
@@ -166,7 +202,9 @@ fn test() {
         Render(Name),
         Event(Name, Event),
     }
-    struct TestHandler { log: expect::Client<Log, ()> };
+
+    struct TestHandler { log: expect::Client<Log, ()> }
+
     impl Handler for TestHandler {
         fn peer_add(&mut self, username: &Name) {
             self.log.execute(Log::Add(username.clone()));
@@ -185,73 +223,144 @@ fn test() {
             self.log.execute(Log::Render(username.clone()));
         }
     }
+
     fn expect_output(mut stream: TcpStream, expected: &[u8]) {
         let mut actual = vec![];
         stream.read_to_end(&mut actual).unwrap();
         assert_eq!(actual, expected);
     }
-    let address = "127.0.0.1:9543";
-    let (context, canceller, finish) = cancel::channel();
-    let server = NetcatServer::new(address).unwrap();
 
-    let (client, calls) = expect::channel();
-    let handler = Arc::new(Mutex::new(TestHandler { log: client }));
-    let listener = thread::spawn({
-        let server = server.clone();
-        move || {
-            server.listen(context, handler).unwrap();
+    #[cfg(test)]
+    fn test() {
+        let address = "127.0.0.1:9543";
+        let (context, canceller, finish) = cancel::channel();
+        let server = NetcatServer::new(address).unwrap();
+
+        let (client, calls) = expect::channel();
+        let handler = Arc::new(Mutex::new(TestHandler { log: client }));
+        let listener = thread::spawn({
+            let server = server.clone();
+            move || {
+                server.listen(context, handler).unwrap();
+            }
+        });
+        let alpha = Arc::new("alpha".to_string());
+        let alpha_stream = TcpStream::connect(address).unwrap();
+        proxy::run_proxy_client(&alpha_stream, Host::Dns(alpha.to_string().into_bytes()), 123).unwrap();
+        calls.expect(Log::Add(alpha.clone()));
+        server.peer_render(&alpha);
+        calls.expect(Log::Render(alpha.clone()));
+        server.peer_shutdown(&alpha);
+        calls.expect_and(Log::Shutdown(alpha.clone()), || server.peer_render(&alpha));
+
+        calls.expect(Log::Render(alpha.clone()));
+        calls.expect(Log::Close(alpha.clone()));
+        expect_output(alpha_stream, b"TESTTEST");
+
+        let beta = Arc::new("beta".to_string());
+        let beta_stream = TcpStream::connect(address).unwrap();
+        proxy::run_proxy_client(&beta_stream, Host::Dns(beta.to_string().into_bytes()), 123).unwrap();
+        calls.expect(Log::Add(beta.clone()));
+        beta_stream.shutdown(Shutdown::Both).unwrap();
+        calls.expect_and(Log::Shutdown(beta.clone()), || server.peer_render(&beta));
+        calls.expect(Log::Render(beta.clone()));
+        calls.expect(Log::Close(beta.clone()));
+        expect_output(beta_stream, b"");
+
+        let gamma = Arc::new("gamma".to_string());
+        let gamma_stream = TcpStream::connect(address).unwrap();
+        proxy::run_proxy_client(&gamma_stream, Host::Dns(gamma.to_string().into_bytes()), 123).unwrap();
+        calls.expect(Log::Add(gamma.clone()));
+
+        let delta_stream = TcpStream::connect(address).unwrap();
+        thread::sleep(Duration::from_millis(100));
+
+        canceller.cancel();
+        calls.expect_and(Log::Shutdown(gamma.clone()), || server.peer_render(&gamma));
+        calls.expect(Log::Render(gamma.clone()));
+        calls.expect(Log::Close(gamma.clone()));
+        expect_output(gamma_stream, b"TEST");
+        expect_output(delta_stream, b"");
+
+        listener.join().unwrap();
+        mem::drop(server);
+        match finish.recv_timeout(Duration::from_secs(1)) {
+            Err(Cancelling(joiner)) =>
+                joiner.join_timeout(Duration::from_secs(1)).unwrap(),
+            _ => {}
         }
-    });
-    let alpha = Arc::new("alpha".to_string());
-    let alpha_stream = TcpStream::connect(address).unwrap();
-    proxy::run_proxy_client(&alpha_stream, Host::Dns(alpha.to_string().into_bytes()), 123).unwrap();
-    calls.expect(Log::Add(alpha.clone()));
-    server.peer_render(&alpha);
-    calls.expect(Log::Render(alpha.clone()));
-    server.peer_shutdown(&alpha);
-    calls.expect_and(Log::Shutdown(alpha.clone()), || server.peer_render(&alpha));
-
-    calls.expect(Log::Render(alpha.clone()));
-    calls.expect(Log::Close(alpha.clone()));
-    expect_output(alpha_stream, b"TESTTEST");
-
-    let beta = Arc::new("beta".to_string());
-    let beta_stream = TcpStream::connect(address).unwrap();
-    proxy::run_proxy_client(&beta_stream, Host::Dns(beta.to_string().into_bytes()), 123).unwrap();
-    calls.expect(Log::Add(beta.clone()));
-    beta_stream.shutdown(Shutdown::Both).unwrap();
-    calls.expect_and(Log::Shutdown(beta.clone()), || server.peer_render(&beta));
-    calls.expect(Log::Render(beta.clone()));
-    calls.expect(Log::Close(beta.clone()));
-    expect_output(beta_stream, b"");
-
-    let gamma = Arc::new("gamma".to_string());
-    let gamma_stream = TcpStream::connect(address).unwrap();
-    proxy::run_proxy_client(&gamma_stream, Host::Dns(gamma.to_string().into_bytes()), 123).unwrap();
-    calls.expect(Log::Add(gamma.clone()));
-
-    let delta_stream = TcpStream::connect(address).unwrap();
-    thread::sleep(Duration::from_millis(100));
-
-    canceller.cancel();
-    calls.expect_and(Log::Shutdown(gamma.clone()), || server.peer_render(&gamma));
-    calls.expect(Log::Render(gamma.clone()));
-    calls.expect(Log::Close(gamma.clone()));
-    expect_output(gamma_stream, b"TEST");
-    expect_output(delta_stream, b"");
-
-    listener.join().unwrap();
-    mem::drop(server);
-    match finish.recv_timeout(Duration::from_secs(1)) {
-        Err(Cancelling(joiner)) =>
-            joiner.join_timeout(Duration::from_secs(1)).unwrap(),
-        _ => {}
     }
-}
 
-#[test]
-fn test_many() {
-    for _ in 0..100 {
-        test();
+    #[test]
+    fn test_many() {
+        for _ in 0..100 {
+            test();
+        }
+    }
+
+    #[test]
+    fn test_reconnect() {
+        let address: &'static str = "127.0.0.1:9544";
+        let (context, canceller, finish) = cancel::channel();
+        let server = NetcatServer::new(address).unwrap();
+
+        let (client, calls) = expect::channel();
+        let handler = Arc::new(Mutex::new(TestHandler { log: client }));
+        let listener = thread::spawn({
+            let server = server.clone();
+            move || {
+                server.listen(context, handler).unwrap();
+            }
+        });
+        let alpha = Arc::new("alpha".to_string());
+        let count = 100;
+        let joins: Vec<JoinHandle<TcpStream>> = (0..count).map(|_|
+            thread::spawn({
+                let alpha = alpha.clone();
+                move || {
+                    let alpha_stream = TcpStream::connect(address).unwrap();
+                    proxy::run_proxy_client(&alpha_stream, Host::Dns(alpha.to_string().into_bytes()), 123).unwrap();
+                    alpha_stream
+                }
+            })
+        ).collect();
+        for _ in 0..(count - 1) {
+            calls.expect(Log::Add(alpha.clone()));
+            calls.expect_and(Log::Shutdown(alpha.clone()), || server.peer_render(&alpha));
+            calls.expect(Log::Render(alpha.clone()));
+            calls.expect(Log::Close(alpha.clone()));
+        }
+        calls.expect(Log::Add(alpha.clone()));
+        server.peer_render(&alpha);
+        calls.expect(Log::Render(alpha.clone()));
+        calls.expect_timeout();
+        let clients: Vec<TcpStream> = joins.into_iter().map(|x| x.join().unwrap()).collect();
+        let mut pending = vec![];
+        for mut client in clients {
+            client.set_nonblocking(true).unwrap();
+            let mut actual = vec![];
+            match client.read_to_end(&mut actual) {
+                Ok(_) => assert_eq!(actual, b"TEST"),
+                Err(_) => {
+                    assert_eq!(actual, b"TEST");
+                    pending.push(client)
+                }
+            }
+        }
+        canceller.cancel();
+        assert_eq!(pending.len(), 1);
+        let pending = pending.into_iter().next().unwrap();
+        pending.set_nonblocking(false).unwrap();
+        calls.expect_and(Log::Shutdown(alpha.clone()), || server.peer_render(&alpha));
+        calls.expect(Log::Render(alpha.clone()));
+        calls.expect(Log::Close(alpha.clone()));
+        expect_output(pending, b"TEST");
+        listener.join().unwrap();
+        mem::drop(server);
+        match finish.recv_timeout(Duration::from_secs(1)) {
+            Err(Cancelling(joiner)) =>
+                joiner.join_timeout(Duration::from_secs(1)).unwrap(),
+            _ => {}
+        }
     }
 }

@@ -2,6 +2,7 @@ use std::sync::mpsc;
 use std::fmt::Debug;
 use std::time::Duration;
 use std::thread;
+use std::sync::mpsc::RecvTimeoutError;
 
 pub struct Client<I: Debug, O: Debug> {
     request: mpsc::Sender<I>,
@@ -30,6 +31,13 @@ impl<I: Debug, O: Debug> Server<I, O> {
     fn will(&self, callback: impl FnOnce(I) -> O) {
         self.response.send(callback(self.request.recv_timeout(Duration::from_secs(1)).unwrap())).unwrap()
     }
+    pub fn expect_timeout(&self) {
+        match self.request.recv_timeout(Duration::from_millis(100)) {
+            Err(RecvTimeoutError::Timeout) => return,
+            Err(RecvTimeoutError::Disconnected) => panic!("Expected timeout, found disconnected"),
+            Ok(x) => panic!("Expected timeout, found {:?}", x),
+        }
+    }
 }
 
 impl<I: Debug + PartialEq> Server<I, ()> {
@@ -48,7 +56,7 @@ impl<I: Debug + PartialEq> Server<I, ()> {
 
 impl<I: Debug, O: Debug> Drop for Server<I, O> {
     fn drop(&mut self) {
-        if !thread::panicking(){
+        if !thread::panicking() {
             assert_eq!(self.request.recv_timeout(Duration::from_secs(1)).unwrap_err(), mpsc::RecvTimeoutError::Disconnected);
         }
     }
