@@ -1,3 +1,4 @@
+#![feature(never_type)]
 #![allow(unused_imports)]
 
 extern crate serde;
@@ -16,83 +17,39 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use termio::input::{Event, EventReader};
 use util::listen::{Listen, Listeners};
 use util::socket::{set_reuse_port, set_linger};
-use util::shared::Shared;
+use util::shared::{Shared, SharedMut};
 use util::shared::Object;
 use util::io::SafeWrite;
-use util::Name;
+use util::{Name, watch};
+use std::time::{Duration, Instant};
+use termio::screen::Screen;
+use std::collections::HashMap;
+use util::watch::Watchable;
+use util::rng::BoxRng;
+use std::any::Any;
 
 //pub mod demo;
 pub mod replay;
 pub mod tcp;
+pub mod timer;
+pub mod proxy;
 
-pub trait PeerTrait: 'static + Send + Sync + Write + SafeWrite {
-    fn close(&mut self);
+pub trait Renderer: Send + Sync + 'static {
+    fn peer_render(&self, username: &Name);
+    fn peer_shutdown(&self, username: &Name);
 }
 
-pub type Peer = Box<dyn PeerTrait>;
+type TimerCallback = Box<dyn FnOnce(&dyn Handler) + Send + Sync + 'static>;
+
+pub trait Timer: Send + Sync + 'static {
+    fn now(&self) -> Instant;
+    fn schedule(&self, time: Instant, callback: TimerCallback);
+}
 
 pub trait Handler: 'static + Send {
-    fn add_peer(&mut self, username: &Name, peer: Peer);
-    fn remove_peer(&mut self, username: &Name);
-    fn handle_event(&mut self, username: &Name, event: &Event);
+    fn peer_add(&mut self, username: &Name);
+    fn peer_shutdown(&mut self, username: &Name);
+    fn peer_close(&mut self, username: &Name);
+    fn peer_event(&mut self, username: &Name, event: &Event);
+    fn peer_render(&mut self, username: &Name, output: &mut Vec<u8>);
 }
-
-
-//
-//pub struct Handler<T: ?Sized> {
-//    poison_listeners: Listeners<Box<dyn FnOnce() + Send>>,
-//    inner: Mutex<T>,
-//}
-//
-//pub struct HandlerGuard<'a, T: ?Sized> {
-//    inner: &'a Handler<T>,
-//    guard: MutexGuard<'a, T>,
-//}
-//
-//impl<T: ?Sized> Handler<T> {
-//    pub fn new(inner: T) -> Self where T: Sized {
-//        Handler {
-//            inner: Mutex::new(inner),
-//            poison_listeners: Listeners::new(),
-//        }
-//    }
-//    pub fn lock<'a>(&'a self) -> HandlerGuard<'a, T> {
-//        HandlerGuard {
-//            inner: self,
-//            guard: self.inner.lock().map_err(|_| PoisonError::new(())).unwrap(),
-//        }
-//    }
-//}
-//
-//impl<'a, T: ?Sized> HandlerGuard<'a, T> {
-//    fn on_poison(&self, callback: impl FnOnce() + 'static + Send) -> Listen<Box<dyn FnOnce() + Send>> {
-//        self.inner.poison_listeners.add(Box::new(callback))
-//    }
-//}
-//
-//impl<'a, T:?Sized> Deref for HandlerGuard<'a, T> {
-//    type Target = T;
-//
-//    fn deref(&self) -> &Self::Target {
-//        self.guard.deref()
-//    }
-//}
-//
-//impl<'a, T:?Sized> DerefMut for HandlerGuard<'a, T> {
-//    fn deref_mut(&mut self) -> &mut Self::Target {
-//        self.guard.deref_mut()
-//    }
-//}
-//
-//impl<'a, T: ?Sized> Drop for HandlerGuard<'a, T> {
-//    fn drop(&mut self) {
-//        if thread::panicking() {
-//            let listeners = self.inner.poison_listeners.take();
-//            thread::spawn(|| {
-//                for listener in listeners {
-//                    listener()
-//                }
-//            });
-//        }
-//    }
-//}

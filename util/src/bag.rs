@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 use std::mem;
 
+#[derive(Debug)]
 pub struct Bag<T> {
     next: usize,
     map: HashMap<usize, T>,

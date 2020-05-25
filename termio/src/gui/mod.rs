@@ -37,7 +37,7 @@ pub struct Gui {
     pub keyboard_focus: Option<Node>,
     style: Style,
     title: String,
-    output: TermWriter,
+    enabled: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -51,24 +51,24 @@ pub trait OutputEvent: Any + 'static + Send + Sync + fmt::Debug {
 }
 
 impl Gui {
-    pub fn new(node: Node, output: PipelineWriter) -> Gui {
+    pub fn new(node: Node) -> Gui {
         let gui = Gui {
             size: (0, 0),
             node: node,
             keyboard_focus: None,
             style: Style::default(),
             title: "".to_string(),
-            output: TermWriter::new(output),
+            enabled: true,
         };
         gui
     }
-    pub fn close(&mut self) {
-        self.output.close();
-    }
-
-    pub fn paint(&mut self) {
+    pub fn paint(&mut self, output: &mut TermWriter) {
         let mut borrow = self.node.borrow_mut();
         if !borrow.check_dirty() {
+            return;
+        }
+        output.set_enabled(self.enabled);
+        if !self.enabled {
             return;
         }
         let mut screen = Screen::new();
@@ -81,11 +81,7 @@ impl Gui {
         }
         let canvas = Canvas::new(&mut screen, borrow.bounds(), self.style);
         borrow.paint(canvas);
-        self.output.render(&screen, &self.style);
-    }
-
-    pub fn flush(&mut self) {
-        self.output.flush();
+        output.render(&screen, &self.style);
     }
 
     pub fn set_background(&mut self, style: Style) {
@@ -98,6 +94,13 @@ impl Gui {
     pub fn set_title(&mut self, title: String) {
         if self.title != title {
             self.title = title;
+            self.node.borrow_mut().header_mut().mark_dirty();
+        }
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled != enabled {
+            self.enabled = enabled;
             self.node.borrow_mut().header_mut().mark_dirty();
         }
     }

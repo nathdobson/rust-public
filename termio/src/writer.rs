@@ -18,10 +18,10 @@ pub struct TermWriter {
     cursor: (isize, isize),
     style: Style,
     background: Style,
-    inner: PipelineWriter,
+    inner: Vec<u8>,
     screen: Screen,
+    enabled: bool,
 }
-
 
 pub fn move_cursor_raw((x1, y1): (isize, isize), (x2, y2): (isize, isize)) -> impl Display {
     AsDisplay(move |f| {
@@ -66,31 +66,39 @@ pub fn move_cursor_raw((x1, y1): (isize, isize), (x2, y2): (isize, isize)) -> im
 }
 
 impl TermWriter {
-    pub fn new(inner: PipelineWriter) -> Self {
+    pub fn new() -> Self {
         let style = Style::default();
-        let mut this = TermWriter {
+        TermWriter {
             cursor: (1, 1),
             style: style,
             background: style,
-            inner: inner,
+            inner: vec![],
             screen: Screen::new(),
-        };
-
-        swrite!(this.inner, "{}", AllMotionTrackingEnable);
-        swrite!(this.inner, "{}", FocusTrackingEnable);
-        swrite!(this.inner, "{}", ReportTextAreaSize);
-        swrite!(this.inner, "{}", AlternateEnable);
-        swrite!(this.inner, "{}", CursorHide);
-        swrite!(this.inner, "{}", CursorPosition(1,1));
-        swrite!(this.inner, "{}", Background(Color::Default));
-        swrite!(this.inner, "{}", SingleWidthLine);
-        this
+            enabled: false,
+        }
     }
-    pub fn close(&mut self) {
-        swrite!(self.inner, "{}", AllMotionTrackingDisable);
-        swrite!(self.inner, "{}", FocusTrackingDisable);
-        swrite!(self.inner, "{}", AlternateDisable);
-        swrite!(self.inner, "{}", CursorShow);
+    pub fn buffer(&mut self) -> &mut Vec<u8> {
+        &mut self.inner
+    }
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled != enabled {
+            self.enabled = enabled;
+            if enabled {
+                swrite!(self.inner, "{}", AllMotionTrackingEnable);
+                swrite!(self.inner, "{}", FocusTrackingEnable);
+                swrite!(self.inner, "{}", ReportTextAreaSize);
+                swrite!(self.inner, "{}", AlternateEnable);
+                swrite!(self.inner, "{}", CursorHide);
+                swrite!(self.inner, "{}", CursorPosition(1,1));
+                swrite!(self.inner, "{}", Background(Color::Default));
+                swrite!(self.inner, "{}", SingleWidthLine);
+            } else {
+                swrite!(self.inner, "{}", AllMotionTrackingDisable);
+                swrite!(self.inner, "{}", FocusTrackingDisable);
+                swrite!(self.inner, "{}", AlternateDisable);
+                swrite!(self.inner, "{}", CursorShow);
+            }
+        }
     }
     pub fn move_cursor(&mut self, x: isize, y: isize) {
         if self.cursor == (x, y) {

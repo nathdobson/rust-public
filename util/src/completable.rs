@@ -101,6 +101,7 @@ pub fn failure<T>() -> Receiver<T> {
     Receiver::Err
 }
 
+
 #[test]
 fn test_completable_ok() {
     let (sender, mut receiver) = channel();

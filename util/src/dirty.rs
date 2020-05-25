@@ -1,22 +1,49 @@
 use std::thread;
-use crate::lossy;
+use crate::watch::Watchable;
 
+use std::ops::{Deref, DerefMut};
+use std::mem;
 
-pub struct DirtyLoop(lossy::Sender<()>);
+pub struct Dirty<T: ?Sized> {
+    dirty: bool,
+    value: T,
+}
 
-impl DirtyLoop {
-    pub fn new(mut callback: Box<dyn FnMut() + 'static + Send>) -> Self {
-        let (sender, receiver) = lossy::channel();
-        thread::spawn(move || {
-            while let Ok(()) = receiver.recv() {
-                callback();
-            }
-        });
-        DirtyLoop(sender)
+impl<T: ?Sized> Dirty<T> {
+    pub fn new(value: T) -> Self where T: Sized {
+        Dirty {
+            dirty: false,
+            value,
+        }
     }
-    pub fn run(&self) {
-        self.0.send(());
+    pub fn check_dirty(&mut self) -> bool {
+        mem::replace(&mut self.dirty, false)
     }
+}
+
+impl<T: ?Sized> Deref for Dirty<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T: ?Sized> DerefMut for Dirty<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.dirty = true;
+        &mut self.value
+    }
+}
+
+pub fn dirty_loop<T: Send + 'static>(value: T, mut callback: Box<dyn FnMut(&mut T) + 'static + Send>) -> Watchable<T> {
+    let watch = Watchable::new(value);
+    let mut reader = watch.watch();
+    thread::spawn(move || {
+        while let Ok(mut lock) = reader.next() {
+            callback(&mut **lock)
+        }
+    });
+    watch
 }
 
 #[test]
@@ -26,14 +53,14 @@ fn test_dirty() {
 
     let b1 = Arc::new(Barrier::new(2));
     let b2 = b1.clone();
-    let dirty = DirtyLoop::new(Box::new(move || {
+    let dirty = dirty_loop((), Box::new(move |&mut ()| {
         b2.wait();
         b2.wait();
     }));
-    dirty.run();
+    let _ = dirty.lock().unwrap();
     b1.wait();
-    dirty.run();
-    dirty.run();
+    let _ = dirty.lock().unwrap();
+    let _ = dirty.lock().unwrap();
     b1.wait();
     b1.wait();
     b1.wait();

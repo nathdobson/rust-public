@@ -15,20 +15,19 @@ pub struct PipelineWriter {
 }
 
 #[derive(Clone)]
-pub struct PipelineFlusher<W: Write> {
+pub struct PipelineFlusher {
     shared: Arc<Mutex<Pipeline>>,
-    inner: W,
 }
 
 //A non-blocking wrapper around a blocking Write:
 //1. write to PipelineWriter (non-blocking)
 //2. flush PipelineWriter (non-blocking)
 //3. flush PipelineFlusher (blocking)
-pub fn pipeline<W: Write>(inner: W) -> (PipelineWriter, PipelineFlusher<W>) {
+pub fn pipeline() -> (PipelineWriter, PipelineFlusher) {
     let shared1 = Arc::new(Mutex::new(Pipeline { outgoing: Vec::new() }));
     let shared2 = shared1.clone();
     (PipelineWriter { buffer: vec![], shared: shared1 },
-     PipelineFlusher { shared: shared2, inner })
+     PipelineFlusher { shared: shared2 })
 }
 
 impl Write for PipelineWriter {
@@ -59,22 +58,22 @@ impl Write for PipelineWriter {
     }
 }
 
-impl<W: Write> PipelineFlusher<W> {
-    pub fn flush(&mut self) -> io::Result<()> {
+impl PipelineFlusher {
+    pub fn flush<W: Write>(&mut self, output: &mut W) -> io::Result<()> {
         let mut lock = self.shared.lock().unwrap();
         let writes = mem::replace(&mut lock.outgoing, vec![]);
         mem::drop(lock);
         for write in writes.iter() {
             println!("Flushing {}", write.len());
-            self.inner.write_all(write.as_slice())?
+            output.write_all(write.as_slice())?
         }
         Ok(())
     }
 }
 
-impl<W: SafeWrite> PipelineFlusher<W> {
-    pub fn safe_flush(&mut self) {
-        self.flush().unwrap()
+impl PipelineFlusher {
+    pub fn safe_flush<W: SafeWrite>(&mut self, output: &mut W) {
+        self.flush(output).unwrap()
     }
 }
 
@@ -139,4 +138,4 @@ impl<W: Write> ProfiledWrite<W> {
     }
 }
 
-impl<W:SafeWrite> SafeWrite for ProfiledWrite<W>{}
+impl<W: SafeWrite> SafeWrite for ProfiledWrite<W> {}

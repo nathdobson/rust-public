@@ -1,65 +1,43 @@
-use std::sync::{Mutex, Condvar, Arc};
 use std::sync::mpsc::RecvError;
-use std::mem;
+use crate::watch::{Watchable, Watch};
 
-enum State<T: Send> {
-    Waiting,
-    Ok(T),
-    Err,
-}
+pub struct Sender<T: Send>(Watchable<Option<T>>);
 
-type Inner<T> = Arc<(Mutex<State<T>>, Condvar)>;
-
-pub struct Sender<T: Send>(Inner<T>);
-
-pub struct Receiver<T: Send>(Inner<T>);
-
-impl<T: Send> Drop for Sender<T> {
-    fn drop(&mut self) {
-        let mut lock = (self.0).0.lock().unwrap();
-        *lock = State::Err;
-        (self.0).1.notify_one();
-    }
-}
+pub struct Receiver<T: Send>(Watch<Option<T>>);
 
 impl<T: Send> Sender<T> {
     pub fn send(&self, value: T) {
-        let mut lock = (self.0).0.lock().unwrap();
-        *lock = State::Ok(value);
-        (self.0).1.notify_one();
+        **self.0.lock().unwrap() = Some(value);
     }
 }
 
 impl<T: Send> Receiver<T> {
-    pub fn recv(&self) -> Result<T, RecvError> {
-        let mut lock = (self.0).0.lock().unwrap();
-        lock = (self.0).1.wait_while(lock, |x| match x {
-            State::Waiting => true,
-            _ => false
-        }).unwrap();
-        match &mut *lock {
-            State::Waiting => unreachable!(),
-            State::Ok(_) => {
-                match mem::replace(&mut *lock, State::Waiting) {
-                    State::Waiting => unreachable!(),
-                    State::Ok(x) => return Ok(x),
-                    State::Err => unreachable!(),
-                }
+    pub fn recv(&mut self) -> Result<T, RecvError> {
+        loop {
+            if let Some(result) = self.0.next().map_err(|_| RecvError)?.take() {
+                return Ok(result);
             }
-            State::Err => return Err(RecvError),
         }
     }
 }
 
+impl<T:Send> Iterator for Receiver<T>{
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.recv().ok()
+    }
+}
+
 pub fn channel<T: Send>() -> (Sender<T>, Receiver<T>) {
-    let inner1 = Inner::new((Mutex::new(State::Waiting), Condvar::new()));
-    let inner2 = inner1.clone();
-    (Sender(inner1), Receiver(inner2))
+    let writer = Watchable::new(None);
+    let reader = writer.watch();
+    (Sender(writer), Receiver(reader))
 }
 
 #[test]
 fn test_lossy() {
-    let (s, r) = channel();
+    use std::mem;
+    let (s, mut r) = channel();
     s.send(1);
     s.send(2);
     assert_eq!(r.recv(), Ok(2));

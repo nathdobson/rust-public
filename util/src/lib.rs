@@ -20,6 +20,12 @@ pub mod rangemap;
 pub mod profile;
 pub mod completable;
 pub mod lossy;
+pub mod watch;
+pub mod version;
+pub mod pmpsc;
+pub mod cancel;
+pub mod shutdown;
+pub mod expect;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,
