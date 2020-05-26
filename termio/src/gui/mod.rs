@@ -137,7 +137,6 @@ impl Gui {
                     self.node.borrow_mut().handle(&InputEvent::MouseEvent(mouse_event), output);
                 }
             Event::TextAreaSize(w, h) => {
-                println!("Window size {} {}", w, h);
                 let size = (*w, *h);
                 if self.size != size {
                     self.size = (*w, *h);
