@@ -27,6 +27,8 @@ pub mod cancel;
 pub mod shutdown;
 pub mod expect;
 pub mod any;
+pub mod dynbag;
+pub mod web;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,

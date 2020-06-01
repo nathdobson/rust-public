@@ -1,80 +1,75 @@
-use std::any::Any;
-use std::marker::{PhantomData, Unsize};
+use std::marker::Unsize;
+use std::ops::{Index, IndexMut, CoerceUnsized};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic;
+use crate::shared::Shared;
+use std::cmp::Ordering;
 
-use crate::union::Union2;
-use std::ops::{Index, IndexMut};
-use crate::bag::{Bag, Token};
+static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub struct DynBag<T: ?Sized + 'static> {
-    vec: Bag<dyn Union2<dyn Any, T>>,
+pub struct Bag {
+    id: u64,
 }
 
-pub struct DynToken<A: 'static + ?Sized> {
-    index: Token,
-    phantom: PhantomData<A>,
+struct Inner<A: ?Sized> {
+    id: u64,
+    value: A,
 }
 
-impl<T: ?Sized + 'static> DynBag<T> {
+pub struct Token<A: ?Sized + 'static> {
+    inner: Shared<Inner<A>>
+}
+
+impl Bag {
     pub fn new() -> Self {
-        DynBag {
-            vec: vec![],
+        Bag {
+            id: COUNTER.fetch_add(1, atomic::Ordering::SeqCst)
         }
     }
-    pub fn push<A>(&mut self, element: A) -> DynKey<A> where A: Unsize<T> + 'static {
-        let result = DynKey { index: self.vec.len(), phantom: PhantomData };
-        self.vec.push(Box::new(element));
-        result
-    }
-    pub fn nth(&self, index: usize) -> &T {
-        (&*self.vec[index]).upcast2()
-    }
-    pub fn nth_mut(&mut self, index: usize) -> &mut T {
-        (&mut *self.vec[index]).upcast2_mut()
+    pub fn push<A: 'static>(&self, value: A) -> Token<A> {
+        Token { inner: Shared::new(Inner { id: self.id, value }) }
     }
 }
 
-impl<A: 'static, B: ?Sized> Index<DynKey<A>> for DynBag<B> {
+impl<'t, A: 'static + ?Sized, > Index<&'t Token<A>> for Bag {
     type Output = A;
-
-    fn index(&self, key: DynKey<A>) -> &A {
-        let result: &dyn Any = (&*self.vec[key.index]).upcast1();
-        result.downcast_ref().unwrap()
-    }
-}
-
-impl<A: 'static, B: ?Sized> IndexMut<DynKey<A>> for DynBag<B> {
-    fn index_mut(&mut self, key: DynKey<A>) -> &mut A {
-        let result: &mut dyn Any = (&mut *self.vec[key.index]).upcast1_mut();
-        result.downcast_mut().unwrap()
-    }
-}
-
-#[test]
-fn test_dyn_vec() {
-    trait Named {
-        fn name(&self) -> &'static str;
-    }
-    #[derive(Eq, Ord, PartialOrd, PartialEq)]
-    struct A;
-
-    impl Named for A {
-        fn name(&self) -> &'static str {
-            "A"
+    fn index<'b>(&'b self, key: &'t Token<A>) -> &'b A {
+        unsafe {
+            assert!(self.id == key.inner.id);
+            &*(&key.inner.value as *const A)
         }
     }
-    #[derive(Eq, Ord, PartialOrd, PartialEq)]
-    struct B;
-    impl Named for B {
-        fn name(&self) -> &'static str {
-            "B"
+}
+
+impl<'t, A: 'static + ?Sized, > IndexMut<&'t Token<A>> for Bag {
+    fn index_mut<'b>(&'b mut self, key: &'t Token<A>) -> &'b mut A {
+        unsafe {
+            assert!(self.id == key.inner.id);
+            &mut *(&key.inner.value as *const A as *mut A)
         }
     }
-
-    let mut vec: DynBag<dyn Named> = DynBag::new();
-    let a = vec.push(A);
-    let b = vec.push(B);
-    assert!(vec[a] == A);
-    assert!(vec[b] == B);
-    assert_eq!("A", vec.nth(0).name());
-    assert_eq!("B", vec.nth(1).name());
 }
+
+impl<A: 'static + ?Sized> Eq for Token<A> {}
+
+impl<A: 'static + ?Sized> PartialEq for Token<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.eq(&other.inner)
+    }
+}
+
+impl<A: 'static + ?Sized> Ord for Token<A> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.inner.cmp(&other.inner)
+    }
+}
+
+impl<A: 'static + ?Sized> PartialOrd for Token<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.inner.partial_cmp(&other.inner)
+    }
+}
+
+impl<T, U> CoerceUnsized<Token<U>> for Token<T> where
+    T: Unsize<U> + ?Sized,
+    U: ?Sized {}
