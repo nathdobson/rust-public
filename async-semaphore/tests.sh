@@ -1,3 +1,4 @@
+export RUST_BACKTRACE=1
 function cargosan(){
   SANITIZER=$1
   shift

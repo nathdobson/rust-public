@@ -8,6 +8,8 @@ extern crate test;
 mod util;
 mod atomic;
 pub mod shared;
+mod waker;
+mod freelist;
 
 //pub mod local;
 

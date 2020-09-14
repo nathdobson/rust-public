@@ -44,6 +44,7 @@ impl<T: AtomicPacker> Atomic<T> {
     pub fn store(&self, new: T::Value, ordering: Ordering) where T::Value: Copy {
         unsafe { self.0.store(T::encode(new), ordering) }
     }
+
     pub fn compare_exchange_weak(&self,
                                  current: T::Value,
                                  new: T::Value,
@@ -58,34 +59,28 @@ impl<T: AtomicPacker> Atomic<T> {
             }
         }
     }
-    pub fn swap(&self, new: T::Value, ordering: Ordering) -> T::Value {
-        unsafe {
-            T::decode(self.0.swap(T::encode(new), ordering))
-        }
-    }
-    pub fn fetch_update(&self,
-                        set_order: Ordering,
-                        fetch_order: Ordering,
-                        mut f: impl FnMut(T::Value) -> Option<T::Value>)
-                        -> Result<T::Value, T::Value> where T::Value: Copy {
-        unsafe {
-            match self.0.fetch_update(
-                set_order, fetch_order,
-                |x| {
-                    f(T::decode(x)).map(|x| T::encode(x))
-                }) {
-                Ok(ok) => Ok(T::decode(ok)),
-                Err(err) => (Err(T::decode(err))),
+
+
+    pub fn compare_update_weak(&self,
+                               current: &mut T::Value,
+                               new: T::Value,
+                               success: Ordering,
+                               failure: Ordering) -> bool where T::Value: Copy {
+        match self.compare_exchange_weak(*current, new, success, failure) {
+            Ok(_) => {
+                *current = new;
+                true
+            }
+            Err(actual) => {
+                *current = actual;
+                false
             }
         }
     }
-    pub fn transact_session(&self,
-                            fetch_order: Ordering)
-                            -> TransactionSession<'_, T> where T::Value: Copy {
-        TransactionSession {
-            atomic: self,
-            fetch_order,
-            current: self.load(fetch_order),
+
+    pub fn swap(&self, new: T::Value, ordering: Ordering) -> T::Value {
+        unsafe {
+            T::decode(self.0.swap(T::encode(new), ordering))
         }
     }
 }
@@ -96,59 +91,59 @@ impl<T: AtomicPacker> Drop for Atomic<T> {
     }
 }
 
-#[must_use]
-pub struct TransactionSession<'a, T: AtomicPacker> where T::Value: Copy {
-    atomic: &'a Atomic<T>,
-    fetch_order: Ordering,
-    current: T::Value,
-}
+// #[must_use]
+// pub struct TransactionSession<'a, T: AtomicPacker> where T::Value: Copy {
+//     atomic: &'a Atomic<T>,
+//     fetch_order: Ordering,
+//     current: T::Value,
+// }
+//
+// #[must_use]
+// pub struct Transaction<'a, 'b, T: AtomicPacker> where T::Value: Copy {
+//     session: &'b mut TransactionSession<'a, T>,
+//     new: T::Value,
+// }
 
-#[must_use]
-pub struct Transaction<'a, 'b, T: AtomicPacker> where T::Value: Copy {
-    session: &'b mut TransactionSession<'a, T>,
-    new: T::Value,
-}
+// impl<'a, T: AtomicPacker> TransactionSession<'a, T> where T::Value: Copy {
+//     pub fn transact<'b>(&'b mut self) -> Transaction<'a, 'b, T> {
+//         Transaction {
+//             new: self.current,
+//             session: self,
+//         }
+//     }
+// }
 
-impl<'a, T: AtomicPacker> TransactionSession<'a, T> where T::Value: Copy {
-    pub fn transact<'b>(&'b mut self) -> Transaction<'a, 'b, T> {
-        Transaction {
-            new: self.current,
-            session: self,
-        }
-    }
-}
+// impl<'a, 'b, T: AtomicPacker> Transaction<'a, 'b, T> where T::Value: Copy {
+//     #[must_use]
+//     pub fn commit(self, set_order: Ordering) -> bool {
+//         match self.session.atomic.compare_exchange_weak(
+//             self.session.current, self.new,
+//             set_order, self.session.fetch_order) {
+//             Ok(_) => {
+//                 self.session.current = self.new;
+//                 true
+//             }
+//             Err(current) => {
+//                 self.session.current = current;
+//                 false
+//             }
+//         }
+//     }
+// }
 
-impl<'a, 'b, T: AtomicPacker> Transaction<'a, 'b, T> where T::Value: Copy {
-    #[must_use]
-    pub fn commit(&mut self, set_order: Ordering) -> bool {
-        match self.session.atomic.compare_exchange_weak(
-            self.session.current, self.new,
-            set_order, self.session.fetch_order) {
-            Ok(_) => {
-                self.session.current = self.new;
-                true
-            }
-            Err(current) => {
-                self.session.current = current;
-                false
-            }
-        }
-    }
-}
-
-impl<'a, 'b, T: AtomicPacker> Deref for Transaction<'a, 'b, T> where T::Value: Copy {
-    type Target = T::Value;
-
-    fn deref(&self) -> &Self::Target {
-        &self.new
-    }
-}
-
-impl<'a, 'b, T: AtomicPacker> DerefMut for Transaction<'a, 'b, T> where T::Value: Copy {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.new
-    }
-}
+// impl<'a, 'b, T: AtomicPacker> Deref for Transaction<'a, 'b, T> where T::Value: Copy {
+//     type Target = T::Value;
+//
+//     fn deref(&self) -> &Self::Target {
+//         &self.new
+//     }
+// }
+//
+// impl<'a, 'b, T: AtomicPacker> DerefMut for Transaction<'a, 'b, T> where T::Value: Copy {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.new
+//     }
+// }
 
 macro_rules! impl_atomic_integer {
     ($atomic:ty, $raw:ty) => {

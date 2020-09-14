@@ -12,27 +12,36 @@ use std::pin::Pin;
 use std::ops::DerefMut;
 use std::fmt::{Debug, Formatter};
 use crate::atomic::{Atomic, AtomicPacker, CastPacker, AtomicUsize2, AtomicInteger, usize2};
-use crate::util::{assert_sync_send, clone_waker, yield_once};
-use std::sync::atomic::Ordering::{Acquire, AcqRel};
+use crate::util::{assert_sync_send};
+use std::sync::atomic::Ordering::{SeqCst, Relaxed, AcqRel, Acquire, Release};
+use crate::shared::Mode::{OPEN, QUEUED, LOCKED};
+use crate::waker::{WakerPacker, AtomicWaker};
+use crate::freelist::FreeList;
 
 pub struct Semaphore {
     state: Atomic<StatePacker>,
     front: UnsafeCell<*const Waiter>,
-    free: Atomic<CastPacker<(*const Waiter, usize), AtomicUsize2>>,
+    freelist: FreeList<Waiter>,
 }
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
-pub struct State {
-    available: usize,
-    back: *const Waiter,
-    locked: bool,
-    queued: bool,
+enum Mode {
+    OPEN,
+    QUEUED,
+    LOCKED,
 }
 
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+struct State {
+    available: usize,
+    back: *const Waiter,
+    mode: Mode,
+}
+
+#[repr(align(64))]
 pub struct Waiter {
-    waker: Atomic<WakerPacker>,
-    amount: UnsafeCell<usize>,
-    next: Atomic<CastPacker<*const Waiter, AtomicUsize>>,
+    waker: AtomicWaker,
+    next: UnsafeCell<*const Waiter>,
 }
 
 #[must_use = "If unused the acquire will be a noop."]
@@ -41,27 +50,7 @@ pub struct SemaphoreGuard<'a> {
     amount: usize,
 }
 
-struct WakerPacker;
-
 struct StatePacker;
-
-impl AtomicPacker for WakerPacker {
-    type Impl = AtomicU128;
-    type Value = Option<Waker>;
-
-    unsafe fn decode(x: u128) -> Option<Waker> {
-        match x {
-            0 => None,
-            _ => Some(mem::transmute(x)),
-        }
-    }
-    unsafe fn encode(x: Option<Waker>) -> u128 {
-        match x {
-            None => 0,
-            Some(x) => mem::transmute(x),
-        }
-    }
-}
 
 impl AtomicPacker for StatePacker {
     type Impl = AtomicUsize2;
@@ -70,16 +59,23 @@ impl AtomicPacker for StatePacker {
     unsafe fn encode(state: State) -> usize2 {
         ((state.available as usize2) << (size_of::<usize>() * 8)) |
             (state.back as usize2) |
-            (if state.locked { 2 } else { 0 }) |
-            (if state.queued { 1 } else { 0 })
+            (match state.mode {
+                Mode::OPEN => 0,
+                Mode::QUEUED => 1,
+                Mode::LOCKED => 2,
+            })
     }
 
     unsafe fn decode(x: u128) -> State {
         State {
             available: (x >> (size_of::<usize>() * 8)) as usize,
             back: ((x as usize) & (!3usize)) as *const Waiter,
-            locked: (x & 2) == 2,
-            queued: (x & 1) == 1,
+            mode: match x & 3 {
+                0 => Mode::OPEN,
+                1 => Mode::QUEUED,
+                2 => Mode::LOCKED,
+                _ => unreachable!(),
+            },
         }
     }
 }
@@ -107,7 +103,7 @@ impl Debug for DebugPtr {
         unsafe {
             write!(f, "{:?}", self.0)?;
             if self.0 != null() {
-                write!(f, " {:?} {:?}", *(*self.0).amount.get(), DebugPtr((*self.0).next.load(Ordering::SeqCst)))?;
+                write!(f, " {:?}", DebugPtr(*(*self.0).next.get()))?;
             }
             Ok(())
         }
@@ -118,11 +114,10 @@ impl Drop for Semaphore {
     fn drop(&mut self) {
         unsafe {
             for &(mut ptr) in &[*self.front.get(),
-                self.free.load(Ordering::Relaxed).0,
-                self.state.load(Ordering::Relaxed).back] {
+                self.state.load(Relaxed).back] {
                 while ptr != null() {
-                    let next = (*ptr).next.load(Ordering::Relaxed);
-                    Box::from_raw(ptr as *mut Waiter);
+                    let next = *(*ptr).next.get();
+                    self.freelist.free(ptr);
                     ptr = next;
                 }
             }
@@ -134,14 +129,11 @@ impl Debug for Semaphore {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         unsafe {
             let mut w = f.debug_struct("Semaphore");
-            let state = self.state.load(Ordering::SeqCst);
+            let state = self.state.load(SeqCst);
             w.field("A", &state.available);
-            w.field("Q", &state.queued);
-            w.field("L", &state.locked);
+            w.field("M", &state.mode);
             w.field("B", &DebugPtr(state.back));
             w.field("F", &DebugPtr(*self.front.get()));
-            let (free, free_gen) = self.free.load(Ordering::SeqCst);
-            w.field("P", &(DebugPtr(free), free_gen));
             w.finish()
         }
     }
@@ -153,229 +145,177 @@ impl Semaphore {
             state: Atomic::new(State {
                 available: initial,
                 back: null(),
-                locked: false,
-                queued: false,
+                mode: OPEN,
             }),
             front: UnsafeCell::new(null()),
-            free: Atomic::new((null(), 0)),
+            freelist: FreeList::new(),
         }
     }
 
     pub fn available(&self) -> usize {
-        self.state.load(Ordering::SeqCst).available
+        self.state.load(SeqCst).available
     }
 
     pub fn try_acquire(&self, amount: usize) -> Result<SemaphoreGuard<'_>, WouldBlock> {
-        let mut state = self.state.transact_session(Acquire);
+        let mut old_state = self.state.load(Relaxed);
         loop {
-            let mut state = state.transact();
-            if amount > state.available || state.queued {
+            let mut state = old_state;
+            if amount > state.available || state.mode != OPEN {
                 return Err(WouldBlock);
             }
             state.available -= amount;
-            if state.commit(AcqRel) {
+            if self.state.compare_update_weak(
+                &mut old_state, state, AcqRel, Relaxed) {
                 return Ok(SemaphoreGuard { semaphore: self, amount });
             }
         }
-    }
-
-    unsafe fn allocate(&self) -> *const Waiter {
-        if let Ok((free, _free_ver)) = self.free.fetch_update(
-            Ordering::AcqRel, Ordering::Acquire,
-            |(free, free_ver)| {
-                if free == null() {
-                    None
-                } else {
-                    Some(((*free).next
-                              .load(Ordering::Acquire), free_ver + 1))
-                }
-            }) {
-            free
-        } else {
-            Box::into_raw(Box::new(Waiter {
-                waker: Atomic::new(None),
-                amount: UnsafeCell::new(0),
-                next: Atomic::new(null()),
-            }))
-        }
-    }
-
-    unsafe fn free(&self, waiter: *const Waiter) {
-        (*waiter).waker.swap(None, Ordering::Relaxed);
-        self.free.fetch_update(
-            Ordering::AcqRel, Ordering::Acquire,
-            |(free, free_ver)| {
-                (*waiter).next.store(free, Ordering::Relaxed);
-                Some((waiter, free_ver + 1))
-            }).unwrap();
     }
 
     pub fn acquire(&self, amount: usize) -> impl Future<Output=SemaphoreGuard<'_>> {
         unsafe { assert_sync_send(self.acquire_impl(amount)) }
     }
 
-    unsafe fn try_acquire_or_enqueue(&self, amount: usize, waiter: *const Waiter) -> bool {
-        let mut acquired = false;
-        self.state.fetch_update(
-            Ordering::AcqRel, Ordering::Acquire,
-            |state| {
-                if amount <= state.available && !state.queued {
-                    acquired = true;
-                    Some(State { available: state.available - amount, ..state })
-                } else {
-                    acquired = false;
-                    (*waiter).next.store(state.back, Ordering::Relaxed);
-                    Some(State { queued: true, back: waiter, ..state })
-                }
-            }).unwrap();
-        if acquired {
-            self.free(waiter);
-        }
-        acquired
-    }
-
-
-    unsafe fn pop_and_unlock(&self) {
-        let old = *self.front.get();
-        *self.front.get() = (*old).next.load(Ordering::Relaxed);
-        self.free(old);
-        if self.state.fetch_update(
-            Ordering::AcqRel, Ordering::Acquire,
-            |state| {
-                if *self.front.get() == null() && state.back == null() {
-                    Some(State { queued: false, locked: false, ..state })
-                } else {
-                    None
-                }
-            }).is_ok() {
-            return;
-        };
-        self.unlock();
-    }
-
-    unsafe fn try_acquire_pop_and_unlock(&self) -> bool {
-        let waiter = *self.front.get();
-        let amount = *(*waiter).amount.get();
-        let next = (*waiter).next.load(Ordering::Relaxed);
-        let mut acquired = false;
-        self.state.fetch_update(
-            Ordering::AcqRel, Ordering::Acquire,
-            |state| {
-                if amount <= state.available {
-                    *self.front.get() = next;
-                    acquired = true;
-                    Some(State {
-                        available: state.available - amount,
-                        back: state.back,
-                        locked: true,
-                        queued: next != null() || state.back != null(),
-                    })
-                } else {
-                    *self.front.get() = waiter;
-                    acquired = false;
-                    Some(State { locked: false, ..state })
-                }
-            },
-        ).unwrap();
-        if acquired {
-            self.unlock();
-            self.free(waiter);
-        }
-        acquired
-    }
-
     async unsafe fn acquire_impl(&self, amount: usize) -> SemaphoreGuard<'_> {
         if let Ok(guard) = self.try_acquire(amount) {
             return guard;
         }
-        let waiter = self.allocate();
-        (*(*waiter).amount.get()) = amount;
-        (*waiter).waker.swap(Some(clone_waker().await), Ordering::Relaxed);
-        if self.try_acquire_or_enqueue(amount, waiter) {
+        let waiter =
+            self.freelist.allocate(Waiter {
+                waker: AtomicWaker::new().await,
+                next: UnsafeCell::new(null()),
+            });
+        if self.try_acquire_or_push(amount, waiter) {
             return SemaphoreGuard { semaphore: self, amount };
         }
         loop {
-            yield_once(|| {
-                let old = (*waiter).waker.swap(None, Ordering::AcqRel);
-                if old.is_none() {
+            (*waiter).waker.wait(|woken: bool| {
+                if woken {
                     assert_eq!(*self.front.get(), waiter);
                     self.pop_and_unlock();
                 }
             }).await;
-            let old = (*waiter).waker.swap(Some(clone_waker().await), Ordering::AcqRel);
-            if old.is_some() {
-                continue;
-            }
             assert_eq!(*self.front.get(), waiter);
-            if self.try_acquire_pop_and_unlock() {
+            if self.try_acquire_pop_and_unlock(amount) {
                 return SemaphoreGuard { semaphore: self, amount };
             }
         }
     }
 
-    unsafe fn unlock(&self) {
+    unsafe fn try_acquire_or_push(&self, amount: usize, waiter: *const Waiter) -> bool {
+        let mut old_state = self.state.load(Acquire);
         loop {
-            let state = self.state.load(Ordering::Acquire);
-            if !state.queued {
-                assert_eq!(*self.front.get(), null());
-                if self.state.compare_exchange_weak(state, State {
-                    locked: false,
-                    ..state
-                }, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-                    return;
-                } else {
-                    continue;
+            let mut state = old_state;
+            if amount < state.available && state.mode == OPEN {
+                state.available -= amount;
+                if self.state.compare_update_weak(
+                    &mut old_state, state, AcqRel, Acquire) {
+                    self.freelist.free(waiter);
+                    return true;
+                }
+            } else {
+                *(*waiter).next.get() = state.back;
+                if state.mode == OPEN {
+                    state.mode = QUEUED;
+                }
+                state.back = waiter;
+                if self.state.compare_update_weak(
+                    &mut old_state, state, AcqRel, Acquire) {
+                    return false;
                 }
             }
+        }
+    }
+
+    unsafe fn try_acquire_pop_and_unlock(&self, amount: usize) -> bool {
+        let waiter = *self.front.get();
+        let next = *(*waiter).next.get();
+        let mut old_state = self.state.load(Acquire);
+        loop {
+            let mut state = old_state;
+            if amount <= state.available {
+                *self.front.get() = next;
+                state.available -= amount;
+                if self.state.compare_update_weak(
+                    &mut old_state, state, AcqRel, Acquire) {
+                    self.freelist.free(waiter);
+                    self.unlock();
+                    return true;
+                }
+            } else {
+                *self.front.get() = waiter;
+                state.mode = QUEUED;
+                if self.state.compare_update_weak(
+                    &mut old_state, state, AcqRel, Acquire) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    unsafe fn pop_and_unlock(&self) {
+        let old = *self.front.get();
+        *self.front.get() = *(*old).next.get();
+        self.freelist.free(old);
+        self.unlock();
+    }
+
+    pub fn release(&self, amount: usize) {
+        unsafe {
+            let mut old_state = self.state.load(Acquire);
+            loop {
+                let mut state = old_state;
+                state.available += amount;
+                if state.mode == LOCKED {
+                    if self.state.compare_update_weak(
+                        &mut old_state, state, AcqRel, Acquire) {
+                        return;
+                    }
+                } else {
+                    state.mode = LOCKED;
+                    if self.state.compare_update_weak(
+                        &mut old_state, state, AcqRel, Acquire) {
+                        self.unlock();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    unsafe fn unlock(&self) {
+        let mut old_state = self.state.load(Acquire);
+        loop {
+            let mut state = old_state;
             if *self.front.get() == null() {
-                let mut back = self.state.fetch_update(
-                    Ordering::AcqRel, Ordering::Acquire,
-                    |state| {
-                        Some(State { back: null(), ..state })
-                    }).unwrap().back;
+                if state.back == null() {
+                    state.mode = OPEN;
+                    if !self.state.compare_update_weak(
+                        &mut old_state, state, AcqRel, Acquire) {
+                        continue;
+                    }
+                    return;
+                }
+                state.back = null();
+                let mut back = old_state.back;
+                if !self.state.compare_update_weak(
+                    &mut old_state, state, AcqRel, Acquire) {
+                    continue;
+                }
                 while back != null() {
-                    let next = (*back).next.load(Ordering::Relaxed);
-                    (*back).next.store(*self.front.get(), Ordering::Relaxed);
+                    let next = *((*back).next.get());
+                    *(*back).next.get() = *self.front.get();
                     *self.front.get() = back;
                     back = next;
                 }
                 assert_ne!((*self.front.get()), null());
                 continue;
             }
-            if let Some(waker) =
-            (**self.front.get()).waker.swap(None, Ordering::AcqRel) {
-                waker.wake();
-                return;
-            }
             let front = *self.front.get();
-            *self.front.get() = (*front).next.load(Ordering::Relaxed);
-            self.free(front);
-            if self.state.fetch_update(
-                Ordering::AcqRel, Ordering::Acquire,
-                |state| {
-                    if *self.front.get() == null() && state.back == null() {
-                        Some(State { queued: false, locked: false, ..state })
-                    } else {
-                        None
-                    }
-                }).is_ok() {
+            if (*front).waker.notify() {
                 return;
-            };
-        }
-    }
-
-    pub fn release(&self, amount: usize) {
-        unsafe {
-            if !self.state.fetch_update(
-                Ordering::AcqRel, Ordering::Acquire,
-                |state| {
-                    Some(State {
-                        available: state.available + amount,
-                        locked: true,
-                        ..state
-                    })
-                }).unwrap().locked {
-                self.unlock();
+            } else {
+                *self.front.get() = *(*front).next.get();
+                self.freelist.free(front);
             }
         }
     }
@@ -458,8 +398,8 @@ mod tests {
     fn test_multicore() {
         let capacity = 100;
         let semaphore = Arc::new(CheckedSemaphore::new(capacity));
-        let pool = ThreadPool::builder().pool_size(10).create().unwrap();
-        (0..30).map(|_thread|
+        let pool = ThreadPool::builder().pool_size(2).create().unwrap();
+        (0..2).map(|_thread|
             pool.spawn_with_handle({
                 let semaphore = semaphore.clone();
                 async move {
