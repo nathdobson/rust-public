@@ -1,122 +1,204 @@
-use std::sync::atomic::{Ordering, AtomicU128, AtomicU64, AtomicUsize};
+use std::sync::atomic::{Ordering,
+                        AtomicU128, AtomicU64, AtomicU32, AtomicU16, AtomicU8, AtomicUsize};
 use std::marker::PhantomData;
 use std::mem;
 use std::mem::size_of;
 use std::sync::Mutex;
+use std::ops::{DerefMut, Deref};
+use std::cell::{Cell, RefCell, Ref, RefMut};
 
-pub struct Atomic<T, R: RawAtomic, E: Encoder<T, <R as RawAtomic>::Value> = Transmuter<T, <R as RawAtomic>::Value>>(R, PhantomData<(T, E)>);
+pub struct Atomic<T: AtomicPacker>(T::Impl);
 
-pub struct Transmuter<T, R>(PhantomData<(T, R)>);
-
-pub trait Encoder<T, V> {
-    unsafe fn encode(x: T) -> V;
-    unsafe fn decode(x: V) -> T;
+pub unsafe trait AtomicInteger {
+    type Raw;
+    fn new(val: Self::Raw) -> Self;
+    fn load(&self, ordering: Ordering) -> Self::Raw;
+    fn store(&self, new: Self::Raw, ordering: Ordering);
+    fn compare_exchange_weak(&self,
+                             current: Self::Raw,
+                             new: Self::Raw,
+                             success: Ordering,
+                             failure: Ordering) -> Result<Self::Raw, Self::Raw>;
+    fn swap(&self, new: Self::Raw, ordering: Ordering) -> Self::Raw;
+    fn fetch_update(&self, set_order: Ordering, fetch_order: Ordering, f: impl FnMut(Self::Raw)
+        -> Option<Self::Raw>) -> Result<Self::Raw, Self::Raw>;
 }
 
-pub unsafe trait RawAtomic {
+pub trait AtomicPacker {
+    type Impl: AtomicInteger;
     type Value;
-    fn new(value: Self::Value) -> Self;
-    fn load(&self, ordering: Ordering) -> Self::Value;
-    fn store(&self, new: Self::Value, ordering: Ordering);
-    fn compare_exchange_weak(&self,
-                             current: Self::Value,
-                             new: Self::Value,
-                             success: Ordering,
-                             failure: Ordering) -> Result<Self::Value, Self::Value>;
-    fn swap(&self, new: Self::Value, ordering: Ordering) -> Self::Value;
-    fn fetch_update(&self, set_order: Ordering, fetch_order: Ordering, f: impl FnMut(Self::Value)
-        -> Option<Self::Value>) -> Result<Self::Value, Self::Value>;
+    unsafe fn encode(val: Self::Value) -> <Self::Impl as AtomicInteger>::Raw;
+    unsafe fn decode(val: <Self::Impl as AtomicInteger>::Raw) -> Self::Value;
 }
 
-unsafe impl RawAtomic for AtomicU128 {
-    type Value = u128;
-    fn new(value: Self::Value) -> Self {
-        AtomicU128::new(value)
-    }
 
-    fn load(&self, ordering: Ordering) -> Self::Value {
-        self.load(ordering)
+impl<T: AtomicPacker> Atomic<T> {
+    pub fn new(val: T::Value) -> Self {
+        unsafe {
+            Atomic(T::Impl::new(T::encode(val)))
+        }
     }
-
-    fn store(&self, new: Self::Value, ordering: Ordering) {
-        self.store(new, ordering)
+    pub fn load(&self, ordering: Ordering) -> T::Value where T::Value: Copy {
+        unsafe { T::decode(self.0.load(ordering)) }
     }
-
-    fn compare_exchange_weak(&self,
-                             current: Self::Value,
-                             new: Self::Value,
-                             success: Ordering,
-                             failure: Ordering) -> Result<Self::Value, Self::Value> {
-        self.compare_exchange_weak(current, new, success, failure)
+    pub fn store(&self, new: T::Value, ordering: Ordering) where T::Value: Copy {
+        unsafe { self.0.store(T::encode(new), ordering) }
     }
-    fn swap(&self, new: Self::Value, ordering: Ordering) -> Self::Value {
-        self.swap(new, ordering)
+    pub fn compare_exchange_weak(&self,
+                                 current: T::Value,
+                                 new: T::Value,
+                                 success: Ordering,
+                                 failure: Ordering) -> Result<T::Value, T::Value> where T::Value: Copy {
+        unsafe {
+            match self.0.compare_exchange_weak(
+                T::encode(current), T::encode(new),
+                success, failure) {
+                Ok(ok) => Ok(T::decode(ok)),
+                Err(err) => Err(T::decode(err)),
+            }
+        }
     }
-    fn fetch_update(&self, set_order: Ordering, fetch_order: Ordering, f: impl FnMut(Self::Value)
-        -> Option<Self::Value>) -> Result<Self::Value, Self::Value> {
-        self.fetch_update(set_order, fetch_order, f)
+    pub fn swap(&self, new: T::Value, ordering: Ordering) -> T::Value {
+        unsafe {
+            T::decode(self.0.swap(T::encode(new), ordering))
+        }
     }
-}
-
-unsafe impl RawAtomic for AtomicU64 {
-    type Value = u64;
-    fn new(value: Self::Value) -> Self {
-        AtomicU64::new(value)
+    pub fn fetch_update(&self,
+                        set_order: Ordering,
+                        fetch_order: Ordering,
+                        mut f: impl FnMut(T::Value) -> Option<T::Value>)
+                        -> Result<T::Value, T::Value> where T::Value: Copy {
+        unsafe {
+            match self.0.fetch_update(
+                set_order, fetch_order,
+                |x| {
+                    f(T::decode(x)).map(|x| T::encode(x))
+                }) {
+                Ok(ok) => Ok(T::decode(ok)),
+                Err(err) => (Err(T::decode(err))),
+            }
+        }
     }
-
-    fn load(&self, ordering: Ordering) -> Self::Value {
-        self.load(ordering)
-    }
-
-    fn store(&self, new: Self::Value, ordering: Ordering) {
-        self.store(new, ordering)
-    }
-
-    fn compare_exchange_weak(&self,
-                             current: Self::Value,
-                             new: Self::Value,
-                             success: Ordering,
-                             failure: Ordering) -> Result<Self::Value, Self::Value> {
-        self.compare_exchange_weak(current, new, success, failure)
-    }
-    fn swap(&self, new: Self::Value, ordering: Ordering) -> Self::Value {
-        self.swap(new, ordering)
-    }
-    fn fetch_update(&self, set_order: Ordering, fetch_order: Ordering, f: impl FnMut(Self::Value)
-        -> Option<Self::Value>) -> Result<Self::Value, Self::Value> {
-        self.fetch_update(set_order, fetch_order, f)
+    pub fn transact_session(&self,
+                            fetch_order: Ordering)
+                            -> TransactionSession<'_, T> where T::Value: Copy {
+        TransactionSession {
+            atomic: self,
+            fetch_order,
+            current: self.load(fetch_order),
+        }
     }
 }
 
-unsafe impl RawAtomic for AtomicUsize {
-    type Value = usize;
-    fn new(value: Self::Value) -> Self {
-        AtomicUsize::new(value)
-    }
-
-    fn load(&self, ordering: Ordering) -> Self::Value {
-        self.load(ordering)
-    }
-
-    fn store(&self, new: Self::Value, ordering: Ordering) {
-        self.store(new, ordering)
-    }
-
-    fn compare_exchange_weak(&self,
-                             current: Self::Value,
-                             new: Self::Value,
-                             success: Ordering,
-                             failure: Ordering) -> Result<Self::Value, Self::Value> {
-        self.compare_exchange_weak(current, new, success, failure)
-    }
-    fn swap(&self, new: Self::Value, ordering: Ordering) -> Self::Value {
-        self.swap(new, ordering)
-    }
-    fn fetch_update(&self, set_order: Ordering, fetch_order: Ordering, f: impl FnMut(Self::Value)
-        -> Option<Self::Value>) -> Result<Self::Value, Self::Value> {
-        self.fetch_update(set_order, fetch_order, f)
+impl<T: AtomicPacker> Drop for Atomic<T> {
+    fn drop(&mut self) {
+        unsafe { T::decode(self.0.load(Ordering::Relaxed)) };
     }
 }
+
+#[must_use]
+pub struct TransactionSession<'a, T: AtomicPacker> where T::Value: Copy {
+    atomic: &'a Atomic<T>,
+    fetch_order: Ordering,
+    current: T::Value,
+}
+
+#[must_use]
+pub struct Transaction<'a, 'b, T: AtomicPacker> where T::Value: Copy {
+    session: &'b mut TransactionSession<'a, T>,
+    new: T::Value,
+}
+
+impl<'a, T: AtomicPacker> TransactionSession<'a, T> where T::Value: Copy {
+    pub fn transact<'b>(&'b mut self) -> Transaction<'a, 'b, T> {
+        Transaction {
+            new: self.current,
+            session: self,
+        }
+    }
+}
+
+impl<'a, 'b, T: AtomicPacker> Transaction<'a, 'b, T> where T::Value: Copy {
+    #[must_use]
+    pub fn commit(&mut self, set_order: Ordering) -> bool {
+        match self.session.atomic.compare_exchange_weak(
+            self.session.current, self.new,
+            set_order, self.session.fetch_order) {
+            Ok(_) => {
+                self.session.current = self.new;
+                true
+            }
+            Err(current) => {
+                self.session.current = current;
+                false
+            }
+        }
+    }
+}
+
+impl<'a, 'b, T: AtomicPacker> Deref for Transaction<'a, 'b, T> where T::Value: Copy {
+    type Target = T::Value;
+
+    fn deref(&self) -> &Self::Target {
+        &self.new
+    }
+}
+
+impl<'a, 'b, T: AtomicPacker> DerefMut for Transaction<'a, 'b, T> where T::Value: Copy {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.new
+    }
+}
+
+macro_rules! impl_atomic_integer {
+    ($atomic:ty, $raw:ty) => {
+        unsafe impl AtomicInteger for $atomic {
+            type Raw = $raw;
+
+            fn new(val: Self::Raw) -> Self { Self::new(val) }
+
+            fn load(&self, ordering: Ordering) -> Self::Raw { self.load(ordering) }
+
+            fn store(&self, new: Self::Raw, ordering: Ordering) { self.store(new, ordering) }
+
+            fn compare_exchange_weak(&self,
+                                     current: Self::Raw,
+                                     new: Self::Raw,
+                                     success: Ordering,
+                                     failure: Ordering)
+                                     -> Result<Self::Raw, Self::Raw> {
+                self.compare_exchange_weak(current, new, success, failure)
+            }
+            fn swap(&self, new: Self::Raw, ordering: Ordering) -> Self::Raw {
+                self.swap(new, ordering)
+            }
+            fn fetch_update(&self,
+                            set_order: Ordering,
+                            fetch_order: Ordering,
+                            f: impl FnMut(Self::Raw) -> Option<Self::Raw>)
+                            -> Result<Self::Raw, Self::Raw> {
+                self.fetch_update(set_order, fetch_order, f)
+            }
+        }
+    }
+}
+impl_atomic_integer!(AtomicU128, u128);
+impl_atomic_integer!(AtomicU64, u64);
+impl_atomic_integer!(AtomicU32, u32);
+impl_atomic_integer!(AtomicU16, u16);
+impl_atomic_integer!(AtomicU8, u8);
+impl_atomic_integer!(AtomicUsize, usize);
+
+#[cfg(target_pointer_width = "32")]
+pub type AtomicUsize2 = AtomicU64;
+
+#[cfg(target_pointer_width = "64")]
+pub type AtomicUsize2 = AtomicU128;
+
+#[allow(non_camel_case_types)]
+pub type usize2 = <AtomicUsize2 as AtomicInteger>::Raw;
+
+pub struct CastPacker<V, I: AtomicInteger>(PhantomData<(V, I)>);
 
 unsafe fn force_transmute<T, U>(value: T) -> U {
     assert_eq!(size_of::<T>(), size_of::<U>());
@@ -125,59 +207,13 @@ unsafe fn force_transmute<T, U>(value: T) -> U {
     result
 }
 
-impl<T, V> Encoder<T, V> for Transmuter<T, V> {
-    unsafe fn encode(x: T) -> V {
-        force_transmute(x)
+impl<V, I: AtomicInteger> AtomicPacker for CastPacker<V, I> {
+    type Impl = I;
+    type Value = V;
+    unsafe fn encode(val: V) -> I::Raw {
+        force_transmute(val)
     }
-
-    unsafe fn decode(x: V) -> T {
-        force_transmute(x)
-    }
-}
-
-impl<T, R: RawAtomic, E: Encoder<T, R::Value>> Atomic<T, R, E> {
-    pub fn new(x: T) -> Self {
-        unsafe {
-            Atomic(R::new(E::encode(x)), PhantomData)
-        }
-    }
-    pub fn load(&self, ordering: Ordering) -> T where T: Copy {
-        unsafe { E::decode(self.0.load(ordering)) }
-    }
-    pub fn store(&self, new: T, ordering: Ordering) where T: Copy {
-        unsafe { self.0.store(E::encode(new), ordering) }
-    }
-    pub fn compare_exchange_weak(&self,
-                                 current: T,
-                                 new: T,
-                                 success: Ordering,
-                                 failure: Ordering) -> Result<T, T> {
-        unsafe {
-            match self.0.compare_exchange_weak(
-                E::encode(current),
-                E::encode(new),
-                success,
-                failure) {
-                Ok(ok) => Ok(E::decode(ok)),
-                Err(err) => Err(E::decode(err)),
-            }
-        }
-    }
-    pub fn swap(&self, new: T, ordering: Ordering) -> T {
-        unsafe {
-            E::decode(self.0.swap(E::encode(new), ordering))
-        }
-    }
-    pub fn fetch_update(&self, set_order: Ordering, fetch_order: Ordering, mut f: impl FnMut(T) -> Option<T>) -> Result<T, T> {
-        unsafe {
-            match self.0.fetch_update(
-                set_order, fetch_order,
-                |x| {
-                    f(E::decode(x)).map(|x| E::encode(x))
-                }) {
-                Ok(ok) => Ok(E::decode(ok)),
-                Err(err) => (Err(E::decode(err))),
-            }
-        }
+    unsafe fn decode(val: I::Raw) -> V {
+        force_transmute(val)
     }
 }

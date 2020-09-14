@@ -2,7 +2,6 @@ use futures::pending;
 use std::mem;
 use std::task::{Waker, Poll};
 use std::cell::RefCell;
-use crate::queue::Queue;
 use std::future::Future;
 use futures::future::poll_fn;
 use crate::{future_waker, LockError};
