@@ -8,8 +8,10 @@ extern crate test;
 mod util;
 mod atomic;
 pub mod shared;
+pub mod local;
 mod waker;
 mod freelist;
+mod queue;
 
 //pub mod local;
 
@@ -18,7 +20,10 @@ use std::error::Error;
 use std::future::Future;
 use std::task::{Waker, Poll};
 use std::pin::Pin;
-use std::mem;
+use std::{mem, thread};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::cell::UnsafeCell;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq)]
 pub struct WouldBlock;
@@ -30,4 +35,3 @@ impl Display for WouldBlock {
         write!(f, "{:?}", self)
     }
 }
-

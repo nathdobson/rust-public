@@ -157,7 +157,7 @@ impl Semaphore {
     }
 
     pub fn try_acquire(&self, amount: usize) -> Result<SemaphoreGuard<'_>, WouldBlock> {
-        let mut old_state = self.state.load(Relaxed);
+        let mut old_state = self.state.load(Acquire);
         loop {
             let mut state = old_state;
             if amount > state.available || state.mode != OPEN {
@@ -165,7 +165,7 @@ impl Semaphore {
             }
             state.available -= amount;
             if self.state.compare_update_weak(
-                &mut old_state, state, AcqRel, Relaxed) {
+                &mut old_state, state, AcqRel, Acquire) {
                 return Ok(SemaphoreGuard { semaphore: self, amount });
             }
         }

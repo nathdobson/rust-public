@@ -60,7 +60,7 @@ impl<T: AtomicPacker> Atomic<T> {
         }
     }
 
-
+    #[must_use]
     pub fn compare_update_weak(&self,
                                current: &mut T::Value,
                                new: T::Value,
@@ -90,60 +90,6 @@ impl<T: AtomicPacker> Drop for Atomic<T> {
         unsafe { T::decode(self.0.load(Ordering::Relaxed)) };
     }
 }
-
-// #[must_use]
-// pub struct TransactionSession<'a, T: AtomicPacker> where T::Value: Copy {
-//     atomic: &'a Atomic<T>,
-//     fetch_order: Ordering,
-//     current: T::Value,
-// }
-//
-// #[must_use]
-// pub struct Transaction<'a, 'b, T: AtomicPacker> where T::Value: Copy {
-//     session: &'b mut TransactionSession<'a, T>,
-//     new: T::Value,
-// }
-
-// impl<'a, T: AtomicPacker> TransactionSession<'a, T> where T::Value: Copy {
-//     pub fn transact<'b>(&'b mut self) -> Transaction<'a, 'b, T> {
-//         Transaction {
-//             new: self.current,
-//             session: self,
-//         }
-//     }
-// }
-
-// impl<'a, 'b, T: AtomicPacker> Transaction<'a, 'b, T> where T::Value: Copy {
-//     #[must_use]
-//     pub fn commit(self, set_order: Ordering) -> bool {
-//         match self.session.atomic.compare_exchange_weak(
-//             self.session.current, self.new,
-//             set_order, self.session.fetch_order) {
-//             Ok(_) => {
-//                 self.session.current = self.new;
-//                 true
-//             }
-//             Err(current) => {
-//                 self.session.current = current;
-//                 false
-//             }
-//         }
-//     }
-// }
-
-// impl<'a, 'b, T: AtomicPacker> Deref for Transaction<'a, 'b, T> where T::Value: Copy {
-//     type Target = T::Value;
-//
-//     fn deref(&self) -> &Self::Target {
-//         &self.new
-//     }
-// }
-//
-// impl<'a, 'b, T: AtomicPacker> DerefMut for Transaction<'a, 'b, T> where T::Value: Copy {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.new
-//     }
-// }
 
 macro_rules! impl_atomic_integer {
     ($atomic:ty, $raw:ty) => {

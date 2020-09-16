@@ -24,14 +24,6 @@ impl<T> Queue<T> {
         }
     }
 
-    pub fn get(&self, key: QueueKey) -> Option<&T> {
-        if let Some(index) = self.index(key) {
-            Some(&self.queue[index])
-        } else {
-            None
-        }
-    }
-
     pub fn get_mut(&mut self, key: QueueKey) -> Option<&mut T> {
         if let Some(index) = self.index(key) {
             Some(&mut self.queue[index])

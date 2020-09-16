@@ -66,7 +66,7 @@ impl AtomicWaker {
         }
         impl<'a, F: FnOnce(bool)> Drop for Wait<'a, F> {
             fn drop(&mut self) {
-                if let Some(on_cancel) = self.on_cancel.take().take() {
+                if let Some(on_cancel) = self.on_cancel.take() {
                     let old = self.waker.0.swap(None, AcqRel);
                     on_cancel(old.is_none());
                 }
@@ -89,3 +89,4 @@ impl AtomicWaker {
         }
     }
 }
+
