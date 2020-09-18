@@ -3,6 +3,7 @@
 #![feature(is_sorted)]
 #![feature(test)]
 #![feature(result_contains_err)]
+#![feature(wake_trait)]
 extern crate test;
 
 mod util;
@@ -17,6 +18,8 @@ mod queue;
 #[cfg(test)]
 mod bench;
 //pub mod local;
+#[cfg(test)]
+mod profile;
 
 use std::fmt::Display;
 use std::error::Error;

@@ -23,7 +23,10 @@ struct SemaphoreInner {
     waiting: Queue<Waiter>,
 }
 
-pub enum AcquireImpl<'a> {
+pub struct AcquireImpl<'a>(AcquireImplInner<'a>);
+
+#[derive(Clone, Copy)]
+pub enum AcquireImplInner<'a> {
     Enter { semaphore: &'a Semaphore, amount: u64 },
     Waiting { semaphore: &'a Semaphore, amount: u64, id: QueueKey },
     Poison,
@@ -78,7 +81,7 @@ impl Semaphore {
     }
 
     pub fn acquire(&self, amount: u64) -> AcquireImpl {
-        AcquireImpl::Enter { semaphore: self, amount }
+        AcquireImpl(AcquireImplInner::Enter { semaphore: self, amount })
     }
 }
 
@@ -94,8 +97,8 @@ impl<'a> Future for AcquireImpl<'a> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe {
             let this = self.get_unchecked_mut();
-            match mem::replace(this, AcquireImpl::Poison) {
-                AcquireImpl::Enter { semaphore, amount } => {
+            match mem::replace(&mut this.0, AcquireImplInner::Poison) {
+                AcquireImplInner::Enter { semaphore, amount } => {
                     let mut inner = semaphore.inner.lock().unwrap();
                     if amount <= inner.available && inner.waiting.front().is_none() {
                         inner.available -= amount;
@@ -105,20 +108,21 @@ impl<'a> Future for AcquireImpl<'a> {
                         waker: cx.waker().clone(),
                         amount,
                     });
-                    *this = AcquireImpl::Waiting { semaphore, amount, id };
+                    this.0 = AcquireImplInner::Waiting { semaphore, amount, id };
                     return Poll::Pending;
                 }
-                AcquireImpl::Waiting { semaphore, amount, id } => {
+                AcquireImplInner::Waiting { semaphore, amount, id } => {
                     let mut inner = semaphore.inner.lock().unwrap();
                     if id < inner.waiting.front_key() {
                         return Poll::Ready(ReleaseGuard::new(semaphore, amount));
                     } else {
                         let call = inner.waiting.get_mut(id).unwrap();
                         call.waker = cx.waker().clone();
+                        this.0 = AcquireImplInner::Waiting { semaphore, amount, id };
                         return Poll::Pending;
                     }
                 }
-                AcquireImpl::Poison => unreachable!()
+                AcquireImplInner::Poison => unreachable!()
             }
         }
     }
@@ -126,16 +130,16 @@ impl<'a> Future for AcquireImpl<'a> {
 
 impl<'a> Drop for AcquireImpl<'a> {
     fn drop(&mut self) {
-        match self {
-            AcquireImpl::Waiting { semaphore, amount, id } => {
+        match self.0 {
+            AcquireImplInner::Waiting { semaphore, amount, id } => {
                 let mut this = semaphore.inner.lock().unwrap();
-                match this.waiting.get_mut(*id) {
-                    None => semaphore.release_impl(this, *amount),
+                match this.waiting.get_mut(id) {
+                    None => semaphore.release_impl(this, amount),
                     Some(call) => call.amount = 0,
                 }
             }
-            AcquireImpl::Enter { .. } => {}
-            AcquireImpl::Poison => {}
+            AcquireImplInner::Enter { .. } => {}
+            AcquireImplInner::Poison => {}
         }
     }
 }
@@ -144,7 +148,7 @@ impl<'a> Drop for AcquireImpl<'a> {
 mod test {
     use rand_xorshift::XorShiftRng;
     use std::{mem, thread};
-    use futures::executor::{LocalPool, block_on};
+    use futures::executor::{LocalPool, block_on, ThreadPool};
     use std::rc::Rc;
     use futures::task::{LocalSpawnExt, SpawnExt, LocalFutureObj, FutureObj};
     use rand::{SeedableRng, Rng, thread_rng};
@@ -152,7 +156,7 @@ mod test {
     use async_std::future::{timeout, TimeoutError};
     use async_std::task::sleep;
     use std::cell::RefCell;
-    use crate::{WouldBlock};
+    use crate::{WouldBlock, ReleaseGuard, Releaser};
     use defer::defer;
     use futures::future::poll_fn;
     use futures::{Future, StreamExt};
@@ -162,6 +166,7 @@ mod test {
     use std::process::abort;
     use futures::stream::FuturesUnordered;
     use crate::shared_mutex::{Semaphore};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_random() {
@@ -256,5 +261,85 @@ mod test {
         println!("J");
         let _g3 = block_on(semaphore.acquire(5));
         println!("K");
+    }
+
+    struct CheckedSemaphore {
+        capacity: u64,
+        semaphore: Semaphore,
+        counter: Mutex<u64>,
+    }
+
+    impl CheckedSemaphore {
+        fn new(capacity: u64) -> Self {
+            CheckedSemaphore {
+                capacity,
+                semaphore: Semaphore::new(capacity),
+                counter: Mutex::new(0),
+            }
+        }
+        async fn acquire(&self, amount: u64) -> ReleaseGuard<&Semaphore, Semaphore> {
+            //println!("+ {}", amount);
+            let guard = self.semaphore.acquire(amount).await;
+            let mut lock = self.counter.lock().unwrap();
+            //println!("{} + {} = {} ", *lock, amount, *lock + amount);
+            *lock += amount;
+            assert!(*lock <= self.capacity);
+            mem::drop(lock);
+            //println!("{:?}", self.semaphore);
+            guard
+        }
+        fn release(&self, amount: u64) {
+            let mut lock = self.counter.lock().unwrap();
+            assert!(*lock >= amount);
+            //println!("{} - {} = {} ", *lock, amount, *lock - amount);
+            *lock -= amount;
+            mem::drop(lock);
+            let result = self.semaphore.release(amount);
+            //println!("{:?}", self.semaphore);
+            result
+        }
+    }
+
+    #[test]
+    fn test_multicore() {
+        let capacity = 100;
+        let semaphore = Arc::new(CheckedSemaphore::new(capacity));
+        let pool = ThreadPool::builder().pool_size(2).create().unwrap();
+        (0..2).map(|_thread|
+            pool.spawn_with_handle({
+                let semaphore = semaphore.clone();
+                async move {
+                    //let indent = " ".repeat(thread * 10);
+                    let mut owned = 0;
+                    for _i in 0..500 {
+                        //println!("{:?}", semaphore.semaphore);
+                        if owned == 0 {
+                            owned = thread_rng().gen_range(0, capacity + 1);
+                            //println!("{} : acquiring {}", thread, owned);
+                            let dur = Duration::from_millis(thread_rng().gen_range(0, 10));
+                            if let Ok(guard) =
+                            timeout(dur, semaphore.acquire(owned)).await {
+                                guard.forget();
+                            } else {
+                                owned = 0;
+                            }
+                        } else {
+                            let mut rng = thread_rng();
+                            let r = if rng.gen_bool(0.5) {
+                                owned
+                            } else {
+                                rng.gen_range(1, owned + 1)
+                            };
+                            owned -= r;
+                            semaphore.release(r);
+                            //println!("{} : released {}", thread, owned);
+                        }
+                    }
+                    semaphore.release(owned);
+                }
+            }).unwrap()
+        ).collect::<Vec<_>>().into_iter().for_each(block_on);
+        mem::drop(pool);
+        assert_eq!(Arc::strong_count(&semaphore), 1);
     }
 }

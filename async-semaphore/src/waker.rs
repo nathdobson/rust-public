@@ -1,27 +1,57 @@
 use crate::atomic::{AtomicPacker, Atomic};
 use std::sync::atomic::AtomicU128;
-use std::task::{Waker, Poll, Context};
-use std::mem;
+use std::task::{Waker, Poll, Context, RawWaker, RawWakerVTable};
+use std::{mem, fmt};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::Ordering::AcqRel;
+use std::mem::ManuallyDrop;
+use crate::waker::AtomicWaker::{Waking, Cancelled};
+use std::fmt::{Debug, Formatter};
 
 pub struct WakerPacker;
 
+#[derive(Copy, Clone, Eq, PartialOrd, PartialEq, Ord)]
+pub struct WakerValue(u128);
+
+#[derive(Copy, Clone, Eq, PartialOrd, PartialEq, Ord, Debug)]
+pub enum AtomicWaker {
+    Cancelled,
+    Waking,
+    Waiting(WakerValue),
+}
+
+impl WakerValue {
+    pub unsafe fn encode(waker: Waker) -> Self {
+        WakerValue(mem::transmute(waker))
+    }
+    pub unsafe fn decode(x: Self) -> Waker {
+        mem::transmute(x.0)
+    }
+}
+
+impl Debug for WakerValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", unsafe { mem::transmute::<_, (*const (), &'static RawWakerVTable)>(self.0) }.0)
+    }
+}
+
 impl AtomicPacker for WakerPacker {
     type Impl = AtomicU128;
-    type Value = Option<Waker>;
+    type Value = AtomicWaker;
 
-    unsafe fn decode(x: u128) -> Option<Waker> {
+    unsafe fn decode(x: u128) -> AtomicWaker {
         match x {
-            0 => None,
-            _ => Some(mem::transmute(x)),
+            0 => Cancelled,
+            1 => Waking,
+            _ => AtomicWaker::Waiting(WakerValue(x)),
         }
     }
-    unsafe fn encode(x: Option<Waker>) -> u128 {
+    unsafe fn encode(x: AtomicWaker) -> u128 {
         match x {
-            None => 0,
-            Some(x) => mem::transmute(x),
+            Cancelled => 0,
+            Waking => 1,
+            AtomicWaker::Waiting(waker) => waker.0,
         }
     }
 }
