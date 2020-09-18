@@ -4,6 +4,7 @@ use std::ops::Index;
 #[derive(Clone, Copy, Eq, PartialOrd, PartialEq, Ord, Debug)]
 pub struct QueueKey(u64);
 
+#[derive(Debug)]
 pub struct Queue<T> {
     front: QueueKey,
     queue: VecDeque<T>,

@@ -1,21 +1,20 @@
 use std::sync::atomic::{Ordering, AtomicU128, AtomicUsize};
 use std::{mem, fmt};
-use crate::{WouldBlock};
+use crate::{WouldBlock, ReleaseGuard, Releaser};
 use std::marker::PhantomData;
 use std::ptr::null;
 use std::mem::{MaybeUninit, size_of};
 use std::cell::UnsafeCell;
-use std::task::Waker;
+use std::task::{Waker, Context, Poll};
 use std::sync::Mutex;
 use std::future::Future;
 use std::pin::Pin;
 use std::ops::DerefMut;
 use std::fmt::{Debug, Formatter};
 use crate::atomic::{Atomic, AtomicPacker, CastPacker, AtomicUsize2, AtomicInteger, usize2};
-use crate::util::{assert_sync_send};
 use std::sync::atomic::Ordering::{SeqCst, Relaxed, AcqRel, Acquire, Release};
-use crate::shared::Mode::{OPEN, QUEUED, LOCKED};
-use crate::waker::{WakerPacker, AtomicWaker};
+use crate::shared_dwcas::Mode::{OPEN, QUEUED, LOCKED};
+use crate::waker::{WakerPacker};
 use crate::freelist::FreeList;
 
 pub struct Semaphore {
@@ -33,24 +32,27 @@ enum Mode {
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 struct State {
-    available: usize,
+    available: u64,
     back: *const Waiter,
     mode: Mode,
 }
 
 #[repr(align(64))]
 pub struct Waiter {
-    waker: AtomicWaker,
+    waker: Atomic<WakerPacker>,
     next: UnsafeCell<*const Waiter>,
 }
 
-#[must_use = "If unused the acquire will be a noop."]
-pub struct SemaphoreGuard<'a> {
-    semaphore: &'a Semaphore,
-    amount: usize,
-}
-
 struct StatePacker;
+
+pub struct AcquireImpl<'a>(AcquireImplInner<'a>);
+
+#[derive(Clone, Copy)]
+pub enum AcquireImplInner<'a> {
+    Enter { semaphore: &'a Semaphore, amount: u64 },
+    Waiting { semaphore: &'a Semaphore, waiter: *const Waiter, amount: u64 },
+    Poison,
+}
 
 impl AtomicPacker for StatePacker {
     type Impl = AtomicUsize2;
@@ -68,7 +70,7 @@ impl AtomicPacker for StatePacker {
 
     unsafe fn decode(x: u128) -> State {
         State {
-            available: (x >> (size_of::<usize>() * 8)) as usize,
+            available: (x >> (size_of::<u64>() * 8)) as u64,
             back: ((x as usize) & (!3usize)) as *const Waiter,
             mode: match x & 3 {
                 0 => Mode::OPEN,
@@ -84,17 +86,9 @@ unsafe impl Sync for Semaphore {}
 
 unsafe impl Send for Semaphore {}
 
-impl SemaphoreGuard<'_> {
-    pub fn forget(self) {
-        mem::forget(self)
-    }
-}
+unsafe impl<'a> Sync for AcquireImpl<'a> {}
 
-impl Drop for SemaphoreGuard<'_> {
-    fn drop(&mut self) {
-        self.semaphore.release(self.amount);
-    }
-}
+unsafe impl<'a> Send for AcquireImpl<'a> {}
 
 struct DebugPtr(*const Waiter);
 
@@ -140,72 +134,15 @@ impl Debug for Semaphore {
 }
 
 impl Semaphore {
-    pub fn new(initial: usize) -> Semaphore {
-        Semaphore {
-            state: Atomic::new(State {
-                available: initial,
-                back: null(),
-                mode: OPEN,
-            }),
-            front: UnsafeCell::new(null()),
-            freelist: FreeList::new(),
-        }
-    }
-
-    pub fn available(&self) -> usize {
+    pub fn available(&self) -> u64 {
         self.state.load(SeqCst).available
     }
 
-    pub fn try_acquire(&self, amount: usize) -> Result<SemaphoreGuard<'_>, WouldBlock> {
+    unsafe fn try_acquire_or_push(&self, amount: u64, waiter: *const Waiter) -> bool {
         let mut old_state = self.state.load(Acquire);
         loop {
             let mut state = old_state;
-            if amount > state.available || state.mode != OPEN {
-                return Err(WouldBlock);
-            }
-            state.available -= amount;
-            if self.state.compare_update_weak(
-                &mut old_state, state, AcqRel, Acquire) {
-                return Ok(SemaphoreGuard { semaphore: self, amount });
-            }
-        }
-    }
-
-    pub fn acquire(&self, amount: usize) -> impl Future<Output=SemaphoreGuard<'_>> {
-        unsafe { assert_sync_send(self.acquire_impl(amount)) }
-    }
-
-    async unsafe fn acquire_impl(&self, amount: usize) -> SemaphoreGuard<'_> {
-        if let Ok(guard) = self.try_acquire(amount) {
-            return guard;
-        }
-        let waiter =
-            self.freelist.allocate(Waiter {
-                waker: AtomicWaker::new().await,
-                next: UnsafeCell::new(null()),
-            });
-        if self.try_acquire_or_push(amount, waiter) {
-            return SemaphoreGuard { semaphore: self, amount };
-        }
-        loop {
-            (*waiter).waker.wait(|woken: bool| {
-                if woken {
-                    assert_eq!(*self.front.get(), waiter);
-                    self.pop_and_unlock();
-                }
-            }).await;
-            assert_eq!(*self.front.get(), waiter);
-            if self.try_acquire_pop_and_unlock(amount) {
-                return SemaphoreGuard { semaphore: self, amount };
-            }
-        }
-    }
-
-    unsafe fn try_acquire_or_push(&self, amount: usize, waiter: *const Waiter) -> bool {
-        let mut old_state = self.state.load(Acquire);
-        loop {
-            let mut state = old_state;
-            if amount < state.available && state.mode == OPEN {
+            if amount <= state.available && state.mode == OPEN {
                 state.available -= amount;
                 if self.state.compare_update_weak(
                     &mut old_state, state, AcqRel, Acquire) {
@@ -226,7 +163,7 @@ impl Semaphore {
         }
     }
 
-    unsafe fn try_acquire_pop_and_unlock(&self, amount: usize) -> bool {
+    unsafe fn try_acquire_pop_and_unlock(&self, amount: u64) -> bool {
         let waiter = *self.front.get();
         let next = *(*waiter).next.get();
         let mut old_state = self.state.load(Acquire);
@@ -259,29 +196,6 @@ impl Semaphore {
         self.unlock();
     }
 
-    pub fn release(&self, amount: usize) {
-        unsafe {
-            let mut old_state = self.state.load(Acquire);
-            loop {
-                let mut state = old_state;
-                state.available += amount;
-                if state.mode == LOCKED {
-                    if self.state.compare_update_weak(
-                        &mut old_state, state, AcqRel, Acquire) {
-                        return;
-                    }
-                } else {
-                    state.mode = LOCKED;
-                    if self.state.compare_update_weak(
-                        &mut old_state, state, AcqRel, Acquire) {
-                        self.unlock();
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
     unsafe fn unlock(&self) {
         let mut old_state = self.state.load(Acquire);
         loop {
@@ -311,20 +225,139 @@ impl Semaphore {
                 continue;
             }
             let front = *self.front.get();
-            if (*front).waker.notify() {
-                return;
-            } else {
-                *self.front.get() = *(*front).next.get();
-                self.freelist.free(front);
+            match (*front).waker.swap(None, Ordering::AcqRel) {
+                None => {
+                    *self.front.get() = *(*front).next.get();
+                    self.freelist.free(front);
+                }
+                Some(waker) => {
+                    waker.wake();
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn new(initial: u64) -> Self {
+        Semaphore {
+            state: Atomic::new(State {
+                available: initial,
+                back: null(),
+                mode: OPEN,
+            }),
+            front: UnsafeCell::new(null()),
+            freelist: FreeList::new(),
+        }
+    }
+
+    fn try_acquire(&self, amount: u64) -> Result<ReleaseGuard<&Self, Self>, WouldBlock> {
+        let mut old_state = self.state.load(Acquire);
+        loop {
+            let mut state = old_state;
+            if amount > state.available || state.mode != OPEN {
+                return Err(WouldBlock);
+            }
+            state.available -= amount;
+            if self.state.compare_update_weak(
+                &mut old_state, state, AcqRel, Acquire) {
+                return Ok(ReleaseGuard::new(self, amount));
+            }
+        }
+    }
+
+    pub fn acquire(&self, amount: u64) -> AcquireImpl<'_> {
+        AcquireImpl(AcquireImplInner::Enter { semaphore: self, amount })
+    }
+}
+
+
+impl Releaser for Semaphore {
+    fn release(&self, amount: u64) {
+        unsafe {
+            let mut old_state = self.state.load(Acquire);
+            loop {
+                let mut state = old_state;
+                state.available += amount;
+                if state.mode == LOCKED {
+                    if self.state.compare_update_weak(
+                        &mut old_state, state, AcqRel, Acquire) {
+                        return;
+                    }
+                } else {
+                    state.mode = LOCKED;
+                    if self.state.compare_update_weak(
+                        &mut old_state, state, AcqRel, Acquire) {
+                        self.unlock();
+                        return;
+                    }
+                }
             }
         }
     }
 }
 
+impl<'a> Future for AcquireImpl<'a> {
+    type Output = ReleaseGuard<&'a Semaphore, Semaphore>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe {
+            let this = self.get_unchecked_mut();
+            match this.0 {
+                AcquireImplInner::Enter { semaphore, amount } => {
+                    if let Ok(guard) = semaphore.try_acquire(amount) {
+                        this.0 = AcquireImplInner::Poison;
+                        return Poll::Ready(guard);
+                    }
+                    let waiter =
+                        semaphore.freelist.allocate(Waiter {
+                            waker: Atomic::new(Some(cx.waker().clone())),
+                            next: UnsafeCell::new(null()),
+                        });
+                    if semaphore.try_acquire_or_push(amount, waiter) {
+                        this.0 = AcquireImplInner::Poison;
+                        return Poll::Ready(ReleaseGuard::new(semaphore, amount));
+                    }
+                    this.0 = AcquireImplInner::Waiting { semaphore, waiter, amount };
+                    return Poll::Pending;
+                }
+                AcquireImplInner::Waiting { semaphore, waiter, amount } => {
+                    if (*waiter).waker.swap(Some(cx.waker().clone()), AcqRel).is_some() {
+                        return Poll::Pending;
+                    }
+                    assert_eq!(*semaphore.front.get(), waiter);
+                    if semaphore.try_acquire_pop_and_unlock(amount) {
+                        this.0 = AcquireImplInner::Poison;
+                        return Poll::Ready(ReleaseGuard::new(semaphore, amount));
+                    } else {
+                        return Poll::Pending;
+                    }
+                }
+                AcquireImplInner::Poison => unreachable!()
+            }
+        }
+    }
+}
+
+impl<'a> Drop for AcquireImpl<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            match self.0 {
+                AcquireImplInner::Waiting { semaphore, waiter, amount: _ } => {
+                    if (*waiter).waker.swap(None, AcqRel).is_none() {
+                        assert_eq!(*semaphore.front.get(), waiter);
+                        semaphore.pop_and_unlock();
+                    }
+                }
+                AcquireImplInner::Enter { .. } => {}
+                AcquireImplInner::Poison => {}
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use crate::shared::{Semaphore, SemaphoreGuard};
+    use crate::shared_dwcas::{Semaphore};
     use futures::executor::{LocalPool, ThreadPool, block_on};
     use futures::task::{LocalSpawnExt, SpawnExt};
     use rand::{thread_rng, Rng, SeedableRng};
@@ -339,6 +372,7 @@ mod tests {
     use std::time::Duration;
     use async_std::task::sleep;
     use async_std::future::timeout;
+    use crate::{ReleaseGuard, Releaser};
 
     #[test]
     fn test_simple() {
@@ -358,20 +392,20 @@ mod tests {
     }
 
     struct CheckedSemaphore {
-        capacity: usize,
+        capacity: u64,
         semaphore: Semaphore,
-        counter: Mutex<usize>,
+        counter: Mutex<u64>,
     }
 
     impl CheckedSemaphore {
-        fn new(capacity: usize) -> Self {
+        fn new(capacity: u64) -> Self {
             CheckedSemaphore {
                 capacity,
                 semaphore: Semaphore::new(capacity),
                 counter: Mutex::new(0),
             }
         }
-        async fn acquire(&self, amount: usize) -> SemaphoreGuard<'_> {
+        async fn acquire(&self, amount: u64) -> ReleaseGuard<&Semaphore, Semaphore> {
             //println!("+ {}", amount);
             let guard = self.semaphore.acquire(amount).await;
             let mut lock = self.counter.lock().unwrap();
@@ -382,7 +416,7 @@ mod tests {
             //println!("{:?}", self.semaphore);
             guard
         }
-        fn release(&self, amount: usize) {
+        fn release(&self, amount: u64) {
             let mut lock = self.counter.lock().unwrap();
             assert!(*lock >= amount);
             //println!("{} - {} = {} ", *lock, amount, *lock - amount);

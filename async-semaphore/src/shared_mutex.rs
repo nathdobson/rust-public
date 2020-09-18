@@ -1,20 +1,32 @@
-use std::mem;
-use std::task::{Waker, Poll};
+use std::{mem, fmt};
+use std::task::{Waker, Poll, Context};
 use std::cell::RefCell;
 use std::future::Future;
-use crate::queue::Queue;
-use crate::{WouldBlock, ReleaseGuard};
+use crate::queue::{Queue, QueueKey};
+use crate::{WouldBlock, ReleaseGuard, Releaser};
+use std::sync::{Mutex, MutexGuard};
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use std::sync::atomic::Ordering::AcqRel;
 
+pub struct Semaphore { inner: Mutex<SemaphoreInner> }
+
+#[derive(Debug)]
 struct Waiter {
     waker: Waker,
     amount: u64,
 }
 
-pub struct Semaphore { inner: RefCell<SemaphoreInner> }
-
+#[derive(Debug)]
 struct SemaphoreInner {
     available: u64,
     waiting: Queue<Waiter>,
+}
+
+pub enum AcquireImpl<'a> {
+    Enter { semaphore: &'a Semaphore, amount: u64 },
+    Waiting { semaphore: &'a Semaphore, amount: u64, id: QueueKey },
+    Poison,
 }
 
 impl SemaphoreInner {
@@ -26,52 +38,15 @@ impl SemaphoreInner {
     }
 }
 
+impl Debug for Semaphore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.inner.lock().unwrap())?;
+        Ok(())
+    }
+}
+
 impl Semaphore {
-    pub fn new(capacity: u64) -> Semaphore {
-        Semaphore {
-            inner: RefCell::new(SemaphoreInner::new(capacity))
-        }
-    }
-
-    pub fn try_acquire(&self, amount: u64) -> Result<ReleaseGuard<&Self, Self>, WouldBlock> {
-        let mut this = self.inner.borrow_mut();
-        if amount <= this.available {
-            this.available -= amount;
-            Ok(ReleaseGuard { semaphore: self, amount })
-        } else {
-            Err(WouldBlock)
-        }
-    }
-
-    pub async fn acquire(&self, amount: u64) -> ReleaseGuard<'_> {
-        let mut this = self.inner.borrow_mut();
-        if amount <= this.available {
-            this.available -= amount;
-            return ReleaseGuard { semaphore: self, amount };
-        }
-
-        let id = this.waiting.push_back(Waiter {
-            waker: clone_waker().await,
-            amount,
-        });
-        loop {
-            mem::drop(this);
-            yield_once(|| {
-                if id < self.inner.borrow_mut().waiting.front_key() {
-                    self.release(amount);
-                }
-            }).await;
-            this = self.inner.borrow_mut();
-            if id < this.waiting.front_key() {
-                return SemaphoreGuard { semaphore: self, amount };
-            } else {
-                let call = this.waiting.get_mut(id).unwrap();
-                call.waker = clone_waker().await;
-            }
-        }
-    }
-    pub fn release(&self, amount: u64) {
-        let mut this = self.inner.borrow_mut();
+    fn release_impl<'a>(&'a self, mut this: MutexGuard<'a, SemaphoreInner>, amount: u64) {
         this.available += amount;
         while let Some(front) = this.waiting.front() {
             if front.amount > this.available {
@@ -81,9 +56,87 @@ impl Semaphore {
             let waker = this.waiting.pop_front().unwrap().waker;
             mem::drop(this);
             waker.wake();
-            this = self.inner.borrow_mut();
+            this = self.inner.lock().unwrap();
         }
         mem::drop(this);
+    }
+
+    pub fn new(initial: u64) -> Self {
+        Semaphore {
+            inner: Mutex::new(SemaphoreInner::new(initial))
+        }
+    }
+
+    pub fn try_acquire(&self, amount: u64) -> Result<ReleaseGuard<&Self, Self>, WouldBlock> {
+        let mut this = self.inner.lock().unwrap();
+        if amount <= this.available && this.waiting.front().is_none() {
+            this.available -= amount;
+            Ok(ReleaseGuard::new(self, amount))
+        } else {
+            Err(WouldBlock)
+        }
+    }
+
+    pub fn acquire(&self, amount: u64) -> AcquireImpl {
+        AcquireImpl::Enter { semaphore: self, amount }
+    }
+}
+
+impl Releaser for Semaphore {
+    fn release(&self, amount: u64) {
+        self.release_impl(self.inner.lock().unwrap(), amount);
+    }
+}
+
+impl<'a> Future for AcquireImpl<'a> {
+    type Output = ReleaseGuard<&'a Semaphore, Semaphore>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe {
+            let this = self.get_unchecked_mut();
+            match mem::replace(this, AcquireImpl::Poison) {
+                AcquireImpl::Enter { semaphore, amount } => {
+                    let mut inner = semaphore.inner.lock().unwrap();
+                    if amount <= inner.available && inner.waiting.front().is_none() {
+                        inner.available -= amount;
+                        return Poll::Ready(ReleaseGuard::new(semaphore, amount));
+                    }
+                    let id = inner.waiting.push_back(Waiter {
+                        waker: cx.waker().clone(),
+                        amount,
+                    });
+                    *this = AcquireImpl::Waiting { semaphore, amount, id };
+                    return Poll::Pending;
+                }
+                AcquireImpl::Waiting { semaphore, amount, id } => {
+                    let mut inner = semaphore.inner.lock().unwrap();
+                    if id < inner.waiting.front_key() {
+                        return Poll::Ready(ReleaseGuard::new(semaphore, amount));
+                    } else {
+                        let call = inner.waiting.get_mut(id).unwrap();
+                        call.waker = cx.waker().clone();
+                        return Poll::Pending;
+                    }
+                }
+                AcquireImpl::Poison => unreachable!()
+            }
+        }
+    }
+}
+
+impl<'a> Drop for AcquireImpl<'a> {
+    fn drop(&mut self) {
+        match self {
+            AcquireImpl::Waiting { semaphore, amount, id } => {
+                let mut this = semaphore.inner.lock().unwrap();
+                match this.waiting.get_mut(*id) {
+                    None => semaphore.release_impl(this, *amount),
+                    Some(call) => call.amount = 0,
+                }
+            }
+            AcquireImpl::Enter { .. } => {}
+            AcquireImpl::Poison => {}
+        }
     }
 }
 
@@ -99,8 +152,7 @@ mod test {
     use async_std::future::{timeout, TimeoutError};
     use async_std::task::sleep;
     use std::cell::RefCell;
-    use crate::local::{Semaphore};
-    use crate::WouldBlock;
+    use crate::{WouldBlock};
     use defer::defer;
     use futures::future::poll_fn;
     use futures::{Future, StreamExt};
@@ -109,6 +161,7 @@ mod test {
     use futures::poll;
     use std::process::abort;
     use futures::stream::FuturesUnordered;
+    use crate::shared_mutex::{Semaphore};
 
     #[test]
     fn test_random() {
