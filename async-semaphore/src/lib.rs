@@ -13,7 +13,6 @@ pub mod shared_dwcas;
 pub mod shared_mutex;
 //pub mod local;
 //pub mod shared;
-mod waker;
 mod freelist;
 mod queue;
 #[cfg(test)]
@@ -47,17 +46,17 @@ impl Display for WouldBlock {
 }
 
 pub trait Releaser {
-    fn release(&self, amount: u64);
+    fn release(&self, amount: usize);
 }
 
 pub struct ReleaseGuard<P, R> where P: Borrow<R>, R: Releaser {
     releaser: P,
-    amount: u64,
+    amount: usize,
     phantom: PhantomData<R>,
 }
 
 impl<P, R> ReleaseGuard<P, R> where P: Borrow<R>, R: Releaser {
-    pub fn new(releaser: P, amount: u64) -> Self {
+    pub fn new(releaser: P, amount: usize) -> Self {
         ReleaseGuard { releaser, amount, phantom: PhantomData }
     }
     pub fn forget(self) {

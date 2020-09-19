@@ -14,12 +14,12 @@ pub struct Semaphore { inner: Mutex<SemaphoreInner> }
 #[derive(Debug)]
 struct Waiter {
     waker: Waker,
-    amount: u64,
+    amount: usize,
 }
 
 #[derive(Debug)]
 struct SemaphoreInner {
-    available: u64,
+    available: usize,
     waiting: Queue<Waiter>,
 }
 
@@ -27,13 +27,13 @@ pub struct AcquireImpl<'a>(AcquireImplInner<'a>);
 
 #[derive(Clone, Copy)]
 pub enum AcquireImplInner<'a> {
-    Enter { semaphore: &'a Semaphore, amount: u64 },
-    Waiting { semaphore: &'a Semaphore, amount: u64, id: QueueKey },
+    Enter { semaphore: &'a Semaphore, amount: usize },
+    Waiting { semaphore: &'a Semaphore, amount: usize, id: QueueKey },
     Poison,
 }
 
 impl SemaphoreInner {
-    fn new(initial: u64) -> Self {
+    fn new(initial: usize) -> Self {
         SemaphoreInner {
             available: initial,
             waiting: Queue::new(),
@@ -49,7 +49,7 @@ impl Debug for Semaphore {
 }
 
 impl Semaphore {
-    fn release_impl<'a>(&'a self, mut this: MutexGuard<'a, SemaphoreInner>, amount: u64) {
+    fn release_impl<'a>(&'a self, mut this: MutexGuard<'a, SemaphoreInner>, amount: usize) {
         this.available += amount;
         while let Some(front) = this.waiting.front() {
             if front.amount > this.available {
@@ -64,13 +64,13 @@ impl Semaphore {
         mem::drop(this);
     }
 
-    pub fn new(initial: u64) -> Self {
+    pub fn new(initial: usize) -> Self {
         Semaphore {
             inner: Mutex::new(SemaphoreInner::new(initial))
         }
     }
 
-    pub fn try_acquire(&self, amount: u64) -> Result<ReleaseGuard<&Self, Self>, WouldBlock> {
+    pub fn try_acquire(&self, amount: usize) -> Result<ReleaseGuard<&Self, Self>, WouldBlock> {
         let mut this = self.inner.lock().unwrap();
         if amount <= this.available && this.waiting.front().is_none() {
             this.available -= amount;
@@ -80,13 +80,13 @@ impl Semaphore {
         }
     }
 
-    pub fn acquire(&self, amount: u64) -> AcquireImpl {
+    pub fn acquire(&self, amount: usize) -> AcquireImpl {
         AcquireImpl(AcquireImplInner::Enter { semaphore: self, amount })
     }
 }
 
 impl Releaser for Semaphore {
-    fn release(&self, amount: u64) {
+    fn release(&self, amount: usize) {
         self.release_impl(self.inner.lock().unwrap(), amount);
     }
 }
@@ -264,20 +264,20 @@ mod test {
     }
 
     struct CheckedSemaphore {
-        capacity: u64,
+        capacity: usize,
         semaphore: Semaphore,
-        counter: Mutex<u64>,
+        counter: Mutex<usize>,
     }
 
     impl CheckedSemaphore {
-        fn new(capacity: u64) -> Self {
+        fn new(capacity: usize) -> Self {
             CheckedSemaphore {
                 capacity,
                 semaphore: Semaphore::new(capacity),
                 counter: Mutex::new(0),
             }
         }
-        async fn acquire(&self, amount: u64) -> ReleaseGuard<&Semaphore, Semaphore> {
+        async fn acquire(&self, amount: usize) -> ReleaseGuard<&Semaphore, Semaphore> {
             //println!("+ {}", amount);
             let guard = self.semaphore.acquire(amount).await;
             let mut lock = self.counter.lock().unwrap();
@@ -288,7 +288,7 @@ mod test {
             //println!("{:?}", self.semaphore);
             guard
         }
-        fn release(&self, amount: u64) {
+        fn release(&self, amount: usize) {
             let mut lock = self.counter.lock().unwrap();
             assert!(*lock >= amount);
             //println!("{} - {} = {} ", *lock, amount, *lock - amount);

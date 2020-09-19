@@ -1,5 +1,4 @@
-use std::sync::atomic::{Ordering,
-                        AtomicU128, AtomicU64, AtomicU32, AtomicU16, AtomicU8, AtomicUsize};
+use std::sync::atomic::{Ordering};
 use std::marker::PhantomData;
 use std::mem;
 use std::mem::size_of;
@@ -134,15 +133,15 @@ macro_rules! impl_atomic_integer {
     }
 }
 #[cfg(target_has_atomic = "8")]
-impl_atomic_integer!(AtomicU8, u8);
+impl_atomic_integer!(std::sync::atomic::AtomicU8, u8);
 #[cfg(target_has_atomic = "16")]
-impl_atomic_integer!(AtomicU16, u16);
+impl_atomic_integer!(std::sync::atomic::AtomicU16, u16);
 #[cfg(target_has_atomic = "32")]
-impl_atomic_integer!(AtomicU32, u32);
+impl_atomic_integer!(std::sync::atomic::AtomicU32, u32);
 #[cfg(target_has_atomic = "64")]
-impl_atomic_integer!(AtomicU64, u64);
+impl_atomic_integer!(std::sync::atomic::AtomicU64, u64);
 #[cfg(target_has_atomic = "128")]
-impl_atomic_integer!(AtomicU128, u128);
+impl_atomic_integer!(std::sync::atomic::AtomicU128, u128);
 
 #[cfg(target_pointer_width = "32")]
 #[allow(non_camel_case_types)]
