@@ -1,5 +1,5 @@
 use std::cell::UnsafeCell;
-use crate::atomic::{AtomicUsize2, CastPacker, Atomic};
+use crate::atomic::{Atomic};
 use std::ptr::null;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, AcqRel, Release};
 use std::mem::MaybeUninit;
@@ -9,12 +9,12 @@ use std::cmp::Ordering;
 
 #[repr(align(64))]
 struct Node<T> {
-    next: Atomic<CastPacker<*const Node<T>, AtomicUsize>>,
+    next: Atomic<*const Node<T>>,
     value: UnsafeCell<MaybeUninit<T>>,
 }
 
 pub struct FreeList<T> {
-    head: Atomic<CastPacker<(*const Node<T>, usize), AtomicUsize2>>
+    head: Atomic<(*const Node<T>, usize)>
 }
 
 impl<T> FreeList<T> {

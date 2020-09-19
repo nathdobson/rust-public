@@ -1,4 +1,4 @@
-use crate::atomic::{AtomicPacker, Atomic};
+use crate::atomic::{Atomic, usize2, AtomicPackable};
 use std::sync::atomic::AtomicU128;
 use std::task::{Waker, Poll, Context, RawWaker, RawWakerVTable};
 use std::{mem, fmt};
@@ -8,8 +8,6 @@ use std::sync::atomic::Ordering::AcqRel;
 use std::mem::ManuallyDrop;
 use crate::waker::AtomicWaker::{Waking, Cancelled};
 use std::fmt::{Debug, Formatter};
-
-pub struct WakerPacker;
 
 #[derive(Copy, Clone, Eq, PartialOrd, PartialEq, Ord)]
 pub struct WakerValue(u128);
@@ -36,18 +34,16 @@ impl Debug for WakerValue {
     }
 }
 
-impl AtomicPacker for WakerPacker {
-    type Impl = AtomicU128;
-    type Value = AtomicWaker;
-
-    unsafe fn decode(x: u128) -> AtomicWaker {
+impl AtomicPackable for AtomicWaker {
+    type Raw = usize2;
+    unsafe fn decode(x: u128) -> Self {
         match x {
             0 => Cancelled,
             1 => Waking,
             _ => AtomicWaker::Waiting(WakerValue(x)),
         }
     }
-    unsafe fn encode(x: AtomicWaker) -> u128 {
+    unsafe fn encode(x: Self) -> u128 {
         match x {
             Cancelled => 0,
             Waking => 1,

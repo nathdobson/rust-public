@@ -4,6 +4,7 @@
 #![feature(test)]
 #![feature(result_contains_err)]
 #![feature(wake_trait)]
+#![feature(cfg_target_has_atomic)]
 extern crate test;
 
 mod util;

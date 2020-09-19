@@ -11,10 +11,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::ops::DerefMut;
 use std::fmt::{Debug, Formatter};
-use crate::atomic::{Atomic, AtomicPacker, CastPacker, AtomicUsize2, AtomicInteger, usize2};
+use crate::atomic::{Atomic, usize2, AtomicPackable};
 use std::sync::atomic::Ordering::{SeqCst, Relaxed, AcqRel, Acquire, Release};
 use crate::shared_dwcas::Mode::{Open, Queued, Locked, LockedDirty};
-use crate::waker::{WakerPacker, WakerValue};
+use crate::waker::{WakerValue};
 use crate::freelist::FreeList;
 use crate::waker::AtomicWaker;
 use std::hint::unreachable_unchecked;
@@ -23,7 +23,7 @@ use crate::waker::AtomicWaker::Waking;
 use crate::waker::AtomicWaker::Cancelled;
 
 pub struct Semaphore {
-    state: Atomic<StatePacker>,
+    state: Atomic<State>,
     front: UnsafeCell<*const Waiter>,
     freelist: FreeList<Waiter>,
 }
@@ -45,12 +45,10 @@ struct State {
 
 #[repr(align(64))]
 pub struct Waiter {
-    waker: Atomic<WakerPacker>,
+    waker: Atomic<AtomicWaker>,
     next: UnsafeCell<*const Waiter>,
     amount: u64,
 }
-
-struct StatePacker;
 
 pub struct AcquireImpl<'a>(AcquireImplInner<'a>);
 
@@ -61,10 +59,8 @@ pub enum AcquireImplInner<'a> {
     Poison,
 }
 
-impl AtomicPacker for StatePacker {
-    type Impl = AtomicUsize2;
-    type Value = State;
-
+impl AtomicPackable for State {
+    type Raw = usize2;
     unsafe fn encode(state: State) -> usize2 {
         ((state.available as usize2) << (size_of::<usize>() * 8)) |
             (state.back as usize2) |
