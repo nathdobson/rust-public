@@ -21,8 +21,8 @@ pub mod shared_mutex;
 //pub mod shared;
 mod freelist;
 mod queue;
-// #[cfg(test)]
-// mod bench;
+#[cfg(test)]
+mod bench;
 //pub mod local;
 //#[cfg(test)]
 //mod profile;

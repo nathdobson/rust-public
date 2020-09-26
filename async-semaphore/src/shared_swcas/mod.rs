@@ -15,7 +15,7 @@ use std::fmt::{Debug, Formatter};
 use crate::atomic::{Atomic, usize2, AtomicPackable, usize1};
 use std::sync::atomic::Ordering::{SeqCst, Relaxed, AcqRel, Acquire, Release};
 use crate::shared_swcas::ReleaseMode::{Unlocked, Locked, LockedDirty};
-use crate::freelist::FreeList;
+use crate::freelist::Allocator;
 use crate::{ReleaseGuard, TryAcquireError, AcquireRelease, Disconnected};
 use crate::WouldBlock;
 use crate::shared_swcas::waker::{AtomicWaker, FinishedError, CancelledError};
@@ -26,7 +26,7 @@ pub struct SemaphoreImpl {
     acquire: Atomic<AcquireState>,
     release: Atomic<ReleaseState>,
     front: UnsafeCell<*const Waiter>,
-    freelist: FreeList<Waiter>,
+    freelist: Allocator<Waiter>,
 }
 
 #[repr(align(64))]
@@ -227,6 +227,7 @@ impl SemaphoreImpl {
         let front = *self.front.get();
         let remaining = *(*front).remaining.get();
         if remaining <= old_release.releasable {
+            *self.front.get() = *(*front).next.get();
             if (*front).waker.finish().is_ok() {
                 loop {
                     let mut release = old_release;
@@ -236,10 +237,8 @@ impl SemaphoreImpl {
                         break;
                     }
                 }
-                *self.front.get() = *(*front).next.get();
             } else {
                 //println!("Completed error {:?} ", front);
-                *self.front.get() = *(*front).next.get();
                 self.freelist.free(front);
             }
             return true;
@@ -294,7 +293,7 @@ impl AcquireRelease for SemaphoreImpl {
             acquire: Atomic::new(Available(initial)),
             release: Atomic::new(ReleaseState { releasable: 0, mode: ReleaseMode::Unlocked }),
             front: UnsafeCell::new(null()),
-            freelist: FreeList::new(),
+            freelist: Allocator::new(),
         }
     }
 
@@ -355,13 +354,13 @@ impl AcquireRelease for SemaphoreImpl {
                         }
                         Available(available) => {
                             if acq.amount <= available {
-                                if waiter != null() {
-                                    //println!("Free misallocated {:?}", waiter);
-                                    self.freelist.free(waiter);
-                                    waiter = null();
-                                }
                                 if self.acquire.compare_update_weak(
                                     &mut old_state, Available(available - acq.amount), AcqRel, Acquire) {
+                                    if waiter != null() {
+                                        //println!("Free misallocated {:?}", waiter);
+                                        self.freelist.free(waiter);
+                                        waiter = null();
+                                    }
                                     acq.step = AcquireStep::Poison;
                                     return Poll::Ready(());
                                 }

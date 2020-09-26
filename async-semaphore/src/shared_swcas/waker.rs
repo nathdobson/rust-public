@@ -67,7 +67,7 @@ impl AtomicWaker {
                     return Ok(());
                 }
                 Storing => return Ok(()),
-                Finished => panic!("Finishing twice"),
+                Finished => panic!("Finishing twice {:?}", self as *const Self),
                 Cancelled => return Err(CancelledError),
             }
         }

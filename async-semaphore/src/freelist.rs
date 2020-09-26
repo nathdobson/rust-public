@@ -6,6 +6,23 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::cmp::Ordering;
+use std::marker::PhantomData;
+
+pub type Allocator<T> = FreeList<T>;
+
+pub struct Malloc<T>(PhantomData<T>);
+
+impl<T> Malloc<T> {
+    pub fn new() -> Self {
+        Malloc(PhantomData)
+    }
+    pub unsafe fn allocate(&self, value: T) -> *const T {
+        Box::into_raw(Box::new(value))
+    }
+    pub unsafe fn free(&self, ptr: *const T) -> T {
+        *Box::from_raw(ptr as *mut T)
+    }
+}
 
 #[repr(align(64))]
 struct Node<T> {

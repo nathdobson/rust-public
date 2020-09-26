@@ -11,7 +11,7 @@ use std::time::Duration;
 pub struct Atomic<T: AtomicPackable>(<T::Raw as HasAtomic>::Impl) where T::Raw: HasAtomic;
 
 fn boop() {
-    thread::sleep(Duration::from_millis(1));
+    //thread::sleep(Duration::from_millis(1));
 }
 
 pub unsafe trait HasAtomic: Sized {

@@ -9,36 +9,40 @@ use async_std::task::sleep;
 use itertools::Itertools;
 use std::{thread, mem};
 
-use crate::shared_mutex::Semaphore;
+//use crate::shared_mutex::SemaphoreImpl;
 use std::sync::atomic::AtomicU64;
+use crate::Semaphore;
+use crate::shared_swcas::SemaphoreImpl;
 //use crate::shared_dwcas::Semaphore;
-use crate::profile::Profile;
+//use crate::profile::Profile;
 
 #[inline(never)]
 fn noopt(_: usize) {}
 
 #[bench]
-fn run_shared(b: &mut Bencher) where {
+fn run_shared(b: &mut Bencher)  {
+// #[test]
+// fn run_shared() {
     let capacity = 100;
     let max_acquire = 40;
     let threads = 4;
-    let futures = 10;
-    let iterations = 5000;
+    let futures = 100;
+    let iterations = 500;
     let pool = ThreadPool::builder().pool_size(threads).create().unwrap();
     b.iter(|| {
-        let semaphore = Arc::new(Semaphore::new(capacity));
-        let profile = Profile::new();
-        let printer = pool.spawn_with_handle({
-            let semaphore = semaphore.clone();
-            async move {
-                loop {
-                    sleep(Duration::from_millis(10000)).await;
-                    println!("{:?}", semaphore);
-                }
-            }
-        }).unwrap();
+        let semaphore = Arc::new(Semaphore::<SemaphoreImpl>::new(capacity));
+        //let profile = Profile::new();
+        // let printer = pool.spawn_with_handle({
+        //     let semaphore = semaphore.clone();
+        //     async move {
+        //         loop {
+        //             sleep(Duration::from_millis(10000)).await;
+        //             println!("{:?}", semaphore);
+        //         }
+        //     }
+        // }).unwrap();
         (0..futures).map(|_future| {
-            pool.spawn_with_handle(profile.wrap({
+            pool.spawn_with_handle({
                 let semaphore = semaphore.clone();
                 async move {
                     let mut owned = 0;
@@ -47,9 +51,9 @@ fn run_shared(b: &mut Bencher) where {
                             owned = thread_rng().gen_range(1, max_acquire + 1);
                             //println!("Acquiring {:?} {:?} {:?}", future, owned, semaphore);
                             semaphore.acquire(owned).await.forget();
-                            for i in 0..20000 {
-                                noopt(i);
-                            }
+                            // for i in 0..200 {
+                            //     noopt(i);
+                            // }
                         } else {
                             let mut rng = thread_rng();
                             let r = if rng.gen_bool(0.5) {
@@ -67,10 +71,9 @@ fn run_shared(b: &mut Bencher) where {
                     semaphore.release(owned);
                     //println!("Finished  {:?} {:?} {:?}", future, owned, semaphore);
                 }
-            })).unwrap()
+            }).unwrap()
         })
             .collect::<Vec<_>>().into_iter().for_each(|x| block_on(x));
-        mem::drop(printer);
-        println!("{:?}", profile);
+        //mem::drop(printer);
     })
 }
