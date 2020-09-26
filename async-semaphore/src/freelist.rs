@@ -42,8 +42,11 @@ impl<T> FreeList<T> {
                 }
             }
         }
+        (*result).next.store(!0 as *const Node<T>, Relaxed);
         (*(*result).value.get()).as_mut_ptr().write(value);
-        (*(*result).value.get()).as_ptr()
+        let result = (*(*result).value.get()).as_ptr();
+        //println!("Allocating {:?}", result);
+        result
     }
 
     pub unsafe fn free(&self, ptr: *const T) -> T {
@@ -53,6 +56,7 @@ impl<T> FreeList<T> {
         };
         let offset = ((&dummy.value) as *const _ as *const u8).offset_from((&dummy) as *const _ as *const u8);
         let node = (ptr as *const u8).offset(-offset) as *const Node<T>;
+        assert_eq!((*node).next.load(Relaxed), !0 as *mut Node<T>);
         let value = (*(*node).value.get()).as_mut_ptr().read();
         let mut old_head = self.head.load(Relaxed);
         loop {

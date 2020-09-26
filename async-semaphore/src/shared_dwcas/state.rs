@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::atomic::Ordering::AcqRel;
 use std::mem::ManuallyDrop;
 use std::fmt::{Debug, Formatter};
-use crate::shared_dwcas::state::WaiterState::{Cancelled, Waking};
+use crate::shared_dwcas::state::WaiterState::{Cancelled, Waking, Sleeping};
 
 #[derive(Copy, Clone, Eq, PartialOrd, PartialEq, Ord)]
 pub struct RawWaker(usize2);
@@ -39,14 +39,14 @@ impl AtomicPackable for WaiterState {
         match x {
             0 => Cancelled,
             1 => Waking,
-            _ => WaiterState::Sleeping(RawWaker(x)),
+            _ => Sleeping(RawWaker(x)),
         }
     }
     unsafe fn encode(x: Self) -> usize2 {
         match x {
             Cancelled => 0,
             Waking => 1,
-            WaiterState::Sleeping(waker) => waker.0,
+            Sleeping(waker) => waker.0,
         }
     }
 }

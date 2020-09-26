@@ -2,13 +2,12 @@ mod state;
 
 use std::sync::atomic::{Ordering};
 use std::{mem, fmt};
-use crate::{WouldBlock, ReleaseGuard, Releaser};
 use std::marker::PhantomData;
 use std::ptr::null;
 use std::mem::{MaybeUninit, size_of};
 use std::cell::UnsafeCell;
 use std::task::{Waker, Context, Poll};
-use std::sync::Mutex;
+use std::sync::{Mutex, Weak, Arc};
 use std::future::Future;
 use std::pin::Pin;
 use std::ops::DerefMut;
@@ -21,8 +20,10 @@ use crate::shared_dwcas::state::{WaiterState, RawWaker};
 use crate::shared_dwcas::state::WaiterState::Sleeping;
 use crate::shared_dwcas::state::WaiterState::Cancelled;
 use crate::shared_dwcas::state::WaiterState::Waking;
+use crate::{ReleaseGuard, TryAcquireError, AcquireRelease, Disconnected};
+use crate::WouldBlock;
 
-pub struct Semaphore {
+pub struct SemaphoreImpl {
     state: Atomic<SemaphoreState>,
     front: UnsafeCell<*const Waiter>,
     freelist: FreeList<Waiter>,
@@ -50,14 +51,18 @@ pub struct Waiter {
     amount: usize,
 }
 
-pub struct AcquireImpl<'a>(AcquireImplInner<'a>);
-
-#[derive(Clone, Copy)]
-pub enum AcquireImplInner<'a> {
-    Enter { semaphore: &'a Semaphore, amount: usize },
-    Loop { semaphore: &'a Semaphore, waiter: *const Waiter, amount: usize },
+pub enum AcquireStep {
+    Enter,
+    Loop(*const Waiter),
     Poison,
 }
+
+pub struct AcquireImpl {
+    amount: usize,
+    step: AcquireStep,
+}
+
+impl Unpin for AcquireImpl{}
 
 impl AtomicPackable for SemaphoreState {
     type Raw = usize2;
@@ -87,13 +92,13 @@ impl AtomicPackable for SemaphoreState {
     }
 }
 
-unsafe impl Sync for Semaphore {}
+unsafe impl Sync for SemaphoreImpl {}
 
-unsafe impl Send for Semaphore {}
+unsafe impl Send for SemaphoreImpl {}
 
-unsafe impl<'a> Sync for AcquireImpl<'a> {}
+unsafe impl Sync for AcquireImpl {}
 
-unsafe impl<'a> Send for AcquireImpl<'a> {}
+unsafe impl Send for AcquireImpl {}
 
 struct DebugPtr(*const Waiter);
 
@@ -109,7 +114,7 @@ impl Debug for DebugPtr {
     }
 }
 
-impl Drop for Semaphore {
+impl Drop for SemaphoreImpl {
     fn drop(&mut self) {
         unsafe {
             for &(mut ptr) in &[*self.front.get(),
@@ -124,7 +129,7 @@ impl Drop for Semaphore {
     }
 }
 
-impl Debug for Semaphore {
+impl Debug for SemaphoreImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         unsafe {
             let mut w = f.debug_struct("Semaphore");
@@ -138,7 +143,7 @@ impl Debug for Semaphore {
     }
 }
 
-impl Semaphore {
+impl SemaphoreImpl {
     pub fn available(&self) -> usize {
         self.state.load(SeqCst).available
     }
@@ -151,6 +156,10 @@ impl Semaphore {
                 state.available -= amount;
                 if self.state.compare_update_weak(
                     &mut old_state, state, AcqRel, Acquire) {
+                    match (*waiter).waker.swap(Cancelled, Relaxed) {
+                        Sleeping(raw_waker) => mem::drop(RawWaker::decode(raw_waker)),
+                        _ => unreachable!(),
+                    }
                     self.freelist.free(waiter);
                     return true;
                 }
@@ -243,9 +252,22 @@ impl Semaphore {
             }
         }
     }
+}
 
-    pub fn new(initial: usize) -> Self {
-        Semaphore {
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        match self.waker.load(Ordering::Relaxed) {
+            Sleeping(w) => panic!("Leaking waker {:?}", w),
+            _ => {}
+        }
+    }
+}
+
+impl AcquireRelease for SemaphoreImpl {
+    type Acq = AcquireImpl;
+
+    fn new(initial: usize) -> Self {
+        SemaphoreImpl {
             state: Atomic::new(SemaphoreState {
                 available: initial,
                 back: null(),
@@ -256,28 +278,6 @@ impl Semaphore {
         }
     }
 
-    fn try_acquire(&self, amount: usize) -> Result<ReleaseGuard<&Self, Self>, WouldBlock> {
-        let mut old_state = self.state.load(Acquire);
-        loop {
-            let mut state = old_state;
-            if amount > state.available || state.mode != Available {
-                return Err(WouldBlock);
-            }
-            state.available -= amount;
-            if self.state.compare_update_weak(
-                &mut old_state, state, AcqRel, Acquire) {
-                return Ok(ReleaseGuard::new(self, amount));
-            }
-        }
-    }
-
-    pub fn acquire(&self, amount: usize) -> AcquireImpl<'_> {
-        AcquireImpl(AcquireImplInner::Enter { semaphore: self, amount })
-    }
-}
-
-
-impl Releaser for Semaphore {
     fn release(&self, amount: usize) {
         unsafe {
             let mut old_state = self.state.load(Acquire);
@@ -310,226 +310,118 @@ impl Releaser for Semaphore {
             }
         }
     }
-}
 
-impl<'a> Future for AcquireImpl<'a> {
-    type Output = ReleaseGuard<&'a Semaphore, Semaphore>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        unsafe {
-            let this = self.get_unchecked_mut();
-            match this.0 {
-                AcquireImplInner::Enter { semaphore, amount } => {
-                    if let Ok(guard) = semaphore.try_acquire(amount) {
-                        this.0 = AcquireImplInner::Poison;
-                        return Poll::Ready(guard);
-                    }
-                    let waiter =
-                        semaphore.freelist.allocate(Waiter {
-                            waker: Atomic::new(WaiterState::Sleeping(RawWaker::encode(cx.waker().clone()))),
-                            next: UnsafeCell::new(null()),
-                            amount,
-                        });
-                    if semaphore.try_acquire_or_push(amount, waiter) {
-                        this.0 = AcquireImplInner::Poison;
-                        return Poll::Ready(ReleaseGuard::new(semaphore, amount));
-                    }
-                    this.0 = AcquireImplInner::Loop { semaphore, waiter, amount };
-                    return Poll::Pending;
-                }
-                AcquireImplInner::Loop { semaphore, waiter, amount } => {
-                    match (*waiter).waker.swap(WaiterState::Sleeping(RawWaker::encode(cx.waker().clone())), AcqRel) {
-                        WaiterState::Waking => {}
-                        WaiterState::Sleeping(waker) => {
-                            mem::drop(RawWaker::decode(waker));
-                            return Poll::Pending;
-                        }
-                        WaiterState::Cancelled => {
-                            println!("Unreachable {:?} for {:?}", semaphore, DebugPtr(waiter));
-                            unreachable!()
-                        }
-                    }
-                    semaphore.freelist.free(waiter);
-                    return Poll::Ready(ReleaseGuard::new(semaphore, amount));
-                }
-                AcquireImplInner::Poison => unreachable!()
-            }
+    unsafe fn acquire_new(&self, amount: usize) -> Self::Acq {
+        AcquireImpl {
+            amount,
+            step: AcquireStep::Enter,
         }
     }
-}
 
-impl<'a> Drop for AcquireImpl<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            match self.0 {
-                AcquireImplInner::Loop { semaphore, waiter, amount: _ } => {
-                    match (*waiter).waker.swap(WaiterState::Cancelled, AcqRel) {
-                        WaiterState::Waking => {
-                            semaphore.release((*waiter).amount);
-                            semaphore.freelist.free(waiter);
+    unsafe fn acquire_poll(&self, mut acq: Pin<&mut AcquireImpl>, cx: &mut Context<'_>) -> Poll<()> {
+        match acq.step {
+            AcquireStep::Enter => {
+                if let Ok(guard) =
+                SemaphoreImpl::try_acquire(self, acq.amount) {
+                    acq.step = AcquireStep::Poison;
+                    return Poll::Ready(guard);
+                }
+                let waiter =
+                    self.freelist.allocate(Waiter {
+                        waker: Atomic::new(WaiterState::Sleeping(RawWaker::encode(cx.waker().clone()))),
+                        next: UnsafeCell::new(null()),
+                        amount: acq.amount,
+                    });
+                if self.try_acquire_or_push(acq.amount, waiter) {
+                    acq.step = AcquireStep::Poison;
+                    return Poll::Ready(());
+                }
+                acq.step = AcquireStep::Loop(waiter);
+                return Poll::Pending;
+            }
+            AcquireStep::Loop(waiter) => {
+                let mut old_waker = (*waiter).waker.load(Acquire);
+                let new_waker = RawWaker::encode(cx.waker().clone());
+                loop {
+                    match old_waker {
+                        Cancelled => unreachable!(),
+                        Waking => {
+                            mem::drop(RawWaker::decode(new_waker));
+                            self.freelist.free(waiter);
+                            acq.step = AcquireStep::Poison;
+                            return Poll::Ready(());
                         }
-                        WaiterState::Sleeping(waker) => {
-                            mem::drop(RawWaker::decode(waker));
-                            let mut old_state = semaphore.state.load(Acquire);
-                            loop {
-                                let mut state = old_state;
-                                match state.mode {
-                                    Available | Queued => {
-                                        state.mode = Locked;
-                                        if semaphore.state.compare_update_weak(
-                                            &mut old_state, state, AcqRel, Acquire) {
-                                            semaphore.unlock();
-                                            break;
-                                        }
-                                    }
-                                    Locked => {
-                                        state.mode = LockedDirty;
-                                        if semaphore.state.compare_update_weak(
-                                            &mut old_state, state, AcqRel, Acquire) {
-                                            break;
-                                        }
-                                    }
-                                    LockedDirty => {
+                        Sleeping(raw_waker) => {
+                            if (*waiter).waker.compare_update_weak(
+                                &mut old_waker, WaiterState::Sleeping(new_waker),
+                                AcqRel, Acquire) {
+                                mem::drop(RawWaker::decode(raw_waker));
+                                return Poll::Pending;
+                            }
+                        }
+                    }
+                }
+            }
+            AcquireStep::Poison => unreachable!()
+        }
+    }
+
+    unsafe fn acquire_drop(&self, acq: Pin<&mut Self::Acq>) {
+        match acq.step {
+            AcquireStep::Loop(waiter) => {
+                match (*waiter).waker.swap(WaiterState::Cancelled, AcqRel) {
+                    WaiterState::Waking => {
+                        self.release((*waiter).amount);
+                        self.freelist.free(waiter);
+                    }
+                    WaiterState::Sleeping(waker) => {
+                        mem::drop(RawWaker::decode(waker));
+                        let mut old_state = self.state.load(Acquire);
+                        loop {
+                            let mut state = old_state;
+                            match state.mode {
+                                Available | Queued => {
+                                    state.mode = Locked;
+                                    if self.state.compare_update_weak(
+                                        &mut old_state, state, AcqRel, Acquire) {
+                                        self.unlock();
                                         break;
                                     }
                                 }
+                                Locked => {
+                                    state.mode = LockedDirty;
+                                    if self.state.compare_update_weak(
+                                        &mut old_state, state, AcqRel, Acquire) {
+                                        break;
+                                    }
+                                }
+                                LockedDirty => {
+                                    break;
+                                }
                             }
                         }
-                        WaiterState::Cancelled => unreachable!(),
                     }
+                    WaiterState::Cancelled => unreachable!(),
                 }
-                AcquireImplInner::Enter { .. } => {}
-                AcquireImplInner::Poison => {}
+            }
+            AcquireStep::Enter { .. } => {}
+            AcquireStep::Poison => {}
+        }
+    }
+
+    fn try_acquire(&self, amount: usize) -> Result<(), WouldBlock> {
+        let mut old_state = self.state.load(Acquire);
+        loop {
+            let mut state = old_state;
+            if amount > state.available || state.mode != Available {
+                return Err(WouldBlock);
+            }
+            state.available -= amount;
+            if self.state.compare_update_weak(
+                &mut old_state, state, AcqRel, Acquire) {
+                return Ok(());
             }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::shared_dwcas::{Semaphore};
-    use futures::executor::{LocalPool, ThreadPool, block_on};
-    use futures::task::{LocalSpawnExt, SpawnExt};
-    use rand::{thread_rng, Rng, SeedableRng};
-    use std::sync::{Arc, Mutex};
-    use std::rc::Rc;
-    use std::cell::{Cell, RefCell};
-    use rand_xorshift::XorShiftRng;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::mem;
-    use futures::StreamExt;
-    use itertools::Itertools;
-    use std::time::Duration;
-    use async_std::task::sleep;
-    use async_std::future::timeout;
-    use crate::{ReleaseGuard, Releaser};
-
-    #[test]
-    fn test_simple() {
-        println!("A");
-        let semaphore = Rc::new(Semaphore::new(10));
-        println!("B");
-        let mut pool = LocalPool::new();
-        println!("C");
-        let spawner = pool.spawner();
-        println!("D");
-        spawner.spawn_local({
-            println!("E");
-            let semaphore = semaphore.clone();
-            async move {
-                println!("F");
-                semaphore.acquire(10).await.forget();
-                println!("G");
-                semaphore.acquire(10).await.forget();
-                println!("H");
-            }
-        }).unwrap();
-        println!("I");
-        pool.run_until_stalled();
-        println!("J");
-        semaphore.release(10);
-        println!("K");
-        pool.run();
-        println!("L");
-    }
-
-    struct CheckedSemaphore {
-        capacity: usize,
-        semaphore: Semaphore,
-        counter: Mutex<usize>,
-    }
-
-    impl CheckedSemaphore {
-        fn new(capacity: usize) -> Self {
-            CheckedSemaphore {
-                capacity,
-                semaphore: Semaphore::new(capacity),
-                counter: Mutex::new(0),
-            }
-        }
-        async fn acquire(&self, amount: usize) -> ReleaseGuard<&Semaphore, Semaphore> {
-            //println!("+ {}", amount);
-            let guard = self.semaphore.acquire(amount).await;
-            let mut lock = self.counter.lock().unwrap();
-            //println!("{} + {} = {} ", *lock, amount, *lock + amount);
-            *lock += amount;
-            assert!(*lock <= self.capacity);
-            mem::drop(lock);
-            //println!("{:?}", self.semaphore);
-            guard
-        }
-        fn release(&self, amount: usize) {
-            let mut lock = self.counter.lock().unwrap();
-            assert!(*lock >= amount);
-            //println!("{} - {} = {} ", *lock, amount, *lock - amount);
-            *lock -= amount;
-            mem::drop(lock);
-            let result = self.semaphore.release(amount);
-            //println!("{:?}", self.semaphore);
-            result
-        }
-    }
-
-    #[test]
-    fn test_multicore() {
-        let capacity = 100;
-        let semaphore = Arc::new(CheckedSemaphore::new(capacity));
-        let pool = ThreadPool::builder().pool_size(10).create().unwrap();
-        (0..100).map(|_thread|
-            pool.spawn_with_handle({
-                let semaphore = semaphore.clone();
-                async move {
-                    //let indent = " ".repeat(thread * 10);
-                    let mut owned = 0;
-                    for _i in 0..500 {
-                        //println!("{:?}", semaphore.semaphore);
-                        if owned == 0 {
-                            owned = thread_rng().gen_range(0, capacity + 1);
-                            //println!("{} : acquiring {}", thread, owned);
-                            let dur = Duration::from_millis(thread_rng().gen_range(0, 10));
-                            if let Ok(guard) =
-                            timeout(dur, semaphore.acquire(owned)).await {
-                                guard.forget();
-                            } else {
-                                owned = 0;
-                            }
-                        } else {
-                            let mut rng = thread_rng();
-                            let r = if rng.gen_bool(0.5) {
-                                owned
-                            } else {
-                                rng.gen_range(1, owned + 1)
-                            };
-                            owned -= r;
-                            semaphore.release(r);
-                            //println!("{} : released {}", thread, owned);
-                        }
-                    }
-                    semaphore.release(owned);
-                }
-            }).unwrap()
-        ).collect::<Vec<_>>().into_iter().for_each(block_on);
-        mem::drop(pool);
-        assert_eq!(Arc::strong_count(&semaphore), 1);
-    }
-}

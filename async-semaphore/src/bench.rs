@@ -3,7 +3,6 @@ use futures::executor::{ThreadPool, block_on};
 use rand::{thread_rng, Rng};
 use std::time::Duration;
 use futures::task::SpawnExt;
-use crate::{shared_mutex, Releaser};
 use test::Bencher;
 use async_std::task::sleep;
 
