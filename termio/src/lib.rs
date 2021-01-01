@@ -18,11 +18,11 @@ pub mod input;
 pub mod tokenizer;
 pub mod color;
 pub mod canvas;
-pub mod gui;
 pub mod screen;
 pub mod writer;
 pub mod string;
 pub mod line;
+pub mod gui;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub enum Direction {

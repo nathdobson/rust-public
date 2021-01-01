@@ -1,7 +1,8 @@
 use std::ops::Range;
 use crate::range::RangeExt;
+use itertools::Itertools;
 
-#[derive(Eq, PartialEq, PartialOrd, Hash, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, PartialOrd, Hash, Copy, Clone, Debug, Default)]
 pub struct Rect {
     xs: (isize, isize),
     ys: (isize, isize),
@@ -22,6 +23,9 @@ impl Rect {
     }
     pub fn intersects(&self, other: &Rect) -> bool {
         self.xs().intersects(&other.xs()) && self.ys().intersects(&other.ys())
+    }
+    pub fn position(&self) -> (isize, isize) {
+        (self.xs.0, self.ys.0)
     }
     pub fn size(&self) -> (isize, isize) {
         (self.xs.1 - self.xs.0, self.ys.1 - self.ys.0)
@@ -47,5 +51,8 @@ impl Rect {
     }
     pub fn from_position_size(position: (isize, isize), size: (isize, isize)) -> Self {
         Rect::from_ranges(position.0..position.0 + size.0, position.1..position.1 + size.1)
+    }
+    pub fn points_by_row(&self) -> impl Iterator<Item=(isize, isize)> {
+        self.ys().cartesian_product(self.xs()).map(|(y, x)| (x, y))
     }
 }

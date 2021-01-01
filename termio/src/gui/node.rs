@@ -1,77 +1,55 @@
-use crate::canvas::Canvas;
-use std::fmt;
-use crate::input::Event;
-use util::shared::{SharedMut, WkSharedMut, ObjectInner};
-use std::ops::{Deref, DerefMut};
 use util::rect::Rect;
-use serde::export::fmt::Debug;
-use std::any::Any;
+use crate::canvas::Canvas;
+use util::dynbag::Token;
+use crate::input::MouseEvent;
 use crate::screen::LineSetting;
-use crate::gui::{InputEvent, OutputEvent};
-use std::sync::Arc;
-use backtrace::Backtrace;
+use std::collections::HashMap;
+use crate::gui::gui::{OutputEvent, InputEvent};
+use crate::gui::layout::Constraint;
 
-pub type Node<T = dyn NodeImpl> = SharedMut<T>;
-
-pub trait NodeImpl: Send + Sync + 'static + fmt::Debug {
-    fn header(&self) -> &NodeHeader;
-    fn header_mut(&mut self) -> &mut NodeHeader;
-    fn paint(&self, w: Canvas);
-    fn handle(&mut self, event: &InputEvent, output: &mut Vec<Arc<dyn OutputEvent>>);
-    fn size(&self) -> (isize, isize);
-    fn position(&self) -> (isize, isize) {
-        self.header().position
-    }
-    fn bounds(&self) -> Rect {
-        Rect::from_position_size(self.position(), self.size())
-    }
-    fn line_setting(&self, y: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
-    fn check_dirty(&mut self) -> bool {
-        self.header_mut().check_dirty()
-    }
-}
-
-#[derive(Debug)]
 pub struct NodeHeader {
-    this_any: Option<WkSharedMut<dyn Any + 'static + Send + Sync>>,
-    this_node: Option<WkSharedMut<dyn NodeImpl>>,
-    pub position: (isize, isize),
+    bounds: Rect,
     dirty: bool,
 }
 
 impl NodeHeader {
-    pub fn this(&self) -> Node {
-        self.this_node.as_ref().unwrap().upgrade().unwrap()
+    pub fn new() -> Self {
+        NodeHeader {
+            bounds: Rect::default(),
+            dirty: true,
+        }
+    }
+    pub fn check_dirty(&mut self) -> bool {
+        let dirty = self.dirty;
+        self.dirty = false;
+        dirty
     }
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
     }
-    pub fn check_dirty(&mut self) -> bool {
-        let result = self.dirty;
-        self.dirty = false;
-        result
+    pub fn bounds(&self) -> &Rect {
+        &self.bounds
+    }
+    pub fn size(&self) -> (isize, isize) {
+        self.bounds.size()
+    }
+    pub fn set_size(&mut self, size: (isize, isize)) {
+        self.bounds = Rect::from_position_size(self.bounds.position(), size);
+    }
+    pub fn position(&self) -> (isize, isize) {
+        self.bounds.position()
+    }
+    pub fn set_position(&mut self, position: (isize, isize)) {
+        self.bounds = Rect::from_position_size(position, self.bounds.size());
     }
 }
 
-
-pub trait NodeExt: NodeImpl {
-    fn this(&self) -> Node<Self> where Self: Sized {
-        self.header().this_any.as_ref().unwrap().upgrade().unwrap().downcast().unwrap()
-    }
-    fn new_internal(inner: impl FnOnce(NodeHeader) -> Self) -> Node<Self> where Self: Sized {
-        let result = SharedMut::new(inner(NodeHeader {
-            this_any: None,
-            this_node: None,
-            position: (0, 0),
-            dirty: true,
-        }));
-        let this_any: SharedMut<dyn Any + 'static + Send + Sync> = result.clone();
-        let this_node: Node = result.clone();
-        result.borrow_mut().header_mut().this_any = Some(this_any.downgrade());
-        result.borrow_mut().header_mut().this_node = Some(this_node.downgrade());
-        result
-    }
+pub trait Node {
+    fn paint(&self, canvas: Canvas);
+    fn handle(&mut self, event: &InputEvent, output: &mut Vec<OutputEvent>) {}
+    fn layout(&mut self, constraint: &Constraint);
+    fn header(&self) -> &NodeHeader;
+    fn header_mut(&mut self) -> &mut NodeHeader;
+    fn check_dirty(&mut self) -> bool { self.header_mut().check_dirty() }
+    fn line_setting(&self, row: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
 }
-
-impl<T: NodeImpl> NodeExt for T {}
-

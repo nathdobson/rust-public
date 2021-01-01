@@ -43,6 +43,17 @@ pub enum LineSetting {
     DoubleHeightBottom,
 }
 
+impl LineSetting {
+    pub fn merge(self, other: Self) -> Self {
+        if self == other {
+            self
+        } else {
+            eprintln!("line setting mismatch {:?} {:?}", self, other);
+            LineSetting::Normal
+        }
+    }
+}
+
 impl Rune {
     fn new() -> Self {
         Rune {

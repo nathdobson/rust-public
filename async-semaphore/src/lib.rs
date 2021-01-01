@@ -1,69 +1,37 @@
-#![allow(unused_imports, incomplete_features)]
-#![feature(integer_atomics)]
-#![feature(is_sorted)]
-#![feature(test)]
-#![feature(result_contains_err)]
-#![feature(wake_trait)]
-#![feature(cfg_target_has_atomic)]
-#![feature(const_fn, raw)]
-#![feature(unboxed_closures)]
-#![feature(unsize)]
-#![feature(const_generics)]
-#![feature(const_raw_ptr_deref)]
-extern crate test;
-
-mod util;
 mod atomic;
-pub mod shared_dwcas;
-pub mod shared_swcas;
-pub mod shared_mutex;
-//pub mod local;
-//pub mod shared;
-mod freelist;
-mod queue;
-#[cfg(test)]
-mod bench;
-//pub mod local;
-//#[cfg(test)]
-//mod profile;
 #[cfg(test)]
 mod tests;
+mod waker;
+mod guard;
+mod state;
+
 
 use std::fmt::Display;
 use std::error::Error;
 use std::future::Future;
-use std::task::{Waker, Poll, Context};
+use std::task::{Poll, Context};
 use std::pin::Pin;
-use std::{mem, thread, ptr};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::{fmt};
 use std::cell::UnsafeCell;
-use std::marker::{PhantomData, Unsize};
-use std::ops::Deref;
-use std::borrow::Borrow;
-use std::mem::{size_of, MaybeUninit};
-use std::raw::TraitObject;
-use crate::util::force_transmute;
-use std::any::Any;
-use std::ptr::{null, null_mut};
+use std::ptr::{null};
+use std::fmt::{Debug, Formatter};
+use std::sync::atomic::Ordering::{Relaxed, Acquire};
+use crate::state::ReleaseMode::{Unlocked, Locked, LockedDirty};
+use crate::waker::{AtomicWaker, PollResult, CancelResult, FinishResult};
+use crate::state::AcquireState::{Available, Queued};
+use crate::atomic::{Atomic};
+use std::sync::Arc;
+pub use crate::guard::SemaphoreGuard;
+pub use crate::guard::SemaphoreGuardWith;
+use crate::state::{ReleaseMode, AcquireState, ReleaseState};
 
-#[derive(Debug, Eq, Ord, PartialOrd, PartialEq)]
-pub struct Disconnected;
 
-impl Error for Disconnected {}
+#[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Clone, Copy)]
+pub struct AcquireError;
 
-impl Display for Disconnected {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
+impl Error for AcquireError {}
 
-#[derive(Debug, Eq, Ord, PartialOrd, PartialEq)]
-pub struct WouldBlock;
-
-impl Error for WouldBlock {}
-
-impl Display for WouldBlock {
+impl Display for AcquireError {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -72,7 +40,7 @@ impl Display for WouldBlock {
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq)]
 pub enum TryAcquireError {
     WouldBlock,
-    Disconnected,
+    Shutdown,
 }
 
 impl Error for TryAcquireError {}
@@ -83,208 +51,375 @@ impl Display for TryAcquireError {
     }
 }
 
-// pub trait ArcFuture {
-//     type Output;
-//     type Target;
-//     fn poll(self: Pin<&mut Self>, borrow: &Arc<Self::Target>, cx: &mut Context) -> Poll::<Self::Output>;
-// }
-//
-// struct WeakFuture<'a, T: ArcFuture> {
-//     borrow: &'a Weak<T::Target>,
-//     fut: T,
-// }
-//
-// impl<'a, T: ArcFuture> Future for WeakFuture<'a, T> {
-//     type Output = Result<T::Output, Disconnected>;
-//     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-//         unsafe {
-//             match self.borrow.upgrade() {
-//                 None => Poll::Ready(Err(Disconnected)),
-//                 Some(borrow) =>
-//                     match Pin::new_unchecked(&mut self.fut).poll(&borrow, cx) {
-//                         Poll::Ready(x) => Poll::Ready(Ok(x)),
-//                         Poll::Pending => Poll::Pending,
-//                     },
-//             }
-//         }
-//     }
-// }
-//
-// struct StrongFuture<'a, T: ArcFuture> {
-//     borrow: &'a Arc<T::Target>,
-//     fut: T,
-// }
-//
-// impl<'a, T: ArcFuture> Future for StrongFuture<'a, T> {
-//     type Output = T::Output;
-//     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-//         unsafe {
-//             Pin::new_unchecked(&mut self.fut).poll(self.borrow, cx)
-//         }
-//     }
-// }
-
-pub trait AcquireRelease: Sized {
-    #[must_use]
-    type Acq;
-    fn new(initial: usize) -> Self;
-    unsafe fn acquire_new(&self, amount: usize) -> Self::Acq;
-    unsafe fn acquire_poll(&self, acq: Pin<&mut Self::Acq>, cx: &mut Context) -> Poll<()>;
-    unsafe fn acquire_drop(&self, acq: Pin<&mut Self::Acq>);
-    fn try_acquire(&self, amount: usize) -> Result<(), WouldBlock>;
-    fn release(&self, amount: usize);
+pub struct Semaphore {
+    acquire: Atomic<AcquireState>,
+    release: Atomic<ReleaseState>,
+    front: UnsafeCell<*const Waiter>,
 }
 
-pub struct Semaphore<T: AcquireRelease>(Arc<T>);
-
-pub struct WeakSemaphore<T: AcquireRelease>(Weak<T>);
-
-impl<T: AcquireRelease> Semaphore<T> {
-    pub fn new(initial: usize) -> Self {
-        Semaphore(Arc::new(T::new(initial)))
-    }
-    pub fn acquire(&self, amount: usize) -> impl Future<Output=ReleaseGuard<T>> + '_ {
-        unsafe {
-            struct Impl<'a, T2: AcquireRelease> {
-                semaphore: &'a Semaphore<T2>,
-                amount: usize,
-                acq: T2::Acq,
-            }
-            impl<'a, T2: AcquireRelease> Future for Impl<'a, T2> {
-                type Output = ReleaseGuard<T2>;
-                fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                    unsafe {
-                        let this = self.get_unchecked_mut();
-                        match this.semaphore.0.acquire_poll(Pin::new_unchecked(&mut this.acq), cx) {
-                            Poll::Ready(()) =>
-                                Poll::Ready(ReleaseGuard::new(this.semaphore.0.clone(), this.amount)),
-                            Poll::Pending => Poll::Pending
-                        }
-                    }
-                }
-            }
-            impl<'a, T2: AcquireRelease> Drop for Impl<'a, T2> {
-                fn drop(&mut self) {
-                    unsafe {
-                        self.semaphore.0.acquire_drop(Pin::new_unchecked(&mut self.acq));
-                    }
-                }
-            }
-            Impl { semaphore: &*self, acq: self.0.acquire_new(amount), amount }
-        }
-    }
-    pub fn try_acquire(&self, amount: usize) -> Result<ReleaseGuard<T>, WouldBlock> {
-        self.0.try_acquire(amount)?;
-        Ok(ReleaseGuard::new(self.0.clone(), amount))
-    }
-    pub fn release(&self, amount: usize) {
-        T::release(&self.0, amount)
-    }
-    pub fn downgrade(&self) -> WeakSemaphore<T> {
-        WeakSemaphore(Arc::downgrade(&self.0))
-    }
+#[repr(align(64))]
+pub struct Waiter {
+    waker: AtomicWaker,
+    next: UnsafeCell<*const Waiter>,
+    remaining: UnsafeCell<usize>,
 }
 
-impl<T: AcquireRelease> WeakSemaphore<T> {
-    pub fn acquire(&self, amount: usize) -> impl Future<Output=Result<ReleaseGuard<T>, Disconnected>> + '_ {
-        struct Impl<'a, T2: AcquireRelease> {
-            semaphore: &'a WeakSemaphore<T2>,
-            amount: usize,
-            acq: Option<T2::Acq>,
-        }
-        impl<'a, T2: AcquireRelease> Future for Impl<'a, T2> {
-            type Output = Result<ReleaseGuard<T2>, Disconnected>;
-            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                unsafe {
-                    let this = self.get_unchecked_mut();
-                    let semaphore = this.semaphore.0.upgrade().ok_or(Disconnected)?;
-
-                    if this.acq.is_none() {
-                        this.acq = Some(semaphore.acquire_new(this.amount));
-                    }
-                    match semaphore.acquire_poll(Pin::new_unchecked(this.acq.as_mut().unwrap()), cx) {
-                        Poll::Ready(()) =>
-                            Poll::Ready(Ok(ReleaseGuard::new(semaphore, this.amount))),
-                        Poll::Pending => Poll::Pending
-                    }
-                }
-            }
-        }
-        impl<'a, T2: AcquireRelease> Drop for Impl<'a, T2> {
-            fn drop(&mut self) {
-                unsafe {
-                    if let Some(semaphore) = self.semaphore.0.upgrade() {
-                        if let Some(acq) = self.acq.as_mut() {
-                            semaphore.acquire_drop(Pin::new_unchecked(acq));
-                        }
-                    }
-                }
-            }
-        }
-        Impl { semaphore: &*self, acq: None, amount }
-    }
-    pub fn try_acquire(&self, amount: usize) -> Result<ReleaseGuard<T>, TryAcquireError> {
-        let this = self.0.upgrade().ok_or(TryAcquireError::Disconnected)?;
-        this.try_acquire(amount).map_err(|WouldBlock| TryAcquireError::WouldBlock)?;
-        Ok(ReleaseGuard::new(this, amount))
-    }
+pub enum AcquireStep {
+    Enter,
+    Loop(*const Waiter),
+    Poison,
 }
 
-impl<T: AcquireRelease> Clone for Semaphore<T> {
-    fn clone(&self) -> Self {
-        Semaphore(self.0.clone())
-    }
-}
-
-impl<T: AcquireRelease> Clone for WeakSemaphore<T> {
-    fn clone(&self) -> Self {
-        WeakSemaphore(self.0.clone())
-    }
-}
-
-// 
-// pub trait AcquireExt {
-//     type Inner: AcquireRelease;
-//     type Acq: Future<Output=Result<ReleaseGuard<Self::Inner>, Disconnected>>;
-//     fn acquire(&self, amount: usize) -> Self::Acq;
-//     fn try_acquire(&self, amount: usize) -> Result<ReleaseGuard<Self::Inner>, TryAcquireError>;
-// }
-// 
-// impl<T: AcquireRelease> AcquireExt for Weak<T> {
-//     type Inner = T;
-//     type Acq = T::Acq;
-// 
-//     fn acquire(&self, amount: usize) -> Self::Acq {
-//         Self::acquire(self, amount)
-//     }
-// 
-//     fn try_acquire(&self, amount: usize) -> Result<ReleaseGuard<Self::Inner>, TryAcquireError> {
-//         match self.upgrade() {
-//             None => Err(TryAcquireError::Disconnected),
-//             Some(this) => T::try_acquire(this, amount)
-//         }
-//     }
-// }
-
-pub struct ReleaseGuard<R> where R: AcquireRelease {
-    releaser: Option<Arc<R>>,
+pub struct AcquireFuture<'a> {
+    semaphore: &'a Semaphore,
     amount: usize,
+    step: AcquireStep,
 }
 
-impl<R: AcquireRelease> ReleaseGuard<R> where R: AcquireRelease {
-    pub fn new(releaser: Arc<R>, amount: usize) -> Self {
-        ReleaseGuard { releaser: Some(releaser), amount }
-    }
-    pub fn forget(mut self) {
-        self.releaser = None;
-        mem::forget(self);
-    }
+pub struct AcquireArcFuture<'a> {
+    arc: &'a Arc<Semaphore>,
+    inner: AcquireFuture<'a>,
 }
 
-impl<R> Drop for ReleaseGuard<R> where R: AcquireRelease {
-    fn drop(&mut self) {
-        if let Some(releaser) = self.releaser.borrow() {
-            R::release(releaser, self.amount);
+unsafe impl Sync for Semaphore {}
+
+unsafe impl Send for Semaphore {}
+
+unsafe impl<'a> Sync for AcquireFuture<'a> {}
+
+unsafe impl<'a> Send for AcquireFuture<'a> {}
+
+struct DebugPtr(*const Waiter);
+
+impl Debug for DebugPtr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        unsafe {
+            write!(f, "{:?}", self.0)?;
+            if self.0 != null() {
+                write!(f, " {:?} {:?}", (*self.0).remaining, DebugPtr(*(*self.0).next.get()))?;
+            }
+            Ok(())
         }
     }
 }
+
+impl Drop for Semaphore {
+    fn drop(&mut self) {
+        unsafe {
+            let back = match self.acquire.load(Relaxed) {
+                Queued(back) => back,
+                Available(_) => null(),
+            };
+            for &(mut ptr) in &[*self.front.get(), back] {
+                while ptr != null() {
+                    let next = *(*ptr).next.get();
+                    Box::from_raw(ptr as *mut Waiter);
+                    ptr = next;
+                }
+            }
+        }
+    }
+}
+
+impl Debug for Semaphore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut w = f.debug_struct("Semaphore");
+        w.finish()
+    }
+}
+
+impl<'a> AcquireFuture<'a> {
+    unsafe fn poll_enter(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<SemaphoreGuard<'a>> {
+        let mut waiter: *const Waiter = null();
+        self.semaphore.acquire.transact(|mut acquire| {
+            match *acquire {
+                Queued(back) => {
+                    if waiter == null() {
+                        waiter = Box::into_raw(Box::new(Waiter {
+                            waker: AtomicWaker::new(cx.waker().clone()),
+                            next: UnsafeCell::new(null()),
+                            remaining: UnsafeCell::new(0),
+                        }));
+                    }
+                    *(*waiter).next.get() = back;
+                    *(*waiter).remaining.get() = self.amount;
+                    *acquire = Queued(waiter);
+                    acquire.commit()?;
+                    self.step = AcquireStep::Loop(waiter);
+                    return Ok(Poll::Pending);
+                }
+                Available(available) => {
+                    if self.amount <= available {
+                        *acquire = Available(available - self.amount);
+                        acquire.commit()?;
+                        if waiter != null() {
+                            Box::from_raw(waiter as *mut Waiter);
+                            waiter = null();
+                        }
+                        self.step = AcquireStep::Poison;
+                        return Ok(Poll::Ready(SemaphoreGuard::new(self.semaphore, self.amount)));
+                    } else {
+                        if waiter == null() {
+                            waiter = Box::into_raw(Box::new(Waiter {
+                                waker: AtomicWaker::new(cx.waker().clone()),
+                                next: UnsafeCell::new(null()),
+                                remaining: UnsafeCell::new(0),
+                            }));
+                        }
+                        *(*waiter).next.get() = null();
+                        *(*waiter).remaining.get() = self.amount - available;
+                        *acquire = Queued(waiter);
+                        acquire.commit()?;
+                        self.step = AcquireStep::Loop(waiter);
+                        return Ok(Poll::Pending);
+                    }
+                }
+            }
+        })
+    }
+}
+
+impl<'a> Future for AcquireFuture<'a> {
+    type Output = SemaphoreGuard<'a>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe {
+            match self.step {
+                AcquireStep::Enter => {
+                    self.poll_enter(cx)
+                }
+                AcquireStep::Loop(waiter) => {
+                    match (*waiter).waker.poll(cx.waker()) {
+                        PollResult::Pending => Poll::Pending,
+                        PollResult::Finished => {
+                            self.step = AcquireStep::Poison;
+                            Poll::Ready(SemaphoreGuard::new(self.semaphore, self.amount))
+                        }
+                        PollResult::FinishedFree => {
+                            Box::from_raw(waiter as *mut Waiter);
+                            self.step = AcquireStep::Poison;
+                            Poll::Ready(SemaphoreGuard::new(self.semaphore, self.amount))
+                        }
+                    }
+                }
+                AcquireStep::Poison => unreachable!()
+            }
+        }
+    }
+}
+
+impl<'a> Future for AcquireArcFuture<'a> {
+    type Output = SemaphoreGuardWith<Arc<Semaphore>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe {
+            match Pin::new_unchecked(&mut self.inner).poll(cx) {
+                Poll::Ready(guard) => {
+                    let result =
+                        SemaphoreGuardWith::new(self.arc.clone(), guard.forget());
+                    Poll::Ready(result)
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+}
+
+impl<'a> Drop for AcquireFuture<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            match self.step {
+                AcquireStep::Loop(waiter) => {
+                    match (*waiter).waker.cancel() {
+                        CancelResult::Cancelled => {}
+                        CancelResult::FinishedFree => {
+                            self.semaphore.release(self.amount);
+                            Box::from_raw(waiter as *mut Waiter);
+                        }
+                    }
+                }
+                AcquireStep::Enter { .. } => {}
+                AcquireStep::Poison => {}
+            }
+        }
+    }
+}
+
+
+impl Semaphore {
+    unsafe fn clear_dirty(&self) {
+        self.release.transact(|mut release| {
+            if release.mode == LockedDirty {
+                release.mode = Locked;
+                release.commit()?;
+            }
+            Ok(())
+        });
+    }
+
+    unsafe fn consume(&self, amount: usize) {
+        self.release.transact(|mut release| {
+            release.releasable -= amount;
+            release.commit()?;
+            Ok(())
+        })
+    }
+
+    unsafe fn flip(&self) {
+        let release = self.release.load(Acquire);
+        self.acquire.transact(|mut acquire| {
+            match *acquire {
+                Queued(back) if back == null() => {
+                    *acquire = Available(release.releasable);
+                    acquire.commit()?;
+                    self.consume(release.releasable);
+                    Ok(())
+                }
+                Available(available) => {
+                    *acquire = Available(available + release.releasable);
+                    acquire.commit()?;
+                    self.consume(release.releasable);
+                    Ok(())
+                }
+                Queued(mut back) => {
+                    *acquire = Queued(null());
+                    acquire.commit()?;
+                    while back != null() {
+                        let next = *(*back).next.get();
+                        *(*back).next.get() = *(*self).front.get();
+                        *self.front.get() = back;
+                        back = next;
+                    }
+                    Ok(())
+                }
+            }
+        });
+    }
+
+    unsafe fn try_pop(&self) -> bool {
+        let front = *self.front.get();
+        let remaining = *(*front).remaining.get();
+        let release = self.release.load(Acquire);
+        if remaining <= release.releasable {
+            *self.front.get() = *(*front).next.get();
+            match (*front).waker.finish() {
+                FinishResult::Cancelled => {
+                    Box::from_raw(front as *mut Waiter);
+                    return true;
+                }
+                FinishResult::Finished => {}
+                FinishResult::FinishedFree =>
+                    { Box::from_raw(front as *mut Waiter); }
+            }
+            self.release.transact(|mut release| {
+                release.releasable -= remaining;
+                release.commit()?;
+                Ok(())
+            });
+            return true;
+        }
+        if (*front).waker.is_cancelled() {
+            *self.front.get() = *(*front).next.get();
+            Box::from_raw(front as *mut Waiter);
+            return true;
+        }
+        false
+    }
+
+    unsafe fn try_unlock(&self) -> bool {
+        self.release.transact(|mut release| {
+            if release.mode == Locked {
+                release.mode = Unlocked;
+                release.commit()?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        })
+    }
+
+    unsafe fn unlock(&self) {
+        loop {
+            self.clear_dirty();
+            if *self.front.get() == null() {
+                self.flip();
+            }
+            if *self.front.get() != null() {
+                if self.try_pop() {
+                    continue;
+                }
+            }
+            if self.try_unlock() {
+                return;
+            }
+        }
+    }
+
+
+    pub fn acquire(&self, amount: usize) -> AcquireFuture {
+        AcquireFuture {
+            semaphore: self,
+            amount,
+            step: AcquireStep::Enter,
+        }
+    }
+
+    pub fn new(initial: usize) -> Self {
+        Semaphore {
+            acquire: Atomic::new(Available(initial)),
+            release: Atomic::new(ReleaseState { releasable: 0, mode: ReleaseMode::Unlocked }),
+            front: UnsafeCell::new(null()),
+        }
+    }
+
+    fn release(&self, amount: usize) {
+        unsafe {
+            self.release.transact(|mut release| {
+                release.releasable += amount;
+                match release.mode {
+                    Unlocked => {
+                        release.mode = Locked;
+                        release.commit()?;
+                        self.unlock();
+                        Ok(())
+                    }
+                    Locked | LockedDirty => {
+                        release.mode = LockedDirty;
+                        release.commit()?;
+                        Ok(())
+                    }
+                }
+            });
+        }
+    }
+
+    pub fn acquire_arc<'a>(self: &'a Arc<Self>, amount: usize) -> AcquireArcFuture<'a> {
+        AcquireArcFuture { arc: self, inner: self.acquire(amount) }
+    }
+
+
+    pub fn try_acquire(&self, amount: usize) -> Result<SemaphoreGuard, TryAcquireError> {
+        self.acquire.transact(|mut acquire| {
+            Ok(match *acquire {
+                Queued(_) => Err(TryAcquireError::WouldBlock),
+                Available(available) => {
+                    if amount <= available {
+                        *acquire = Available(available - amount);
+                        acquire.commit()?;
+                        Ok(SemaphoreGuard::new(self, amount))
+                    } else {
+                        Err(TryAcquireError::WouldBlock)
+                    }
+                }
+            })
+        })
+    }
+
+    pub fn try_acquire_arc(self: &Arc<Self>, amount: usize) -> Result<SemaphoreGuardWith<Arc<Self>>, TryAcquireError> {
+        let guard = self.try_acquire(amount)?;
+        let result = SemaphoreGuardWith::new(self.clone(), amount);
+        guard.forget();
+        Ok(result)
+    }
+}
+

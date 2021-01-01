@@ -15,6 +15,16 @@ pub trait Itertools2: Iterator {
             })
         }
     }
+    fn scan_full<S, F>(self, state: S, f: F) -> ScanFull<Self, S, F>
+        where S: Clone,
+              Self: Sized,
+              F: FnMut(S, Self::Item) -> S {
+        ScanFull {
+            f,
+            state: Some(state),
+            inner: self,
+        }
+    }
 }
 
 impl<T> Itertools2 for T where T: Iterator {}
@@ -37,6 +47,24 @@ impl<K, V1, V2, I, J> Iterator for MergeKeys<K, V1, V2, I, J> where
     }
 }
 
+pub struct ScanFull<I: Iterator, S: Clone, F: FnMut(S, I::Item) -> S> {
+    f: F,
+    state: Option<S>,
+    inner: I,
+}
+
+impl<I: Iterator, S: Clone, F: FnMut(S, I::Item) -> S> Iterator for ScanFull<I, S, F> {
+    type Item = S;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.state.take().map(|state| {
+            self.state = self.inner.next().map(
+                |next| (self.f)(state.clone(), next));
+            state
+        })
+    }
+}
+
 #[test]
 fn test_merge_keys() {
     let foo = vec![(0, "a".to_string()), (1, "b".to_string())];
@@ -45,4 +73,12 @@ fn test_merge_keys() {
         (k, v.reduce(|x, y| { format!("{}{}", x, y) }))
     }).collect();
     assert_eq!(result, vec![(0, "ax".to_string()), (1, "b".to_string()), (2, "y".to_string())]);
+}
+
+#[test]
+fn test_scan_full() {
+    use std::ops::Add;
+    assert_eq!(vec![1], vec![0i32; 0].into_iter().scan_full(1, i32::add).collect::<Vec<_>>());
+    assert_eq!(vec![1, 2], vec![1i32].into_iter().scan_full(1, i32::add).collect::<Vec<_>>());
+    assert_eq!(vec![1, 2, 4], vec![1i32, 2i32].into_iter().scan_full(1, i32::add).collect::<Vec<_>>());
 }

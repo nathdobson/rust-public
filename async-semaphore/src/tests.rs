@@ -1,33 +1,17 @@
 use futures::executor::{LocalPool, ThreadPool, block_on};
 use futures::task::{LocalSpawnExt, SpawnExt};
-use rand::{thread_rng, Rng, SeedableRng};
 use std::sync::{Arc, Mutex};
 use std::rc::Rc;
-use std::cell::{Cell, RefCell};
-use rand_xorshift::XorShiftRng;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem;
-use futures::StreamExt;
-use itertools::Itertools;
 use std::time::Duration;
-use async_std::task::sleep;
 use async_std::future::timeout;
-use crate::{ReleaseGuard, AcquireRelease, Semaphore};
+use crate::{Semaphore, SemaphoreGuard};
+use rand::{thread_rng, Rng};
 
-macro_rules! run_all {
-    ($fun: ident) => {
-        mod $fun{
-            #[test] fn shared_dwcas(){ super::$fun::<crate::shared_dwcas::SemaphoreImpl>(); }
-            #[test] fn shared_swcas(){ super::$fun::<crate::shared_swcas::SemaphoreImpl>(); }
-            #[test] fn shared_mutex(){ super::$fun::<crate::shared_mutex::SemaphoreImpl>(); }
-        }
-    }
-}
-
-run_all!(test_simple);
-fn test_simple<T: AcquireRelease+'static>() {
+#[test]
+fn test_simple() {
     println!("A");
-    let semaphore = Rc::new(Semaphore::<T>::new(10));
+    let semaphore = Rc::new(Semaphore::new(10));
     println!("B");
     let mut pool = LocalPool::new();
     println!("C");
@@ -53,13 +37,13 @@ fn test_simple<T: AcquireRelease+'static>() {
     println!("L");
 }
 
-struct CheckedSemaphore<T: AcquireRelease> {
+struct CheckedSemaphore {
     capacity: usize,
-    semaphore: Semaphore<T>,
+    semaphore: Semaphore,
     counter: Mutex<usize>,
 }
 
-impl<T: AcquireRelease> CheckedSemaphore<T> {
+impl CheckedSemaphore {
     fn new(capacity: usize) -> Self {
         CheckedSemaphore {
             capacity,
@@ -67,7 +51,7 @@ impl<T: AcquireRelease> CheckedSemaphore<T> {
             counter: Mutex::new(0),
         }
     }
-    async fn acquire(&self, amount: usize) -> ReleaseGuard<T> {
+    async fn acquire(&self, amount: usize) -> SemaphoreGuard<'_> {
         //println!("+ {}", amount);
         let guard = self.semaphore.acquire(amount).await;
         let mut lock = self.counter.lock().unwrap();
@@ -90,18 +74,25 @@ impl<T: AcquireRelease> CheckedSemaphore<T> {
     }
 }
 
-run_all!(test_multicore);
-fn test_multicore<T: AcquireRelease + Send + 'static + Sync>() where T::Acq:Send {
+#[test]
+fn test_multicore() {
+    for i in 0..2 {
+        println!("{:?}", i);
+        test_multicore_impl();
+    }
+}
+
+fn test_multicore_impl() {
     let capacity = 100;
-    let semaphore = Arc::new(CheckedSemaphore::<T>::new(capacity));
+    let semaphore = Arc::new(CheckedSemaphore::new(capacity));
     let pool = ThreadPool::builder().pool_size(10).create().unwrap();
-    (0..10).map(|_thread|
+    (0..100).map(|_thread|
         pool.spawn_with_handle({
             let semaphore = semaphore.clone();
             async move {
                 //let indent = " ".repeat(thread * 10);
                 let mut owned = 0;
-                for _i in 0..100 {
+                for _i in 0..1000 {
                     //println!("{:?}", semaphore.semaphore);
                     if owned == 0 {
                         owned = thread_rng().gen_range(0, capacity + 1);

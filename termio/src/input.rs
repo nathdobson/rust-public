@@ -147,7 +147,7 @@ impl<R: Read> EventReader<R> {
         loop {
             match self.read_maybe()? {
                 Ok(event) => return Ok(event),
-                Err(unknown) => println!("{:?}", unknown),
+                Err(unknown) => eprintln!("{:?}", unknown),
             }
         }
     }

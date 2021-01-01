@@ -1,7 +1,6 @@
 use std::ops::{Index, IndexMut};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-use std::{mem, ptr};
 use crate::rect::Rect;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -28,7 +27,7 @@ pub struct GridSlice<'a, T>(GridSliceRaw<T>, PhantomData<&'a T>);
 
 pub struct GridSliceMut<'a, T>(GridSliceRaw<T>, PhantomData<&'a mut T>);
 
-pub struct GridSliceDrain<'a, T>(GridSliceRaw<T>, PhantomData<&'a T>);
+//pub struct GridSliceDrain<'a, T>(GridSliceRaw<T>, PhantomData<&'a T>);
 
 pub struct Rows<S: GridSliceIndex>(Option<S>);
 
@@ -36,6 +35,11 @@ pub struct Cols<S: GridSliceIndex>(Option<S>);
 
 
 impl<T> Grid<T> {
+    pub fn from_iterator(size: (isize, isize), iter: impl Iterator<Item=T>) -> Self {
+        let vec: Vec<T> = iter.collect();
+        assert!(size.0 * size.1 == vec.len() as isize);
+        Grid { size, vec }
+    }
     pub fn new(size: (isize, isize), mut f: impl FnMut(isize, isize) -> T) -> Self {
         let mut vec = Vec::with_capacity((size.0 * size.1) as usize);
         for y in 0..size.1 {
@@ -67,18 +71,18 @@ impl<T> Grid<T> {
     pub fn as_mut(&mut self) -> GridSliceMut<T> {
         GridSliceMut(self.as_raw(), PhantomData)
     }
-    pub fn drain(&mut self) -> GridSliceDrain<T> {
-        unsafe {
-            let bounds = self.bounds();
-            let (ptr, _, cap) = mem::replace(&mut self.vec, vec![]).into_raw_parts();
-            self.vec = Vec::from_raw_parts(ptr, 0, cap);
-            self.size.1 = 0;
-            GridSliceDrain(GridSliceRaw {
-                grid: NonNull::from(self),
-                bounds,
-            }, PhantomData)
-        }
-    }
+    //    pub fn drain(&mut self) -> GridSliceDrain<T> {
+//        unsafe {
+//            let bounds = self.bounds();
+//            let (ptr, _, cap) = mem::replace(&mut self.vec, vec![]).into_raw_parts();
+//            self.vec = Vec::from_raw_parts(ptr, 0, cap);
+//            self.size.1 = 0;
+//            GridSliceDrain(GridSliceRaw {
+//                grid: NonNull::from(self),
+//                bounds,
+//            }, PhantomData)
+//        }
+//    }
     pub fn get(&self, p: (isize, isize)) -> Option<&T> {
         self.vec.get(self.index_of(p)?)
     }
@@ -88,6 +92,24 @@ impl<T> Grid<T> {
     }
     pub fn size(&self) -> (isize, isize) {
         self.size
+    }
+    pub fn into_iter(self) -> impl Iterator<Item=((isize, isize), T)> {
+        self.bounds().points_by_row().zip(self.vec.into_iter())
+    }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item=((isize, isize), &mut T)> {
+        self.bounds().points_by_row().zip(self.vec.iter_mut())
+    }
+    pub fn iter(&mut self) -> impl Iterator<Item=((isize, isize), &T)> {
+        self.bounds().points_by_row().zip(self.vec.iter())
+    }
+    pub fn points(&self) -> impl Iterator<Item=(isize, isize)> {
+        self.bounds().points_by_row()
+    }
+    pub fn values(&self) -> impl Iterator<Item=&T> {
+        self.vec.iter()
+    }
+    pub fn values_mut(&mut self) -> impl Iterator<Item=&mut T> {
+        self.vec.iter_mut()
     }
 }
 
@@ -188,15 +210,15 @@ impl<'a, T> GridSliceIndex for GridSliceMut<'a, T> {
     }
 }
 
-impl<'a, T> GridSliceIndex for GridSliceDrain<'a, T> {
-    type Source = T;
-    type Target = T;
-    fn as_raw(&self) -> &GridSliceRaw<T> { &self.0 }
-    unsafe fn from_raw(x: GridSliceRaw<T>) -> Self { GridSliceDrain(x, PhantomData) }
-    fn cell(self) -> Self::Target {
-        unsafe { ptr::read(self.0.get_raw((0, 0)).unwrap().as_ptr()) }
-    }
-}
+//impl<'a, T> GridSliceIndex for GridSliceDrain<'a, T> {
+//    type Source = T;
+//    type Target = T;
+//    fn as_raw(&self) -> &GridSliceRaw<T> { &self.0 }
+//    unsafe fn from_raw(x: GridSliceRaw<T>) -> Self { GridSliceDrain(x, PhantomData) }
+//    fn cell(self) -> Self::Target {
+//        unsafe { ptr::read(self.0.get_raw((0, 0)).unwrap().as_ptr()) }
+//    }
+//}
 
 impl<'a, T> GridSliceMut<'a, T> {
     pub fn as_mut<'b>(&'b mut self) -> GridSliceMut<'b, T> {
@@ -213,14 +235,14 @@ impl<'a, T> GridSliceMut<'a, T> {
     }
 }
 
-impl<'a, T> GridSliceDrain<'a, T> {
-    pub fn as_ref<'b>(&'b self) -> GridSlice<'b, T> {
-        GridSlice(self.0, PhantomData)
-    }
-    pub fn into_ref(self) -> GridSlice<'a, T> {
-        GridSlice(self.0, PhantomData)
-    }
-}
+//impl<'a, T> GridSliceDrain<'a, T> {
+//    pub fn as_ref<'b>(&'b self) -> GridSlice<'b, T> {
+//        GridSlice(self.0, PhantomData)
+//    }
+//    pub fn into_ref(self) -> GridSlice<'a, T> {
+//        GridSlice(self.0, PhantomData)
+//    }
+//}
 
 
 impl<S: GridSliceIndex> Iterator for Rows<S> {
@@ -326,7 +348,7 @@ fn test_grid_cells_by_row() {
     let mut foo = Grid::new((2, 3), |x, y| Box::new(x + y * 2));
     assert_eq!((0..6).map(Box::new).collect::<Vec<_>>(), cells_by_row(foo.as_ref()).cloned().collect::<Vec<_>>());
     assert_eq!((0..6).map(Box::new).collect::<Vec<_>>(), cells_by_row(foo.as_mut()).map(|x| x.clone()).collect::<Vec<_>>());
-    assert_eq!((0..6).map(Box::new).collect::<Vec<_>>(), cells_by_row(foo.drain()).collect::<Vec<_>>());
+    //assert_eq!((0..6).map(Box::new).collect::<Vec<_>>(), cells_by_row(foo.drain()).collect::<Vec<_>>());
     assert_eq!(Vec::<&Box<_>>::new(), cells_by_row(foo.as_ref()).collect::<Vec<_>>());
     assert_eq!(Vec::<&Box<_>>::new(), cells_by_row(foo.as_mut()).collect::<Vec<_>>());
 }

@@ -233,8 +233,5 @@ impl TermWriter {
             }
         }
     }
-    pub fn flush(&mut self) {
-        self.inner.safe_flush();
-    }
 }
 

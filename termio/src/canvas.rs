@@ -38,7 +38,7 @@ impl<'a> StyleWrite for Canvas<'a> {
 
 impl<'a> Canvas<'a> {
     pub fn new(screen: &'a mut Screen, bounds: Rect, position: (isize, isize), style: Style) -> Self {
-        Canvas { screen, bounds, position: (0, 0), style }
+        Canvas { screen, bounds, position, style }
     }
     pub fn set(&mut self, p: (isize, isize), mut grapheme: &str) -> isize {
         if grapheme == "\x1b" {

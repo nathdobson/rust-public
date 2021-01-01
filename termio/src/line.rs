@@ -244,15 +244,15 @@ fn test_symbols() {
 }
 
 #[derive(Debug, Default)]
-pub struct Table {
+pub struct TableBorder {
     pub xs: Vec<isize>,
     pub ys: Vec<isize>,
     pub horizontals: Grid<Stroke>,
     pub verticals: Grid<Stroke>,
 }
 
-impl Table {
-    pub fn render_grid(&self, mut canvas: Canvas) {
+impl TableBorder {
+    pub fn paint_border(&self, mut canvas: Canvas) {
         for (row, y) in self.ys.iter().cloned().enumerate() {
             for (col, x) in self.xs.iter().cloned().enumerate() {
                 let row = row as isize;
@@ -304,13 +304,13 @@ fn test_table() {
                              Rect::from_position_size((0, 0), (20, 20)),
                              (0, 0),
                              Style::default());
-    let table = Table {
+    let table = TableBorder {
         xs: vec![0, 5, 10],
         ys: vec![3, 8, 13],
         horizontals: Grid::new((2, 3), |x, y| { Stroke::Narrow }),
         verticals: Grid::new((3, 2), |x, y| { Stroke::Narrow }),
     };
     println!("{:?}", table);
-    table.render_grid(canvas);
+    table.paint_border(canvas);
     println!("{:?}", screen);
 }

@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic;
 use crate::shared::Shared;
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -67,6 +68,18 @@ impl<A: 'static + ?Sized> Ord for Token<A> {
 impl<A: 'static + ?Sized> PartialOrd for Token<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.inner.partial_cmp(&other.inner)
+    }
+}
+
+impl<A: 'static + ?Sized> Hash for Token<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
+}
+
+impl<A: 'static + ?Sized> Clone for Token<A> {
+    fn clone(&self) -> Self {
+        Token { inner: self.inner.clone() }
     }
 }
 

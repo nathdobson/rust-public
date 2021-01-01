@@ -52,6 +52,16 @@ impl fmt::Debug for Error {
 
 impl error::Error for Error {}
 
+trait DynClone<U: ?Sized> {
+    fn dyn_clone(&self) -> Box<U>;
+}
+
+impl<T: Clone + Unsize<U>, U:?Sized> DynClone<U> for T {
+    fn dyn_clone(&self) -> Box<U> {
+        Box::<T>::new(self.clone())
+    }
+}
+
 #[test]
 fn test_downcast() {
     trait Extension: Upcast<dyn Any> {

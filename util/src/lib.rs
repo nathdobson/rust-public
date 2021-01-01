@@ -29,6 +29,8 @@ pub mod expect;
 pub mod any;
 pub mod dynbag;
 pub mod web;
+pub mod tree;
+pub mod itertools;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,
@@ -67,3 +69,4 @@ fn btreemap_set_keys_test() {
 }
 
 pub type Name = Arc<String>;
+
