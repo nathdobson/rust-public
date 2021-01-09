@@ -1,4 +1,3 @@
-use core::str::utf8_char_width;
 use std::{fmt, io, mem};
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read};
@@ -10,6 +9,7 @@ use itertools::Itertools;
 
 use crate::Direction;
 use crate::tokenizer::Tokenizer;
+use std::time::Instant;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Mouse {
@@ -80,7 +80,7 @@ pub struct MouseEvent {
     pub position: (isize, isize),
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy)]
 pub enum Event {
     KeyEvent(KeyEvent),
     MouseEvent(MouseEvent),
@@ -89,6 +89,7 @@ pub enum Event {
     WindowSize(isize, isize),
     TextAreaSize(isize, isize),
     ScreenSize(isize, isize),
+    Time(Instant),
 }
 
 #[derive(Debug)]
@@ -339,4 +340,29 @@ impl<R: Read> EventReader<R> {
     fn known(&mut self, modifier: Modifier, key: Key) -> EventResult {
         Ok(Event::KeyEvent(KeyEvent { modifier, key }))
     }
+}
+// https://tools.ietf.org/html/rfc3629
+static UTF8_CHAR_WIDTH: [u8; 256] = [
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, // 0x1F
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, // 0x3F
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, // 0x5F
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, // 0x7F
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, // 0x9F
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, // 0xBF
+    0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, // 0xDF
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, // 0xEF
+    4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xFF
+];
+
+/// Given a first byte, determines how many bytes are in this UTF-8 character.
+#[inline]
+pub fn utf8_char_width(b: u8) -> usize {
+    UTF8_CHAR_WIDTH[b as usize] as usize
 }

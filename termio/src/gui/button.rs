@@ -1,4 +1,4 @@
-use crate::gui::node::{Node, NodeHeader};
+use crate::gui::node::{Node, NodeImpl};
 use crate::canvas::Canvas;
 use crate::input::{MouseEvent, Mouse};
 use crate::gui::gui::{OutputEvent, InputEvent};
@@ -7,37 +7,59 @@ use std::collections::BTreeMap;
 use crate::screen::{Style, LineSetting};
 use crate::color::Color;
 use crate::gui::layout::Constraint;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use crate::gui::time::TimeEvent;
+use std::ops::{Deref, DerefMut};
+use std::fmt::Debug;
 
+#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
+pub enum PaintState {
+    Normal,
+    Over,
+    Down,
+}
+
+#[derive(Debug)]
 pub struct Button<T: ButtonPaint = TextButtonPaint> {
-    header: NodeHeader,
     event: OutputEvent,
     over: bool,
     down: bool,
+    countdown: Option<Instant>,
+    state: PaintState,
     paint: T,
 }
 
+#[derive(Debug)]
 pub struct TextButtonPaint {
     text: String,
-    normal: Style,
-    over: Style,
-    down: Style,
+    normal_style: Style,
+    over_style: Style,
+    down_style: Style,
 }
 
 impl<T: ButtonPaint> Button<T> {
-    pub fn new_from_paint(paint: T, event: OutputEvent) -> Self {
-        Button {
-            header: NodeHeader::new(),
+    pub fn new_from_paint(paint: T, event: OutputEvent) -> Node<Self> {
+        Node::new(Button {
             over: false,
             down: false,
             event,
             paint,
-        }
+            countdown: None,
+            state: PaintState::Normal,
+        })
     }
 }
 
 impl Button {
-    pub fn new(text: String, event: OutputEvent) -> Self {
+    pub fn new(text: String, event: OutputEvent) -> Node<Self> {
         Button::new_from_paint(TextButtonPaint::new(text), event)
+    }
+}
+
+impl<T: ButtonPaint> Button<T> {
+    pub fn state(&self) -> PaintState {
+        self.state
     }
 }
 
@@ -49,15 +71,15 @@ impl TextButtonPaint {
         };
         TextButtonPaint {
             text,
-            normal: Style {
+            normal_style: Style {
                 background: Color::Gray24(15),
                 ..base
             },
-            over: Style {
+            over_style: Style {
                 background: Color::Gray24(18),
                 ..base
             },
-            down: Style {
+            down_style: Style {
                 background: Color::Gray24(23),
                 ..base
             },
@@ -65,65 +87,92 @@ impl TextButtonPaint {
     }
 }
 
-pub trait ButtonPaint {
-    fn paint(&self, canvas: Canvas, over: bool, down: bool);
-    fn layout(&self, constraint: &Constraint) -> (isize, isize);
+pub trait ButtonPaint: Sized + Debug {
+    fn paint(this: &Node<Button<Self>>, canvas: Canvas);
+    fn line_setting(this: &Node<Button<Self>>, row: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
+    fn layout(this: &mut Node<Button<Self>>, constraint: &Constraint) -> (isize, isize);
 }
 
 impl ButtonPaint for TextButtonPaint {
-    fn paint(&self, mut w: Canvas, over: bool, down: bool) {
-        w.style = if down && over {
-            self.down
-        } else if over {
-            self.over
-        } else {
-            self.normal
+    fn paint(this: &Node<Button<Self>>, mut w: Canvas) {
+        w.style = match this.state() {
+            PaintState::Normal => this.normal_style,
+            PaintState::Over => this.over_style,
+            PaintState::Down => this.down_style,
         };
         w.draw((0, 0),
                &iter::once('▛')
-                   .chain(iter::repeat('▀').take(self.text.len()))
+                   .chain(iter::repeat('▀').take(this.text.len()))
                    .chain(iter::once('▜')).collect::<String>());
         w.draw((0, 1),
-               &format!("▌{}▐", self.text, ));
+               &format!("▌{}▐", this.text, ));
         w.draw((0, 2),
                &iter::once('▙')
-                   .chain(iter::repeat('▄').take(self.text.len()))
+                   .chain(iter::repeat('▄').take(this.text.len()))
                    .chain(iter::once('▟')).collect::<String>());
     }
 
-    fn layout(&self, constraint: &Constraint) -> (isize, isize) {
-        ((self.text.len() + 2) as isize, 3)
+    fn layout(this: &mut Node<Button<Self>>, constraint: &Constraint) -> (isize, isize) {
+        ((this.text.len() + 2) as isize, 3)
     }
 }
 
-impl<T: ButtonPaint> Node for Button<T> {
-    fn paint(&self, w: Canvas) {
-        self.paint.paint(w, self.over, self.down)
+impl<T: ButtonPaint> NodeImpl for Button<T> {
+    fn paint(self: &Node<Self>, w: Canvas) {
+        T::paint(self, w)
     }
 
-    fn handle(&mut self, event: &InputEvent, output: &mut Vec<OutputEvent>) {
+    fn handle(self: &mut Node<Self>, event: &InputEvent, output: &mut Vec<OutputEvent>) {
         match event {
             InputEvent::MouseEvent { event, inside } => {
                 let was_down = self.down;
                 let was_over = self.over;
                 self.over = *inside;
-                self.down = event.mouse == Mouse::Down(0);
+                self.down = self.over && event.mouse == Mouse::Down(0);
                 if was_down && !self.down && *inside {
                     output.push(self.event.clone());
+                    let countdown = Instant::now() + Duration::from_millis(50);
+                    self.countdown = Some(countdown);
+                    output.push(TimeEvent::new(countdown));
                 }
-                if was_down != self.down || was_over != self.over {
-                    self.header_mut().mark_dirty();
+            }
+            InputEvent::TimeEvent { when } => {
+                if let Some(countdown) = self.countdown {
+                    if *when >= countdown {
+                        self.countdown = None;
+                    }
                 }
             }
         }
+        let new_state =
+            if self.down || self.countdown.is_some() {
+                PaintState::Down
+            } else if self.over {
+                PaintState::Over
+            } else {
+                PaintState::Normal
+            };
+        if self.state != new_state {
+            self.state = new_state;
+            self.mark_dirty();
+        }
     }
 
-    fn layout(&mut self, constraint: &Constraint) {
-        let size = self.paint.layout(constraint);
-        self.header_mut().set_size(size);
+    fn layout(self: &mut Node<Self>, constraint: &Constraint) {
+        let size = T::layout(self, constraint);
+        self.set_size(size);
     }
 
-    fn header(&self) -> &NodeHeader { &self.header }
+    fn line_setting(self: &Node<Self>, row: isize) -> Option<LineSetting> {
+        T::line_setting(self, row)
+    }
+}
 
-    fn header_mut(&mut self) -> &mut NodeHeader { &mut self.header }
+impl<T: ButtonPaint> Deref for Button<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target { &self.paint }
+}
+
+impl<T: ButtonPaint> DerefMut for Button<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.paint }
 }

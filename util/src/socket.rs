@@ -44,7 +44,7 @@ pub fn set_linger(stream: &TcpStream) {
         struct linger {
             l_onoff: c_int,
             l_linger: c_int,
-        };
+        }
         let optval = linger {
             l_onoff: 1,
             l_linger: 0,

@@ -29,21 +29,12 @@ use util::rng::BoxRng;
 use std::any::Any;
 use util::any::Upcast;
 
-pub mod replay;
 pub mod tcp;
-pub mod timer;
 pub mod proxy;
 
-pub trait Renderer: Send + Sync + 'static {
+pub trait EventLoop: 'static + Send + Sync {
     fn peer_render(&self, username: &Name);
     fn peer_shutdown(&self, username: &Name);
-}
-
-type TimerCallback = Box<dyn FnOnce(&mut dyn Handler) + Send + 'static>;
-
-pub trait Timer: Send + Sync + 'static {
-    fn now(&self) -> Instant;
-    fn schedule(&self, time: Instant, callback: TimerCallback);
 }
 
 pub trait Handler: 'static + Send + Upcast<dyn Any> {

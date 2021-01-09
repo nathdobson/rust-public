@@ -1,33 +1,55 @@
 #![feature(never_type)]
+#![allow(unused_imports)]
 
 use termio::gui::gui::{Gui, OutputEventTrait};
 use termio::gui::table::{Table, TableImpl};
-use termio::gui::container::Container;
 use termio::gui::button::Button;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use termio::gui::node::Node;
 use termio::input::{EventReader, Event, KeyEvent};
 use std::io::{stdin, stdout, Write};
 use std::error::Error;
-use std::mem;
+use std::{mem, thread, process};
 use util::grid::Grid;
+use termio::gui::label::Label;
+use termio::string::{StyleFormatExt};
+use util::any::{Upcast, AnyExt};
+use std::any::Any;
+use std::ops::Deref;
+use termio::screen::Style;
+use termio::color::Color;
+use termio::gui::time::TimeEvent;
+use timer::Timer;
+use std::time::Instant;
+use chrono;
+use std::time;
+use termio::gui::group::Group;
 
+#[derive(Debug)]
 struct Example {
-    buttons: [Button; 4],
+    buttons: [Node<Button>; 4],
+    labels: [Node<Label>; 2],
 }
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Click;
+struct Click(&'static str);
 
 impl OutputEventTrait for Click {}
 
 impl TableImpl for Example {
-    fn children(&self) -> Grid<&dyn Node> {
-        Grid::from_iterator((2, 2), self.buttons.iter().map(|x| x as &dyn Node))
+    fn table_children(this: &Node<Group<Table<Self>>>) -> Grid<&Node> {
+        Grid::from_iterator(
+            (2, 3),
+            this.buttons.iter().map(|x| x as &Node)
+                .chain(this.labels.iter().map(|x| x as &Node)))
     }
 
-    fn children_mut(&mut self) -> Grid<&mut dyn Node> {
-        Grid::from_iterator((2, 2), self.buttons.iter_mut().map(|x| x as &mut dyn Node))
+    fn table_children_mut(this: &mut Node<Group<Table<Self>>>) -> Grid<&mut Node> {
+        let this = &mut ****this;
+        Grid::from_iterator(
+            (2, 3),
+            this.buttons.iter_mut().map(|x| x as &mut Node)
+                .chain(this.labels.iter_mut().map(|x| x as &mut Node)))
     }
 }
 
@@ -35,36 +57,90 @@ fn main() {
     main_impl().unwrap();
 }
 
-fn main_impl() -> Result<!, Box<dyn Error>> {
+fn main_impl() -> Result<(), Box<dyn Error>> {
+    let mut label1 = Label::new();
+    label1.push("a".to_style_string());
+    label1.set_size((40, 10));
+    let mut label2 = Label::new();
+    label2.set_size((10, 10));
     let mut gui =
-        Gui::new(Container::new(Table::new(Example {
+        Gui::new(Table::new(Example {
             buttons: [
-                Button::new("aaa".to_string(), Arc::new(Click)),
-                Button::new("bbbbbbb".to_string(), Arc::new(Click)),
-                Button::new("cccccccccc".to_string(), Arc::new(Click)),
-                Button::new("ddddddddddddddddd".to_string(), Arc::new(Click)),
+                Button::new("aaa".to_string(), Arc::new(Click("a"))),
+                Button::new("bbbbbbb".to_string(), Arc::new(Click("b"))),
+                Button::new("cccccccccc".to_string(), Arc::new(Click("c"))),
+                Button::new("ddddddddddddddddd".to_string(), Arc::new(Click("d"))),
             ],
-        })));
+            labels: [
+                label1,
+                label2,
+            ],
+        }));
+    gui.set_background(Style {
+        background: Color::Gray24(23),
+        foreground: Color::Gray24(0),
+        ..Style::default()
+    });
     gui.update_text_size();
-    let mut reader = EventReader::new(stdin());
-    let stdout = stdout();
-    loop {
-        let output = gui.buffer();
-        let mut lock = stdout.lock();
-        lock.write_all(&output)?;
-        lock.flush()?;
-        output.clear();
-        mem::drop(lock);
+    let (events, event_receiver) = mpsc::channel();
 
-        let next = reader.read()?;
-        eprintln!("Event {:?}", next);
-        if next == Event::KeyEvent(KeyEvent::typed('c').control()) {
-            break;
+    thread::spawn({
+        let events = events.clone();
+        move || {
+            let mut reader = EventReader::new(stdin());
+            loop {
+                let next = reader.read().unwrap();
+                if next == Event::KeyEvent(KeyEvent::typed('c').control()) {
+                    eprintln!("Quitting");
+                    process::exit(0);
+                }
+                events.send(next).unwrap();
+            }
         }
-        let mut output_events = vec![];
-        gui.handle(&next, &mut output_events);
-        eprintln!("{:?}", output_events);
-        gui.paint();
-    }
-    std::process::exit(0);
+    });
+
+    thread::spawn({
+        let events = events.clone();
+        move || {
+            let timer = Timer::new();
+            let stdout = stdout();
+            loop {
+                let output = gui.buffer();
+                let mut lock = stdout.lock();
+                lock.write_all(&output).unwrap();
+                lock.flush().unwrap();
+                output.clear();
+                mem::drop(lock);
+
+                let next = if let Ok(next) = event_receiver.recv() {
+                    next
+                } else {
+                    break;
+                };
+                let mut output_events = vec![];
+                gui.handle(&next, &mut output_events);
+                for o in output_events {
+                    if let Ok(c) = o.downcast_event::<Click>() {
+                        gui.labels[0].push(c.0.to_style_string())
+                    } else if let Ok(TimeEvent(when)) = o.downcast_event::<TimeEvent>() {
+                        let when = *when;
+                        let delay = chrono::Duration::from_std(when - Instant::now()).unwrap();
+                        timer.schedule_with_delay(
+                            delay,
+                            {
+                                let events = events.clone();
+                                move || {
+                                    events.send(Event::Time(when)).ok();
+                                }
+                            }).ignore();
+                    } else {
+                        eprintln!("Unknown {:?}", o);
+                    }
+                }
+                gui.paint();
+            }
+        }
+    }).join().unwrap();
+    println!("Done");
+    Ok(())
 }

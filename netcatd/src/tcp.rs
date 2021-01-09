@@ -11,7 +11,7 @@ use util::io::{SafeWrite, pipeline};
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use crate::{Handler, proxy, Renderer};
+use crate::{Handler, proxy, EventLoop};
 use util::watch::{Watchable, Watch};
 use util::{Name, lossy, cancel, expect};
 use std::collections::{HashMap, HashSet};
@@ -54,24 +54,26 @@ impl NetcatServer {
     }
 }
 
-impl Renderer for NetcatServer {
-    fn peer_render(&self, username: &Arc<String>) {
+impl EventLoop for NetcatServer {
+    fn peer_render(&self, username: &Name) {
         if let Some(peer) = self.state.lock().unwrap().peers.get(username) {
-            if let Some(sender) = peer.sender.as_ref() {
+            if let Some(sender) = &peer.sender {
                 sender.send(());
             }
         }
     }
-
-    fn peer_shutdown(&self, username: &Arc<String>) {
-        if let Some(peer) = self.state.lock().unwrap().peers.get(username) {
+    fn peer_shutdown(&self, username: &Name) {
+        if let Some(peer) = self.state.lock().unwrap().peers.get_mut(username) {
             peer.stream.shutdown(Shutdown::Read).ok();
         }
     }
 }
 
 impl NetcatServer {
-    fn handle_stream(self: &Arc<Self>, mut stream: Shared<TcpStream>, handler: Arc<Mutex<dyn Handler>>) -> Result<(), Box<dyn error::Error>> {
+    fn handle_stream(self: &Arc<Self>,
+                     mut stream: Shared<TcpStream>,
+                     handler: Arc<Mutex<dyn Handler>>)
+                     -> Result<(), Box<dyn error::Error>> {
         let (host, _) = proxy::run_proxy_server(&mut stream)?;
         let username = Arc::new(host.to_string()?);
         let (sender, receiver) = lossy::channel();
@@ -194,15 +196,6 @@ mod test {
     use std::io::Read;
     use std::thread::JoinHandle;
     use std::any::Any;
-
-    #[derive(Eq, PartialEq, Ord, PartialOrd, Debug)]
-    enum Log {
-        Add(Name),
-        Shutdown(Name),
-        Close(Name),
-        Render(Name),
-        Event(Name, Event),
-    }
 
     struct TestHandler { log: expect::Client<Log, ()> }
 

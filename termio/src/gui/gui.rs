@@ -1,12 +1,11 @@
-use crate::gui::node::Node;
+use crate::gui::node::{Node, NodeImpl};
 use util::tree::Tree;
-use crate::gui::container::Container;
 use util::rect::Rect;
 use util::dynbag::Bag;
 use crate::screen::{Style, LineSetting, Screen};
 use crate::writer::TermWriter;
 use std::any::{Any, TypeId};
-use util::any::Upcast;
+use util::any::{Upcast, AnyExt};
 use std::fmt;
 use std::sync::Arc;
 use crate::input::{MouseEvent, Event};
@@ -14,9 +13,11 @@ use crate::canvas::Canvas;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use crate::gui::layout::Constraint;
+use std::ops::{Deref, DerefMut};
+use std::time::Instant;
 
-pub struct Gui<T: Node> {
-    root: T,
+pub struct Gui<T: NodeImpl> {
+    root: Node<T>,
     style: Style,
     title: String,
     writer: TermWriter,
@@ -27,17 +28,26 @@ pub trait OutputEventTrait: Any + 'static + Send + Sync + fmt::Debug + Upcast<dy
 
 pub type OutputEvent = Arc<dyn OutputEventTrait>;
 
+impl dyn OutputEventTrait {
+    pub fn downcast_event<T: 'static>(&self) -> util::any::Result<&T> {
+        self.downcast_ref_result()
+    }
+}
+
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum InputEvent {
     MouseEvent {
         event: MouseEvent,
         inside: bool,
     },
+    TimeEvent {
+        when: Instant,
+    },
 }
 
 
-impl<T: Node> Gui<T> {
-    pub fn new(root: T) -> Self {
+impl<T: NodeImpl> Gui<T> {
+    pub fn new(root: Node<T>) -> Self {
         let mut writer = TermWriter::new();
         writer.set_enabled(true);
         Gui {
@@ -64,7 +74,7 @@ impl<T: Node> Gui<T> {
         let mut screen = Screen::new();
         screen.title = self.title.clone();
         for y in 1..self.size.1 {
-            if let Some(line_setting) = self.root.line_setting(y) {
+            if let Some(line_setting) = self.root.line_setting(y - 1) {
                 screen.row(y as isize).line_setting = line_setting;
             }
         }
@@ -78,14 +88,14 @@ impl<T: Node> Gui<T> {
     pub fn set_background(&mut self, style: Style) {
         if self.style != style {
             self.style = style;
-            self.root.header_mut().mark_dirty();
+            self.root.mark_dirty();
         }
     }
 
     pub fn set_title(&mut self, title: String) {
         if self.title != title {
             self.title = title;
-            self.root.header_mut().mark_dirty();
+            self.root.mark_dirty();
         }
     }
 
@@ -118,9 +128,26 @@ impl<T: Node> Gui<T> {
                 if self.size != (*w, *h) {
                     self.size = (*w, *h);
                     self.layout();
+                    self.root.mark_dirty();
                 }
             }
             Event::ScreenSize(_, _) => {}
+            Event::Time(when) => {
+                self.root.handle(&InputEvent::TimeEvent { when: *when }, output);
+            }
         }
+    }
+}
+
+impl<T: NodeImpl> Deref for Gui<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.root
+    }
+}
+
+impl<T: NodeImpl> DerefMut for Gui<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.root
     }
 }

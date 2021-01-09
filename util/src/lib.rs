@@ -1,8 +1,12 @@
 #![feature(unsize, coerce_unsized, rustc_private, negative_impls, never_type, write_all_vectored, vec_into_raw_parts, raw, can_vector, bound_cloned, backtrace, type_name_of_val)]
+#![allow(unused_imports)]
+#![feature(arbitrary_self_types)]
 
 use std::mem;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::marker::Unsize;
+use std::ops::Deref;
 
 pub mod bag;
 pub mod listen;
@@ -68,5 +72,69 @@ fn btreemap_set_keys_test() {
     assert_eq!(map, [("b".to_owned(), 2), ("c".to_owned(), 3)].iter().cloned().collect::<BTreeMap<_, _>>())
 }
 
+
 pub type Name = Arc<String>;
 
+// trait Doggo {
+//     fn scritch(&self) -> usize;
+// }
+//
+// trait DoggoImpl<T> {
+//     fn scritch(x: &T) -> usize;
+// }
+//
+// trait DoggoBlanket: Sized {
+//     type Impl: DoggoImpl<Self> + ?Sized;
+// }
+//
+// impl<A: DoggoBlanket> Doggo for A {
+//     fn scritch(&self) -> usize {
+//         A::Impl::scritch(self)
+//     }
+// }
+//
+// trait Lab { fn scritch_lab(&self) -> usize; }
+//
+// impl<T: Lab> DoggoImpl<T> for dyn Lab { fn scritch(x: &T) -> usize { x.scritch_lab() } }
+//
+// struct Lassie;
+//
+// impl Lab for Lassie {
+//     fn scritch_lab(&self) -> usize { 2 }
+// }
+//
+// impl DoggoBlanket for Lassie { type Impl = dyn Lab; }
+//
+// trait Poodle { fn scritch_poodle(&self) -> usize; }
+//
+// impl<T: Poodle> DoggoImpl<T> for dyn Poodle { fn scritch(x: &T) -> usize { x.scritch_poodle() } }
+//
+// struct Padster;
+//
+// impl Poodle for Padster {
+//     fn scritch_poodle(&self) -> usize { 3 }
+// }
+//
+// impl DoggoBlanket for Padster { type Impl = dyn Poodle; }
+//
+//
+// struct Foo<T: ?Sized> {
+//     x: u32,
+//     inner: T,
+// }
+//
+// trait Bar {
+//     fn baz(self: &Foo<Self>);
+// }
+//
+// impl<T: ?Sized> Deref for Foo<T> {
+//     type Target = T;
+//
+//     fn deref(&self) -> &Self::Target {
+//         &self.inner
+//     }
+// }
+//
+// fn blu(x: Box<Foo<dyn Bar>>) {
+//     x.deref().baz();
+// }

@@ -6,6 +6,7 @@ use util::grid;
 use std::collections::{BTreeSet, BTreeMap};
 use std::fmt;
 use crate::output::*;
+use std::fmt::Debug;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Row {
@@ -44,11 +45,11 @@ pub enum LineSetting {
 }
 
 impl LineSetting {
-    pub fn merge(self, other: Self) -> Self {
+    pub fn merge(self, other: Self, info: &dyn Debug) -> Self {
         if self == other {
             self
         } else {
-            eprintln!("line setting mismatch {:?} {:?}", self, other);
+            eprintln!("line setting mismatch {:?} {:?} {:?}", self, other, info);
             LineSetting::Normal
         }
     }
