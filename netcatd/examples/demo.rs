@@ -34,6 +34,7 @@ impl DemoHandler {
     }
 }
 
+#[derive(Debug)]
 struct Root {
     hello: Node<Button>,
     goodbye: Node<Button>,

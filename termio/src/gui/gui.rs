@@ -71,6 +71,9 @@ impl<T: NodeImpl> Gui<T> {
         if !self.root.check_dirty() {
             return;
         }
+        if !self.writer.enabled(){
+            return;
+        }
         let mut screen = Screen::new();
         screen.title = self.title.clone();
         for y in 1..self.size.1 {

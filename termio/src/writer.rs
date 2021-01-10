@@ -83,6 +83,9 @@ impl TermWriter {
     pub fn buffer(&mut self) -> &mut Vec<u8> {
         &mut self.inner
     }
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
     pub fn set_enabled(&mut self, enabled: bool) {
         if self.enabled != enabled {
             self.enabled = enabled;
@@ -102,7 +105,7 @@ impl TermWriter {
             }
         }
     }
-    pub fn get_text_size(&mut self){
+    pub fn get_text_size(&mut self) {
         swrite!(self.inner, "{}", ReportTextAreaSize);
     }
     pub fn move_cursor(&mut self, x: isize, y: isize) {
@@ -152,7 +155,7 @@ impl TermWriter {
             if row.line_setting == LineSetting::Normal {
                 self.bounds.xs().end
             } else {
-                (self.bounds.xs().end+10) / 2
+                (self.bounds.xs().end + 10) / 2
             };
         if self.cursor.0 > max {
             self.cursor.0 = max;

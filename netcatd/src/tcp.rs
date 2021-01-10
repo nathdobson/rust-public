@@ -24,6 +24,7 @@ use chrono::format::Item::Error;
 use util::cancel::{Context, Cancel};
 use util::cancel::RecvError::Cancelling;
 use std::collections::hash_map::Entry;
+use std::str;
 
 struct Peer {
     stream: Shared<TcpStream>,
