@@ -19,15 +19,14 @@ impl Label {
             scroll: 0,
         })
     }
-    pub fn push(self: &mut Node<Self>, str: StyleString) {
-        self.lines.push(str);
-        self.scroll = (self.lines.len() as isize) - self.size().1;
-        self.mark_dirty();
-    }
-    pub fn clear(self: &mut Node<Self>) {
-        self.lines.clear();
-        self.scroll = 0;
-        self.mark_dirty();
+
+    pub fn sync(self: &mut Node<Self>, source: &Vec<StyleString>) {
+        //TODO make faster
+        if self.lines != *source {
+            self.lines.clone_from(source);
+            self.scroll = (self.lines.len() as isize) - self.size().1;
+            self.mark_dirty();
+        }
     }
 }
 

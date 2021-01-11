@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Eq, PartialOrd, PartialEq, Ord, Hash, Copy, Clone, Debug)]
+#[derive(Eq, PartialOrd, PartialEq, Ord, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum BaseColor {
     Black = 0,
     Red = 1,
@@ -12,7 +12,7 @@ pub enum BaseColor {
     White = 7,
 }
 
-#[derive(Eq, PartialOrd, PartialEq, Ord, Hash, Copy, Clone, Debug)]
+#[derive(Eq, PartialOrd, PartialEq, Ord, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Color {
     Default,
     Dark(BaseColor),

@@ -5,19 +5,21 @@ use std::fmt::Write;
 use std::{iter, fmt};
 use itertools::Itertools;
 use crate::color::Color;
+use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct __UseDefaultDefaultToBuildStyleOption {}
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 pub struct StyleOption {
     pub foreground: Option<Color>,
     pub background: Option<Color>,
     #[doc(hidden)]
+    #[serde(skip)]
     pub __use_default_default_to_build_style_option__: __UseDefaultDefaultToBuildStyleOption,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Clone, Serialize, Deserialize)]
 pub struct StyleString {
     vector: Vec<(StyleOption, String)>
 }
