@@ -9,6 +9,7 @@ use crate::output::*;
 use std::fmt::Debug;
 use arrayvec::ArrayString;
 use vec_map::VecMap;
+use std::mem::size_of;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Row {
@@ -24,7 +25,7 @@ pub struct Screen {
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Rune {
-    pub text: ArrayString<[u8; 16]>,
+    pub text: ArrayString<[u8; 7]>,
     pub style: Style,
 }
 
@@ -115,8 +116,11 @@ impl Row {
     }
 
     pub fn write(&mut self, x: isize, dx: isize, text: &str, style: Style) {
+        let text = ArrayString::from(text).unwrap_or_else(|_| {
+            ArrayString::from("�").unwrap()
+        });
         *self.rune_mut(x) = Rune {
-            text: ArrayString::from(text).unwrap(),
+            text,
             style,
         };
         for x1 in x + 1..x + dx {
@@ -158,4 +162,9 @@ impl fmt::Debug for Screen {
         }
         Ok(())
     }
+}
+
+#[test]
+fn test_rune() {
+    assert_eq!(size_of::<Rune>() , 16);
 }
