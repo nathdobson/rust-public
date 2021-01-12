@@ -32,9 +32,6 @@ impl<T: NodeImpl + ?Sized> Node<T> {
     pub fn check_dirty_self(&mut self) -> bool {
         let dirty = self.dirty;
         self.dirty = false;
-        if dirty {
-            println!("{:?}", self);
-        }
         dirty
     }
     pub fn mark_dirty(&mut self) {
