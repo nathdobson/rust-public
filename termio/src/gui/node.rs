@@ -53,8 +53,10 @@ impl<T: NodeImpl + ?Sized> Node<T> {
         self.bounds = Rect::from_position_size(position, self.bounds.size());
     }
     pub fn set_visible(&mut self, visible: bool) {
-        self.visible = visible;
-        self.mark_dirty();
+        if self.visible != visible {
+            self.visible = visible;
+            self.mark_dirty();
+        }
     }
     pub fn visible(&self) -> bool {
         self.visible

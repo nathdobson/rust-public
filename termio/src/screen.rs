@@ -7,10 +7,12 @@ use std::collections::{BTreeSet, BTreeMap};
 use std::fmt;
 use crate::output::*;
 use std::fmt::Debug;
+use arrayvec::ArrayString;
+use vec_map::VecMap;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Row {
-    pub runes: RangeMap<isize, Rune>,
+    pub runes: Vec<Rune>,
     pub line_setting: LineSetting,
 }
 
@@ -22,7 +24,7 @@ pub struct Screen {
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Rune {
-    pub text: String,
+    pub text: ArrayString<[u8; 16]>,
     pub style: Style,
 }
 
@@ -56,9 +58,9 @@ impl LineSetting {
 }
 
 impl Rune {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Rune {
-            text: " ".to_string(),
+            text: ArrayString::from("").unwrap(),
             style: Default::default(),
         }
     }
@@ -105,7 +107,24 @@ impl Screen {
 
 impl Row {
     pub fn new() -> Self {
-        Row { runes: RangeMap::new(), line_setting: Default::default() }
+        Row { runes: Vec::new(), line_setting: Default::default() }
+    }
+    pub fn rune_mut(&mut self, x: isize) -> &mut Rune {
+        self.runes.resize(self.runes.len().max((x + 1) as usize), Rune::new());
+        &mut self.runes[x as usize]
+    }
+
+    pub fn write(&mut self, x: isize, dx: isize, text: &str, style: Style) {
+        *self.rune_mut(x) = Rune {
+            text: ArrayString::from(text).unwrap(),
+            style,
+        };
+        for x1 in x + 1..x + dx {
+            *self.rune_mut(x1) = Rune {
+                text: ArrayString::new(),
+                style,
+            };
+        }
     }
 }
 

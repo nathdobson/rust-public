@@ -17,6 +17,7 @@ use std::fmt;
 use std::fmt::{Formatter, Display};
 use crate::string::{StyleFormat, StyleWrite, StyleOption, StyleFormatter};
 use itertools::Format;
+use arrayvec::ArrayString;
 
 pub struct Canvas<'a> {
     screen: &'a mut Screen,
@@ -46,7 +47,7 @@ impl<'a> Canvas<'a> {
         }
         assert!(UnicodeSegmentation::graphemes(grapheme, true).count() == 1);
         let p = (p.0 + self.position.0, p.1 + self.position.1);
-        if !self.bounds.contains(p){
+        if !self.bounds.contains(p) {
             return 0;
         }
         let row = self.screen.row(p.1);
@@ -55,10 +56,7 @@ impl<'a> Canvas<'a> {
             x = (x - 1) / 2 + 1;
         }
         let dx = advance(grapheme);
-        row.runes.erase_and_insert(x..x + dx, Rune {
-            text: grapheme.to_string(),
-            style: self.style,
-        });
+        row.write(x, dx, grapheme, self.style);
         x += dx;
         if row.line_setting != LineSetting::Normal {
             x = (x - 1) * 2 + 1;

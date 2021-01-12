@@ -58,8 +58,9 @@ fn main() {
 }
 
 fn main_impl() -> Result<(), Box<dyn Error>> {
+    let mut content = vec!["a".to_style_string()];
     let mut label1 = Label::new();
-    label1.push("a".to_style_string());
+    label1.sync(&content);
     label1.set_size((40, 10));
     let mut label2 = Label::new();
     label2.set_size((10, 10));
@@ -121,7 +122,8 @@ fn main_impl() -> Result<(), Box<dyn Error>> {
                 gui.handle(&next, &mut output_events);
                 for o in output_events {
                     if let Ok(c) = o.downcast_event::<Click>() {
-                        gui.labels[0].push(c.0.to_style_string())
+                        content.push(c.0.to_style_string());
+                        gui.labels[0].sync(&content);
                     } else if let Ok(TimeEvent(when)) = o.downcast_event::<TimeEvent>() {
                         let when = *when;
                         let delay = chrono::Duration::from_std(when - Instant::now()).unwrap();

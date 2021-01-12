@@ -108,12 +108,12 @@ impl TermWriter {
     pub fn get_text_size(&mut self) {
         swrite!(self.inner, "{}", ReportTextAreaSize);
     }
+    pub fn repair(&mut self) {
+        swrite!(self.inner, "{}", CursorPosition(self.cursor.0 as usize, self.cursor.1 as usize));
+        return;
+    }
     pub fn move_cursor(&mut self, x: isize, y: isize) {
-//        if true {
-//            swrite!(self.inner, "{}", CursorPosition(x as usize, y as usize));
-//            self.cursor = (x, y);
-//            return;
-//        }
+        assert!(x > 0);
         if self.cursor == (x, y) {
             return;
         }
@@ -146,10 +146,7 @@ impl TermWriter {
     pub fn write(&mut self, length: isize, text: &str) {
         swrite!(self.inner, "{}", text);
         let row = self.screen.row(self.cursor.1);
-        row.runes.erase_and_insert(self.cursor.0..self.cursor.0 + length, Rune {
-            text: text.to_string(),
-            style: self.style,
-        });
+        row.write(self.cursor.0, length, text, self.style);
         self.cursor.0 += length;
         let max =
             if row.line_setting == LineSetting::Normal {
@@ -164,11 +161,12 @@ impl TermWriter {
     pub fn delete_space(&mut self) {
         swrite!(self.inner, " ");
         let row = self.screen.row(self.cursor.1);
-        row.runes.erase(&self.cursor.0..&(self.cursor.0 + 1));
+        //row.runes.erase(&self.cursor.0..&(self.cursor.0 + 1));
+        todo!();
         self.cursor.0 += 1;
     }
     pub fn delete_line(&mut self) {
-        self.screen.row(self.cursor.1).runes.erase(&self.cursor.0..);
+        self.screen.row(self.cursor.1).runes.truncate(self.cursor.0 as usize);
         swrite!(self.inner, "{}", DeleteLineRight);
     }
     pub fn clear(&mut self) {
@@ -200,39 +198,31 @@ impl TermWriter {
             }
             let y = y as isize;
             self.set_line_setting(y, row.line_setting);
-            let mut x = 1;
-            loop {
-                let new = row.runes.range(&x.clone()..).next()
-                    .map(|(xs, v)| (*xs.start..*xs.end, v.clone()));
-                let old = self.screen.row(y).runes.range(&x.clone()..).next()
-                    .map(|(xs, v)| (*xs.start..*xs.end, v.clone()));
-                if let Some((xs_new, new)) = new {
-                    if let Some((xs_old, old)) = old {
-                        if xs_new == xs_old && new == old {
-                            x = xs_new.end;
-                            continue;
-                        } else if xs_old.end <= xs_new.start {
-                            self.move_cursor(xs_old.start, y);
-                            self.set_style(&background);
-                            while self.cursor.0 < xs_old.end {
-                                self.delete_space();
-                            }
-                            x = self.cursor.0;
-                            continue;
-                        }
-                    }
-                    self.move_cursor(xs_new.start, y);
-                    self.set_style(&new.style);
-                    self.write(xs_new.end - xs_new.start, &new.text);
-                    x = self.cursor.0;
-                } else {
-                    if old.is_some() {
-                        self.move_cursor(x, y);
+            for (x, rune) in row.runes.iter().enumerate().skip(1) {
+                // loop {
+                //     let len = self.screen.row(y).runes.len();
+                //     if 0 < len && len < x {
+                //         self.move_cursor(len as isize, y);
+                //         self.set_style(&background);
+                //         self.write(1, " ");
+                //     } else { break; }
+                // }
+                if self.screen.row(y).runes.get(x) != Some(rune) {
+                    self.move_cursor(x as isize, y);
+                    if rune == &Rune::new() {
+                        let background = self.background;
                         self.set_style(&background);
-                        self.delete_line();
+                        self.write(1, " ");
+                    } else {
+                        self.set_style(&rune.style);
+                        self.write(advance(&rune.text), &rune.text);
                     }
-                    break;
                 }
+            }
+            if self.screen.row(y).runes.len() > row.runes.len() {
+                self.move_cursor(1 + row.runes.len() as isize, y);
+                self.set_style(&background);
+                self.delete_line();
             }
         }
     }
