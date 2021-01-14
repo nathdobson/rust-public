@@ -220,7 +220,7 @@ impl TermWriter {
                 }
             }
             if self.screen.row(y).runes.len() > row.runes.len() {
-                self.move_cursor(1 + row.runes.len() as isize, y);
+                self.move_cursor(row.runes.len().max(1) as isize, y);
                 self.set_style(&background);
                 self.delete_line();
             }

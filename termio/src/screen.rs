@@ -156,7 +156,11 @@ impl fmt::Debug for Screen {
         for (y, row) in self.rows.iter() {
             write!(f, "{:?} {:?} ", y, row.line_setting)?;
             for x in row.runes.iter() {
-                write!(f, "{:?}", x)?;
+                if &x.text == "" {
+                    write!(f, " ")?;
+                } else {
+                    write!(f, "{:?}", x)?;
+                }
             }
             writeln!(f)?;
         }
@@ -166,5 +170,5 @@ impl fmt::Debug for Screen {
 
 #[test]
 fn test_rune() {
-    assert_eq!(size_of::<Rune>() , 16);
+    assert_eq!(size_of::<Rune>(), 16);
 }

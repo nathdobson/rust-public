@@ -23,6 +23,7 @@ pub mod writer;
 pub mod string;
 pub mod line;
 pub mod gui;
+pub mod symbols;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub enum Direction {

@@ -122,6 +122,8 @@ fn main_impl() -> Result<(), Box<dyn Error>> {
                 gui.handle(&next, &mut output_events);
                 for o in output_events {
                     if let Ok(c) = o.downcast_event::<Click>() {
+                        let v = gui.buttons[3].visible();
+                        gui.buttons[3].set_visible(!v);
                         content.push(c.0.to_style_string());
                         gui.labels[0].sync(&content);
                     } else if let Ok(TimeEvent(when)) = o.downcast_event::<TimeEvent>() {

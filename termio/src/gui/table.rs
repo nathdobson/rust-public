@@ -62,7 +62,7 @@ impl<T: TableImpl> GroupImpl for Table<T> {
             xs,
             ys,
             horizontals: Grid::new((cols, rows + 1), |_, _| Stroke::Double),
-            verticals: Grid::new((cols + 1, rows), |_, _| Stroke::Double),
+            verticals: Grid::new((cols + 1, rows), |x, y| if x <= 1 { Stroke::Double } else { Stroke::Blank }),
         };
         (x, y)
     }
