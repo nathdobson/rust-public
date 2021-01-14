@@ -9,14 +9,14 @@ use std::mem;
 #[derive(Debug)]
 pub struct Label {
     lines: Vec<StyleString>,
-    scroll: isize,
+    bottom_scroll: isize,
 }
 
 impl Label {
     pub fn new() -> Node<Self> {
         Node::new(Label {
             lines: vec![],
-            scroll: 0,
+            bottom_scroll: 0,
         })
     }
 
@@ -24,7 +24,7 @@ impl Label {
         //TODO make faster
         if self.lines != *source {
             self.lines.clone_from(source);
-            self.scroll = (self.lines.len() as isize) - self.size().1;
+            self.bottom_scroll = self.lines.len() as isize;
             self.mark_dirty();
         }
     }
@@ -32,14 +32,14 @@ impl Label {
 
 impl NodeImpl for Label {
     fn paint(self: &Node<Self>, mut canvas: Canvas) {
+        let (width, height) = self.size();
         for y in 0..self.size().1 {
-            if let Some(line) = self.lines.get((y + self.scroll) as usize) {
+            if let Some(line) = self.lines.get((y + self.bottom_scroll - height) as usize) {
                 canvas.draw((0, y as isize), line);
             }
         }
-        let (width, height) = self.size();
         if height < self.lines.len() as isize {
-            let top = self.scroll;
+            let top = self.bottom_scroll - height;
             let middle = height;
             let bottom = self.lines.len() as isize - middle - top;
             let top = ((height - 1) as f32 * 8.0 * top as f32 / (self.lines.len() as f32)).ceil() as isize;
@@ -78,14 +78,14 @@ impl NodeImpl for Label {
                 if *inside {
                     match event.mouse {
                         Mouse::ScrollDown => {
-                            if self.scroll < self.lines.len() as isize - self.size().1 {
-                                self.scroll += 1;
+                            if self.bottom_scroll < self.lines.len() as isize {
+                                self.bottom_scroll += 1;
                                 self.mark_dirty();
                             }
                         }
                         Mouse::ScrollUp => {
-                            if self.scroll > 0 {
-                                self.scroll -= 1;
+                            if self.bottom_scroll > self.size().1 {
+                                self.bottom_scroll -= 1;
                                 self.mark_dirty();
                             }
                         }
