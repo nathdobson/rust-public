@@ -21,10 +21,13 @@ impl Label {
     }
 
     pub fn sync(self: &mut Node<Self>, source: &Vec<StyleString>) {
-        //TODO make faster
-        if self.lines != *source {
-            self.lines.clone_from(source);
+        if self.lines.len() < source.len() {
+            let len = self.lines.len();
+            self.lines.extend_from_slice(&source[len..]);
             self.bottom_scroll = self.lines.len() as isize;
+            self.mark_dirty();
+        } else if source.is_empty() && !self.lines.is_empty() {
+            self.lines.clear();
             self.mark_dirty();
         }
     }
