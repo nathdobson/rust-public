@@ -44,6 +44,8 @@ impl<T: NodeImpl + ?Sized> Node<T> {
         self.bounds.size()
     }
     pub fn set_size(&mut self, size: (isize, isize)) {
+        assert!(size.0 >= 0);
+        assert!(size.1 >= 0);
         self.bounds = Rect::from_position_size(self.bounds.position(), size);
     }
     pub fn position(&self) -> (isize, isize) {

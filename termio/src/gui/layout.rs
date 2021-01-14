@@ -8,6 +8,8 @@ pub struct Constraint {
 
 impl Constraint {
     pub fn from_max(max_size: (isize, isize)) -> Self {
+        assert!(max_size.0 >= 0);
+        assert!(max_size.1 >= 0);
         Constraint { max_size: Some(max_size) }
     }
     pub fn none() -> Self {

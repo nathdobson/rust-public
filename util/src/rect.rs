@@ -10,6 +10,8 @@ pub struct Rect {
 
 impl Rect {
     pub fn from_ranges(xs: Range<isize>, ys: Range<isize>) -> Rect {
+        assert!(xs.start <= xs.end);
+        assert!(ys.start <= ys.end);
         Rect {
             xs: (xs.start, xs.end),
             ys: (ys.start, ys.end),
@@ -50,6 +52,8 @@ impl Rect {
         self.xs().contains(&x) && self.ys().contains(&y)
     }
     pub fn from_position_size(position: (isize, isize), size: (isize, isize)) -> Self {
+        assert!(size.0 >= 0);
+        assert!(size.1 >= 0);
         Rect::from_ranges(position.0..position.0 + size.0, position.1..position.1 + size.1)
     }
     pub fn points_by_row(&self) -> impl Iterator<Item=(isize, isize)> {
