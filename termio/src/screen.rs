@@ -11,7 +11,7 @@ use arrayvec::ArrayString;
 use vec_map::VecMap;
 use std::mem::size_of;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 pub struct Row {
     pub runes: Vec<Rune>,
     pub line_setting: LineSetting,
@@ -20,7 +20,8 @@ pub struct Row {
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 pub struct Screen {
     pub title: String,
-    pub rows: BTreeMap<isize, Row>,
+    pub rows: Vec<Row>,
+    pub background: Style,
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
@@ -59,10 +60,10 @@ impl LineSetting {
 }
 
 impl Rune {
-    pub fn new() -> Self {
+    pub fn new(background: Style) -> Self {
         Rune {
-            text: ArrayString::from("").unwrap(),
-            style: Default::default(),
+            text: ArrayString::from(" ").unwrap(),
+            style: background,
         }
     }
 }
@@ -89,29 +90,36 @@ pub fn advance(string: &str) -> isize {
 
 
 impl Screen {
-    pub fn new() -> Self {
+    pub fn new(size: (isize, isize), background: Style) -> Self {
         Screen {
             title: "".to_string(),
-            rows: BTreeMap::new(),
+            rows: vec![Row::new(size.0, background); size.1 as usize + 1],
+            background,
         }
     }
+    pub fn default_rune(&self) -> Rune {
+        Rune { text: ArrayString::from(" ").unwrap(), style: self.background }
+    }
     pub fn clear(&mut self) {
-        self.rows.clear();
+        let def = self.default_rune();
+        for row in self.rows.iter_mut() {
+            row.runes.fill(def.clone());
+        }
     }
-    pub fn row(&mut self, y: isize) -> &mut Row {
-        self.rows.entry(y).or_insert(Row::new())
+    pub fn size(&self) -> (isize, isize) {
+        (self.rows[0].runes.len() as isize - 1, self.rows.len() as isize - 1)
     }
+
     pub fn title(&mut self) -> &mut String {
         &mut self.title
     }
 }
 
 impl Row {
-    pub fn new() -> Self {
-        Row { runes: Vec::new(), line_setting: Default::default() }
+    pub fn new(width: isize, background: Style) -> Self {
+        Row { runes: vec![Rune::new(background); width as usize + 1], line_setting: Default::default() }
     }
     pub fn rune_mut(&mut self, x: isize) -> &mut Rune {
-        self.runes.resize(self.runes.len().max((x + 1) as usize), Rune::new());
         &mut self.runes[x as usize]
     }
 
@@ -153,7 +161,7 @@ impl fmt::Debug for Style {
 
 impl fmt::Debug for Screen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (y, row) in self.rows.iter() {
+        for (y, row) in self.rows.iter().enumerate() {
             write!(f, "{:?} {:?} ", y, row.line_setting)?;
             for x in row.runes.iter() {
                 if &x.text == "" {

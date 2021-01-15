@@ -82,7 +82,6 @@ fn main_impl() -> Result<(), Box<dyn Error>> {
         foreground: Color::Gray24(0),
         ..Style::default()
     });
-    gui.update_text_size();
     let (events, event_receiver) = mpsc::channel();
 
     thread::spawn({

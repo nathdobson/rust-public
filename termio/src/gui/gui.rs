@@ -16,12 +16,15 @@ use crate::gui::layout::Constraint;
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
+const FRAME_BUFFER_SIZE: usize = 1;
+
 pub struct Gui<T: NodeImpl> {
     root: Node<T>,
     style: Style,
     title: String,
     writer: TermWriter,
     size: (isize, isize),
+    set_text_size_count: usize,
 }
 
 pub trait OutputEventTrait: Any + 'static + Send + Sync + fmt::Debug + Upcast<dyn Any> {}
@@ -56,6 +59,7 @@ impl<T: NodeImpl> Gui<T> {
             title: "".to_string(),
             writer,
             size: (0, 0),
+            set_text_size_count: 0
         }
     }
 
@@ -63,29 +67,29 @@ impl<T: NodeImpl> Gui<T> {
         self.writer.set_enabled(enabled);
     }
 
-    pub fn update_text_size(&mut self) {
-        self.writer.get_text_size();
-    }
-
     pub fn paint(&mut self) {
+        if !self.writer.enabled() {
+            return;
+        }
+        if self.set_text_size_count + FRAME_BUFFER_SIZE <= self.writer.get_text_size_count() {
+            return;
+        }
+        self.writer.get_text_size();
         if !self.root.check_dirty() {
             return;
         }
-        if !self.writer.enabled(){
-            return;
-        }
-        let mut screen = Screen::new();
+        let mut screen = Screen::new(self.size, self.style);
         screen.title = self.title.clone();
         for y in 1..self.size.1 {
             if let Some(line_setting) = self.root.line_setting(y - 1) {
-                screen.row(y as isize).line_setting = line_setting;
+                screen.rows[y as usize].line_setting = line_setting;
             }
         }
         let bounds = Rect::from_position_size((1, 1), self.size);
         self.writer.set_bounds(bounds);
         let canvas = Canvas::new(&mut screen, bounds, (1, 1), self.style);
         self.root.paint(canvas);
-        self.writer.render(&screen, &self.style);
+        self.writer.render(&screen);
     }
 
     pub fn set_background(&mut self, style: Style) {
@@ -128,6 +132,7 @@ impl<T: NodeImpl> Gui<T> {
             Event::WindowPosition(_, _) => {}
             Event::WindowSize(_, _) => {}
             Event::TextAreaSize(w, h) => {
+                self.set_text_size_count += 1;
                 if self.size != (*w, *h) {
                     self.size = (*w, *h);
                     self.layout();

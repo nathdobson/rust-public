@@ -78,7 +78,7 @@ impl Handler for DemoHandler {
     fn peer_add(&mut self, username: &Name) {
         let root = Root::new();
         let mut gui = Gui::new(Table::new(root));
-        gui.update_text_size();
+        //gui.update_text_size();
         gui.set_background(Style { background: Color::Gray24(23), foreground: Color::Gray24(0), ..Style::default() });
         self.gui.insert(username.clone(), gui);
         self.server.peer_render(username);

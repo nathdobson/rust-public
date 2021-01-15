@@ -14,15 +14,18 @@ use crate::output::DoubleHeightTop;
 use crate::screen::{advance, LineSetting, Rune, Screen, Style, Row};
 use crate::util::io::SafeWrite;
 use util::rect::Rect;
+use itertools::Itertools;
+use arrayvec::ArrayString;
+use std::borrow::Borrow;
 
 pub struct TermWriter {
     cursor: (isize, isize),
     style: Style,
-    background: Style,
     inner: Vec<u8>,
     screen: Screen,
     enabled: bool,
     bounds: Rect,
+    get_text_size_count: usize,
 }
 
 pub fn move_cursor_raw((x1, y1): (isize, isize), (x2, y2): (isize, isize)) -> impl Display {
@@ -73,11 +76,11 @@ impl TermWriter {
         TermWriter {
             cursor: (1, 1),
             style: style,
-            background: style,
             inner: vec![],
-            screen: Screen::new(),
+            screen: Screen::new((0, 0), style),
             enabled: false,
             bounds: Rect::from_position_size((1, 1), (1000, 1000)),
+            get_text_size_count: 0,
         }
     }
     pub fn buffer(&mut self) -> &mut Vec<u8> {
@@ -106,7 +109,11 @@ impl TermWriter {
         }
     }
     pub fn get_text_size(&mut self) {
+        self.get_text_size_count += 1;
         swrite!(self.inner, "{}", ReportTextAreaSize);
+    }
+    pub fn get_text_size_count(&self) -> usize {
+        self.get_text_size_count
     }
     pub fn repair(&mut self) {
         swrite!(self.inner, "{}", CursorPosition(self.cursor.0 as usize, self.cursor.1 as usize));
@@ -122,7 +129,7 @@ impl TermWriter {
         self.cursor = (x, y);
     }
     pub fn set_line_setting(&mut self, y: isize, setting: LineSetting) {
-        let old = &mut self.screen.row(y).line_setting;
+        let old = &mut self.screen.rows[y as usize].line_setting;
         if *old != setting {
             *old = setting;
             self.move_cursor(1, y);
@@ -145,7 +152,7 @@ impl TermWriter {
     }
     pub fn write(&mut self, length: isize, text: &str) {
         swrite!(self.inner, "{}", text);
-        let row = self.screen.row(self.cursor.1);
+        let row = &mut self.screen.rows[self.cursor.1 as usize];
         row.write(self.cursor.0, length, text, self.style);
         self.cursor.0 += length;
         let max =
@@ -158,19 +165,13 @@ impl TermWriter {
             self.cursor.0 = max;
         }
     }
-    pub fn delete_space(&mut self) {
-        swrite!(self.inner, " ");
-        let row = self.screen.row(self.cursor.1);
-        //row.runes.erase(&self.cursor.0..&(self.cursor.0 + 1));
-        todo!();
-        self.cursor.0 += 1;
-    }
     pub fn delete_line(&mut self) {
-        self.screen.row(self.cursor.1).runes.truncate(self.cursor.0 as usize);
+        let def = self.screen.default_rune();
+        self.screen.rows[self.cursor.1 as usize].runes[self.cursor.0 as usize..].fill(def);
         swrite!(self.inner, "{}", DeleteLineRight);
     }
     pub fn clear(&mut self) {
-        self.background = self.style;
+        self.screen.background = self.style;
         swrite!(self.inner, "{}{}", EraseAll, CursorPosition(1,1));
         self.screen.clear();
         self.cursor = (1, 1);
@@ -181,49 +182,31 @@ impl TermWriter {
             self.clear();
         }
     }
-    pub fn render(&mut self, screen: &Screen, background: &Style) {
+    pub fn render(&mut self, screen: &Screen) {
         if screen.title != self.screen.title {
             swrite!(self.inner, "{}", WindowTitle(&screen.title));
             self.screen.title.clone_from(&screen.title);
         }
-        if &self.background != background {
-            self.set_style(background);
+        if screen.background != self.screen.background || screen.size() != self.screen.size() {
+            self.set_style(&screen.background);
+            self.screen = Screen::new(screen.size(), screen.background);
             self.clear();
         }
-        for y in 0..=screen.rows.keys().last().cloned().unwrap_or(-1).max(self.screen.rows.keys().last().cloned().unwrap_or(-1)) {
-            let default = Row::new();
-            let row = screen.rows.get(&y).unwrap_or(&default);
-            if row == self.screen.row(y) {
+
+        for y in 1..screen.rows.len() {
+            if screen.rows[y] == self.screen.rows[y] {
                 continue;
             }
-            let y = y as isize;
-            self.set_line_setting(y, row.line_setting);
-            for (x, rune) in row.runes.iter().enumerate().skip(1) {
-                // loop {
-                //     let len = self.screen.row(y).runes.len();
-                //     if 0 < len && len < x {
-                //         self.move_cursor(len as isize, y);
-                //         self.set_style(&background);
-                //         self.write(1, " ");
-                //     } else { break; }
-                // }
-                if self.screen.row(y).runes.get(x) != Some(rune) {
-                    self.move_cursor(x as isize, y);
-                    if rune == &Rune::new() {
-                        let background = self.background;
-                        self.set_style(&background);
-                        self.write(1, " ");
-                    } else {
-                        self.set_style(&rune.style);
-                        self.write(advance(&rune.text), &rune.text);
-                    }
+            self.set_line_setting(y as isize, screen.rows[y].line_setting);
+            for x in 1..screen.rows[y].runes.len() {
+                let rune = &screen.rows[y].runes[x];
+                if self.screen.rows[y].runes[x] != *rune {
+                    self.move_cursor(x as isize, y as isize);
+                    self.set_style(&rune.style);
+                    self.write(advance(&rune.text), &rune.text);
                 }
             }
-            if self.screen.row(y).runes.len() > row.runes.len() {
-                self.move_cursor(row.runes.len().max(1) as isize, y);
-                self.set_style(&background);
-                self.delete_line();
-            }
+            //TODO empty line optimization
         }
     }
 }

@@ -50,7 +50,7 @@ impl<'a> Canvas<'a> {
         if !self.bounds.contains(p) {
             return 0;
         }
-        let row = self.screen.row(p.1);
+        let row = &mut self.screen.rows[p.1 as usize];
         let mut x = p.0;
         if row.line_setting != LineSetting::Normal {
             x = (x - 1) / 2 + 1;
