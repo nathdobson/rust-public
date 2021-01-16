@@ -1,4 +1,4 @@
-use crate::gui::node::{Node, NodeImpl};
+use crate::gui::node::{Node, NodeImpl, NodeId};
 use crate::canvas::Canvas;
 use crate::input::{MouseEvent, Mouse};
 use crate::gui::gui::{OutputEvent, InputEvent};
@@ -39,8 +39,8 @@ pub struct TextButtonPaint {
 }
 
 impl<T: ButtonPaint> Button<T> {
-    pub fn new_from_paint(paint: T, event: OutputEvent) -> Node<Self> {
-        Node::new(Button {
+    pub fn new_from_paint(id: NodeId, paint: T, event: OutputEvent) -> Node<Self> {
+        Node::new(id, Button {
             over: false,
             down: false,
             event,
@@ -52,8 +52,8 @@ impl<T: ButtonPaint> Button<T> {
 }
 
 impl Button {
-    pub fn new(text: String, event: OutputEvent) -> Node<Self> {
-        Button::new_from_paint(TextButtonPaint::new(text), event)
+    pub fn new(id: NodeId, text: String, event: OutputEvent) -> Node<Self> {
+        Button::new_from_paint(id, TextButtonPaint::new(text), event)
     }
 }
 
@@ -87,7 +87,7 @@ impl TextButtonPaint {
     }
 }
 
-pub trait ButtonPaint: Sized + Debug {
+pub trait ButtonPaint: Sized + Debug + Send + Sync {
     fn paint(this: &Node<Button<Self>>, canvas: Canvas);
     fn line_setting(this: &Node<Button<Self>>, row: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
     fn layout(this: &mut Node<Button<Self>>, constraint: &Constraint) -> (isize, isize);

@@ -1,4 +1,6 @@
 #![feature(half_open_range_patterns, exclusive_range_pattern, str_internals, fmt_internals, coerce_unsized, unsize, arbitrary_self_types, toowned_clone_into)]
+#![feature(arc_new_cyclic)]
+#![feature(once_cell)]
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code)]
 
 use std::iter::FromIterator;

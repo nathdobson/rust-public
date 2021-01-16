@@ -1,11 +1,11 @@
 #![feature(never_type)]
 #![allow(unused_imports)]
 
-use termio::gui::gui::{Gui, OutputEventTrait};
+use termio::gui::gui::{Gui, OutputEventTrait, Context};
 use termio::gui::table::{Table, TableImpl};
 use termio::gui::button::Button;
 use std::sync::{Arc, mpsc};
-use termio::gui::node::Node;
+use termio::gui::node::{Node, NodeId};
 use termio::input::{EventReader, Event, KeyEvent};
 use std::io::{stdin, stdout, Write};
 use std::error::Error;
@@ -58,25 +58,27 @@ fn main() {
 }
 
 fn main_impl() -> Result<(), Box<dyn Error>> {
+    let (context, events) = Context::new(Box::new(move || {}));
+    let root = NodeId::root(context);
     let mut content = vec!["a".to_style_string()];
-    let mut label1 = Label::new();
+    let mut label1 = Label::new(root.child());
     label1.sync(&content);
     label1.set_size((40, 10));
-    let mut label2 = Label::new();
+    let mut label2 = Label::new(root.child());
     label2.set_size((10, 10));
     let mut gui =
-        Gui::new(Table::new(Example {
+        Gui::new(Box::new(Table::new(root.clone(), Example {
             buttons: [
-                Button::new("aaa".to_string(), Arc::new(Click("a"))),
-                Button::new("bbbbbbb".to_string(), Arc::new(Click("b"))),
-                Button::new("cccccccccc".to_string(), Arc::new(Click("c"))),
-                Button::new("ddddddddddddddddd".to_string(), Arc::new(Click("d"))),
+                Button::new(root.child(), "aaa".to_string(), Arc::new(Click("a"))),
+                Button::new(root.child(), "bbbbbbb".to_string(), Arc::new(Click("b"))),
+                Button::new(root.child(), "cccccccccc".to_string(), Arc::new(Click("c"))),
+                Button::new(root.child(), "ddddddddddddddddd".to_string(), Arc::new(Click("d"))),
             ],
             labels: [
                 label1,
                 label2,
             ],
-        }));
+        })));
     gui.set_background(Style {
         background: Color::Gray24(23),
         foreground: Color::Gray24(0),

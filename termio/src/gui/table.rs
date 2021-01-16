@@ -1,6 +1,6 @@
 use util::grid::Grid;
 use util::grid::cells_by_row;
-use crate::gui::node::Node;
+use crate::gui::node::{Node, NodeId};
 use std::collections::HashMap;
 use crate::gui::layout::Constraint;
 use std::cmp::max;
@@ -18,8 +18,8 @@ pub struct Table<T: TableImpl> {
 }
 
 impl<T: TableImpl> Table<T> {
-    pub fn new(inner: T) -> Node<Group<Self>> {
-        Group::new(Table {
+    pub fn new(id: NodeId, inner: T) -> Node<Group<Self>> {
+        Group::new(id, Table {
             border: TableBorder {
                 xs: vec![],
                 ys: vec![],
@@ -72,7 +72,7 @@ impl<T: TableImpl> GroupImpl for Table<T> {
     }
 }
 
-pub trait TableImpl: Sized + Debug {
+pub trait TableImpl: Sized + Debug + Send + Sync {
     fn table_children(this: &Node<Group<Table<Self>>>) -> Grid<&Node>;
     fn table_children_mut(this: &mut Node<Group<Table<Self>>>) -> Grid<&mut Node>;
 }

@@ -18,6 +18,7 @@ use itertools::Itertools;
 use arrayvec::ArrayString;
 use std::borrow::Borrow;
 
+#[derive(Debug)]
 pub struct TermWriter {
     cursor: (isize, isize),
     style: Style,

@@ -22,3 +22,6 @@ arrayvec = "0.5.2"
 vec_map = "0.8.2"
 strum = "0.20"
 strum_macros = "0.20"
+atomic_refcell = "0.1.6"
+by_address = "1.0.4"
+

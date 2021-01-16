@@ -1,4 +1,4 @@
-use crate::gui::node::{Node, NodeImpl};
+use crate::gui::node::{Node, NodeImpl, NodeId};
 use util::tree::Tree;
 use util::rect::Rect;
 use util::dynbag::Bag;
@@ -6,26 +6,42 @@ use crate::screen::{Style, LineSetting, Screen};
 use crate::writer::TermWriter;
 use std::any::{Any, TypeId};
 use util::any::{Upcast, AnyExt};
-use std::fmt;
-use std::sync::Arc;
+use std::{fmt, thread, mem};
+use std::sync::{Arc, mpsc, Mutex, Condvar, Weak};
 use crate::input::{MouseEvent, Event};
 use crate::canvas::Canvas;
 use std::borrow::BorrowMut;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use crate::gui::layout::Constraint;
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
+use std::sync::atomic::AtomicBool;
+use std::fmt::Debug;
+use serde::export::Formatter;
+use util::lossy;
 
 const FRAME_BUFFER_SIZE: usize = 1;
 
-pub struct Gui<T: NodeImpl> {
-    root: Node<T>,
+pub struct Gui {
+    root: Box<Node>,
     style: Style,
     title: String,
     writer: TermWriter,
     size: (isize, isize),
     set_text_size_count: usize,
 }
+
+pub type GuiEvent = Box<dyn FnOnce(&mut Gui) + Send + Sync>;
+
+struct ContextInner {
+    event_sender: Mutex<mpsc::Sender<GuiEvent>>,
+    mark_dirty: Box<Fn() + Send + Sync>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Context(Arc<ContextInner>);
+
+pub struct EventReceiver(mpsc::Receiver<GuiEvent>);
 
 pub trait OutputEventTrait: Any + 'static + Send + Sync + fmt::Debug + Upcast<dyn Any> {}
 
@@ -48,9 +64,49 @@ pub enum InputEvent {
     },
 }
 
+impl Context {
+    pub fn new(mark_dirty: Box<dyn Fn() + Send + Sync>) -> (Context, EventReceiver) {
+        let (event_sender, event_receiver) = mpsc::channel();
+        (Context(Arc::new(ContextInner {
+            event_sender: Mutex::new(event_sender),
+            mark_dirty,
+        })),
+         EventReceiver(event_receiver),
+        )
+    }
+    pub fn run(&self, event: GuiEvent) {
+        self.0.event_sender.lock().unwrap().send(event).unwrap();
+    }
+    pub fn mark_dirty(&self) {
+        (self.0.mark_dirty)()
+    }
+}
 
-impl<T: NodeImpl> Gui<T> {
-    pub fn new(root: Node<T>) -> Self {
+impl EventReceiver {
+    fn start(self, gui: Arc<Mutex<Gui>>) {
+        thread::spawn(move || {
+            let mut lock = gui.lock().unwrap();
+            loop {
+                let event;
+                if let Ok(e) = self.0.try_recv() {
+                    event = e;
+                } else {
+                    mem::drop(lock);
+                    if let Ok(e) = self.0.recv() {
+                        lock = gui.lock().unwrap();
+                        event = e;
+                    } else {
+                        break;
+                    }
+                }
+                event(&mut *lock)
+            }
+        });
+    }
+}
+
+impl Gui {
+    pub fn new(root: Box<Node>) -> Gui {
         let mut writer = TermWriter::new();
         writer.set_enabled(true);
         Gui {
@@ -59,8 +115,14 @@ impl<T: NodeImpl> Gui<T> {
             title: "".to_string(),
             writer,
             size: (0, 0),
-            set_text_size_count: 0
+            set_text_size_count: 0,
         }
+    }
+
+    pub fn paint_buffer(&mut self, output: &mut Vec<u8>) {
+        self.paint();
+        output.clear();
+        mem::swap(self.buffer(), output);
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -75,9 +137,6 @@ impl<T: NodeImpl> Gui<T> {
             return;
         }
         self.writer.get_text_size();
-        if !self.root.check_dirty() {
-            return;
-        }
         let mut screen = Screen::new(self.size, self.style);
         screen.title = self.title.clone();
         for y in 1..self.size.1 {
@@ -145,17 +204,22 @@ impl<T: NodeImpl> Gui<T> {
             }
         }
     }
-}
+    pub fn node(&self, id: NodeId) -> &Node {
+        fn rec(node:&Node,id:NodeId)->&Node{
 
-impl<T: NodeImpl> Deref for Gui<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.root
+        }
+        rec(&self.root, id)
     }
 }
 
-impl<T: NodeImpl> DerefMut for Gui<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.root
+impl Debug for Gui {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Gui").finish()
+    }
+}
+
+impl Debug for ContextInner {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ContextInner").finish()
     }
 }

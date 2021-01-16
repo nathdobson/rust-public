@@ -1,5 +1,5 @@
 use crate::string::StyleString;
-use crate::gui::node::{Node, NodeImpl};
+use crate::gui::node::{Node, NodeImpl, NodeId};
 use crate::gui::layout::Constraint;
 use crate::canvas::Canvas;
 use crate::gui::gui::{InputEvent, OutputEvent};
@@ -13,8 +13,8 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new() -> Node<Self> {
-        Node::new(Label {
+    pub fn new(id: NodeId) -> Node<Self> {
+        Node::new(id, Label {
             lines: vec![],
             bottom_scroll: 0,
         })
