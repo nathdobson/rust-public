@@ -1,4 +1,3 @@
-use crate::gui::node::{Node, NodeImpl, NodeId};
 use util::tree::Tree;
 use util::rect::Rect;
 use util::dynbag::Bag;
@@ -19,11 +18,13 @@ use std::sync::atomic::AtomicBool;
 use std::fmt::Debug;
 use serde::export::Formatter;
 use util::lossy;
+use crate::gui::node::{Node};
+use crate::gui::view::{View, ViewImpl};
 
 const FRAME_BUFFER_SIZE: usize = 1;
 
 pub struct Gui {
-    root: Box<Node>,
+    root: Box<View>,
     style: Style,
     title: String,
     writer: TermWriter,
@@ -31,27 +32,6 @@ pub struct Gui {
     set_text_size_count: usize,
 }
 
-pub type GuiEvent = Box<dyn FnOnce(&mut Gui) + Send + Sync>;
-
-struct ContextInner {
-    event_sender: Mutex<mpsc::Sender<GuiEvent>>,
-    mark_dirty: Box<Fn() + Send + Sync>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Context(Arc<ContextInner>);
-
-pub struct EventReceiver(mpsc::Receiver<GuiEvent>);
-
-pub trait OutputEventTrait: Any + 'static + Send + Sync + fmt::Debug + Upcast<dyn Any> {}
-
-pub type OutputEvent = Arc<dyn OutputEventTrait>;
-
-impl dyn OutputEventTrait {
-    pub fn downcast_event<T: 'static>(&self) -> util::any::Result<&T> {
-        self.downcast_ref_result()
-    }
-}
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum InputEvent {
@@ -59,54 +39,10 @@ pub enum InputEvent {
         event: MouseEvent,
         inside: bool,
     },
-    TimeEvent {
-        when: Instant,
-    },
-}
-
-impl Context {
-    pub fn new(mark_dirty: Box<dyn Fn() + Send + Sync>) -> (Context, EventReceiver) {
-        let (event_sender, event_receiver) = mpsc::channel();
-        (Context(Arc::new(ContextInner {
-            event_sender: Mutex::new(event_sender),
-            mark_dirty,
-        })),
-         EventReceiver(event_receiver),
-        )
-    }
-    pub fn run(&self, event: GuiEvent) {
-        self.0.event_sender.lock().unwrap().send(event).unwrap();
-    }
-    pub fn mark_dirty(&self) {
-        (self.0.mark_dirty)()
-    }
-}
-
-impl EventReceiver {
-    fn start(self, gui: Arc<Mutex<Gui>>) {
-        thread::spawn(move || {
-            let mut lock = gui.lock().unwrap();
-            loop {
-                let event;
-                if let Ok(e) = self.0.try_recv() {
-                    event = e;
-                } else {
-                    mem::drop(lock);
-                    if let Ok(e) = self.0.recv() {
-                        lock = gui.lock().unwrap();
-                        event = e;
-                    } else {
-                        break;
-                    }
-                }
-                event(&mut *lock)
-            }
-        });
-    }
 }
 
 impl Gui {
-    pub fn new(root: Box<Node>) -> Gui {
+    pub fn new(root: Box<View>) -> Gui {
         let mut writer = TermWriter::new();
         writer.set_enabled(true);
         Gui {
@@ -173,7 +109,7 @@ impl Gui {
         self.root.layout(&Constraint { max_size: Some(self.size) });
     }
 
-    pub fn handle(&mut self, event: &Event, output: &mut Vec<OutputEvent>) {
+    pub fn handle(&mut self, event: &Event) {
         match event {
             Event::KeyEvent(_) => {}
             Event::MouseEvent(event) => {
@@ -185,7 +121,7 @@ impl Gui {
                         event.position.0 *= 2;
                     }
                 }
-                self.root.handle(&InputEvent::MouseEvent { event: event, inside: true }, output);
+                self.root.handle(&InputEvent::MouseEvent { event: event, inside: true });
             }
             Event::Focus(_) => {}
             Event::WindowPosition(_, _) => {}
@@ -199,16 +135,13 @@ impl Gui {
                 }
             }
             Event::ScreenSize(_, _) => {}
-            Event::Time(when) => {
-                self.root.handle(&InputEvent::TimeEvent { when: *when }, output);
-            }
         }
     }
-    pub fn node(&self, id: NodeId) -> &Node {
-        fn rec(node:&Node,id:NodeId)->&Node{
 
-        }
-        rec(&self.root, id)
+    pub fn descendant_mut<'a, T: ViewImpl>(&'a mut self, node: Node<T>) -> &'a mut View<T> {
+        let v: &'a mut View = self.root.deref_mut();
+        let v2 :&'a mut View = node.descend(v);
+        v2.downcast_view_mut()
     }
 }
 
@@ -218,8 +151,3 @@ impl Debug for Gui {
     }
 }
 
-impl Debug for ContextInner {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ContextInner").finish()
-    }
-}

@@ -99,7 +99,7 @@ impl<T> Grid<T> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item=((isize, isize), &mut T)> {
         self.bounds().points_by_row().zip(self.vec.iter_mut())
     }
-    pub fn iter(&mut self) -> impl Iterator<Item=((isize, isize), &T)> {
+    pub fn iter(&self) -> impl Iterator<Item=((isize, isize), &T)> {
         self.bounds().points_by_row().zip(self.vec.iter())
     }
     pub fn points(&self) -> impl Iterator<Item=(isize, isize)> {

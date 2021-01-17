@@ -1,17 +1,20 @@
-use crate::gui::node::{Node, NodeImpl, NodeId};
 use crate::canvas::Canvas;
 use crate::input::{MouseEvent, Mouse};
-use crate::gui::gui::{OutputEvent, InputEvent};
-use std::iter;
-use std::collections::BTreeMap;
+use crate::gui::gui::{InputEvent};
+use std::{iter, fmt};
+use std::collections::{BTreeMap, HashMap};
 use crate::screen::{Style, LineSetting};
 use crate::color::Color;
-use crate::gui::layout::Constraint;
+use crate::gui::layout::{Constraint, Layout};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use crate::gui::time::TimeEvent;
 use std::ops::{Deref, DerefMut};
 use std::fmt::Debug;
+use crate::gui::context::{GuiEvent, SharedGuiEvent};
+use crate::gui::view::{View, ViewImpl};
+use crate::gui::node::{Node, NodeStrong};
+use serde::export::Formatter;
+use crate::gui::context;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -20,12 +23,11 @@ pub enum PaintState {
     Down,
 }
 
-#[derive(Debug)]
 pub struct Button<T: ButtonPaint = TextButtonPaint> {
-    event: OutputEvent,
+    event: SharedGuiEvent,
     over: bool,
     down: bool,
-    countdown: Option<Instant>,
+    countdown: usize,
     state: PaintState,
     paint: T,
 }
@@ -39,20 +41,20 @@ pub struct TextButtonPaint {
 }
 
 impl<T: ButtonPaint> Button<T> {
-    pub fn new_from_paint(id: NodeId, paint: T, event: OutputEvent) -> Node<Self> {
-        Node::new(id, Button {
+    pub fn new_from_paint(id: NodeStrong<Button<T>>, paint: T, event: SharedGuiEvent) -> View<Self> {
+        View::new(id, Button {
+            event,
             over: false,
             down: false,
-            event,
-            paint,
-            countdown: None,
+            countdown: 0,
             state: PaintState::Normal,
+            paint,
         })
     }
 }
 
 impl Button {
-    pub fn new(id: NodeId, text: String, event: OutputEvent) -> Node<Self> {
+    pub fn new(id: NodeStrong<Button>, text: String, event: SharedGuiEvent) -> View<Button> {
         Button::new_from_paint(id, TextButtonPaint::new(text), event)
     }
 }
@@ -60,6 +62,20 @@ impl Button {
 impl<T: ButtonPaint> Button<T> {
     pub fn state(&self) -> PaintState {
         self.state
+    }
+    fn sync(self: &mut View<Self>) {
+        let new_state =
+            if self.down || self.countdown > 0 {
+                PaintState::Down
+            } else if self.over {
+                PaintState::Over
+            } else {
+                PaintState::Normal
+            };
+        if self.state != new_state {
+            self.state = new_state;
+            self.mark_dirty();
+        }
     }
 }
 
@@ -87,42 +103,42 @@ impl TextButtonPaint {
     }
 }
 
-pub trait ButtonPaint: Sized + Debug + Send + Sync {
-    fn paint(this: &Node<Button<Self>>, canvas: Canvas);
-    fn line_setting(this: &Node<Button<Self>>, row: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
-    fn layout(this: &mut Node<Button<Self>>, constraint: &Constraint) -> (isize, isize);
+pub trait ButtonPaint: 'static + Sized + Debug + Send + Sync {
+    fn button_paint(self: &Button<Self>, canvas: Canvas);
+    fn line_setting(self: &Button<Self>, row: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
+    fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout;
 }
 
 impl ButtonPaint for TextButtonPaint {
-    fn paint(this: &Node<Button<Self>>, mut w: Canvas) {
-        w.style = match this.state() {
-            PaintState::Normal => this.normal_style,
-            PaintState::Over => this.over_style,
-            PaintState::Down => this.down_style,
+    fn button_paint(self: &Button<Self>, mut w: Canvas) {
+        w.style = match self.state() {
+            PaintState::Normal => self.normal_style,
+            PaintState::Over => self.over_style,
+            PaintState::Down => self.down_style,
         };
         w.draw((0, 0),
                &iter::once('▛')
-                   .chain(iter::repeat('▀').take(this.text.len()))
+                   .chain(iter::repeat('▀').take(self.text.len()))
                    .chain(iter::once('▜')).collect::<String>());
         w.draw((0, 1),
-               &format!("▌{}▐", this.text, ));
+               &format!("▌{}▐", self.text, ));
         w.draw((0, 2),
                &iter::once('▙')
-                   .chain(iter::repeat('▄').take(this.text.len()))
+                   .chain(iter::repeat('▄').take(self.text.len()))
                    .chain(iter::once('▟')).collect::<String>());
     }
 
-    fn layout(this: &mut Node<Button<Self>>, constraint: &Constraint) -> (isize, isize) {
-        ((this.text.len() + 2) as isize, 3)
+    fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout {
+        Layout {
+            size: ((self.text.len() + 2) as isize, 3),
+            line_settings: HashMap::new(),
+        }
     }
 }
 
-impl<T: ButtonPaint> NodeImpl for Button<T> {
-    fn paint(self: &Node<Self>, w: Canvas) {
-        T::paint(self, w)
-    }
 
-    fn handle(self: &mut Node<Self>, event: &InputEvent, output: &mut Vec<OutputEvent>) {
+impl<T: ButtonPaint> ViewImpl for Button<T> {
+    fn self_handle(self: &mut View<Self>, event: &InputEvent) -> bool {
         match event {
             InputEvent::MouseEvent { event, inside } => {
                 let was_down = self.down;
@@ -130,41 +146,27 @@ impl<T: ButtonPaint> NodeImpl for Button<T> {
                 self.over = *inside;
                 self.down = self.over && event.mouse == Mouse::Down(0);
                 if was_down && !self.down && *inside {
-                    output.push(self.event.clone());
-                    let countdown = Instant::now() + Duration::from_millis(50);
-                    self.countdown = Some(countdown);
-                    output.push(TimeEvent::new(countdown));
-                }
-            }
-            InputEvent::TimeEvent { when } => {
-                if let Some(countdown) = self.countdown {
-                    if *when >= countdown {
-                        self.countdown = None;
-                    }
+                    self.context().run(self.event.once());
+                    self.countdown += 1;
+                    self.context().run_with_delay(
+                        Duration::from_millis(50),
+                        self.node().new_event(|this| {
+                            this.countdown -= 1;
+                            this.sync();
+                        })).ignore();
                 }
             }
         }
-        let new_state =
-            if self.down || self.countdown.is_some() {
-                PaintState::Down
-            } else if self.over {
-                PaintState::Over
-            } else {
-                PaintState::Normal
-            };
-        if self.state != new_state {
-            self.state = new_state;
-            self.mark_dirty();
-        }
+        self.sync();
+        true
     }
 
-    fn layout(self: &mut Node<Self>, constraint: &Constraint) {
-        let size = T::layout(self, constraint);
-        self.set_size(size);
+    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
+        self.button_layout(constraint)
     }
 
-    fn line_setting(self: &Node<Self>, row: isize) -> Option<LineSetting> {
-        T::line_setting(self, row)
+    fn self_paint_below(self: &View<Self>, canvas: Canvas) {
+        self.button_paint(canvas)
     }
 }
 
@@ -175,4 +177,10 @@ impl<T: ButtonPaint> Deref for Button<T> {
 
 impl<T: ButtonPaint> DerefMut for Button<T> {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.paint }
+}
+
+impl<T: ButtonPaint> Debug for Button<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Button").field("paint", &self.paint).finish()
+    }
 }

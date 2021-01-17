@@ -1,55 +1,52 @@
-#![feature(never_type)]
+#![feature(never_type, arbitrary_self_types)]
 #![allow(unused_imports)]
 
-use termio::gui::gui::{Gui, OutputEventTrait, Context};
-use termio::gui::table::{Table, TableImpl};
+use termio::gui::gui::{Gui};
 use termio::gui::button::Button;
-use std::sync::{Arc, mpsc};
-use termio::gui::node::{Node, NodeId};
+use std::sync::{Arc, mpsc, Mutex};
+use termio::gui::node::{Node, NodeStrong};
 use termio::input::{EventReader, Event, KeyEvent};
 use std::io::{stdin, stdout, Write};
 use std::error::Error;
 use std::{mem, thread, process};
 use util::grid::Grid;
 use termio::gui::label::Label;
-use termio::string::{StyleFormatExt};
+use termio::string::{StyleFormatExt, StyleString};
 use util::any::{Upcast, AnyExt};
 use std::any::Any;
 use std::ops::Deref;
 use termio::screen::Style;
 use termio::color::Color;
-use termio::gui::time::TimeEvent;
 use timer::Timer;
 use std::time::Instant;
 use chrono;
 use std::time;
-use termio::gui::group::Group;
+use termio::gui::context::{Context, GuiEvent, SharedGuiEvent};
+use termio::gui::view::{View, ViewImpl};
+use termio::gui::layout::{Constraint, Layout};
+use util::lossy;
+use std::str;
 
 #[derive(Debug)]
 struct Example {
-    buttons: [Node<Button>; 4],
-    labels: [Node<Label>; 2],
+    content: Vec<StyleString>,
+    buttons: Vec<View<Button>>,
+    labels: Vec<View<Label>>,
 }
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Click(&'static str);
-
-impl OutputEventTrait for Click {}
-
-impl TableImpl for Example {
-    fn table_children(this: &Node<Group<Table<Self>>>) -> Grid<&Node> {
-        Grid::from_iterator(
+impl ViewImpl for Example {
+    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
+        let grid = Grid::from_iterator(
             (2, 3),
-            this.buttons.iter().map(|x| x as &Node)
-                .chain(this.labels.iter().map(|x| x as &Node)))
-    }
-
-    fn table_children_mut(this: &mut Node<Group<Table<Self>>>) -> Grid<&mut Node> {
-        let this = &mut ****this;
-        Grid::from_iterator(
-            (2, 3),
-            this.buttons.iter_mut().map(|x| x as &mut Node)
-                .chain(this.labels.iter_mut().map(|x| x as &mut Node)))
+            self
+                .buttons.iter().map(|x| x.node_strong().downgrade())
+                .chain(self.labels.iter().map(|x| x.node_strong().downgrade())
+                ),
+        );
+        constraint.table_layout(
+            self,
+            &grid,
+        )
     }
 }
 
@@ -58,36 +55,56 @@ fn main() {
 }
 
 fn main_impl() -> Result<(), Box<dyn Error>> {
-    let (context, events) = Context::new(Box::new(move || {}));
-    let root = NodeId::root(context);
+    let (dirty_sender, dirty_receiver) = lossy::channel();
+    let (context, events) = Context::new(Box::new(move || {
+        dirty_sender.send(());
+    }));
+    let root = NodeStrong::<Example>::root(context.clone());
     let mut content = vec!["a".to_style_string()];
-    let mut label1 = Label::new(root.child());
-    label1.sync(&content);
-    label1.set_size((40, 10));
-    let mut label2 = Label::new(root.child());
-    label2.set_size((10, 10));
+    let mut labels = vec![
+        Label::new(root.child(
+            |v| &v.labels[0],
+            |v| &mut v.labels[0])),
+        Label::new(root.child(
+            |v| &v.labels[1],
+            |v| &mut v.labels[1]))
+    ];
+    labels[0].sync(&content);
+    labels[0].set_size((40, 10));
+    labels[1].set_size((10, 10));
+    let mut buttons =
+        ["a", "bb", "ccc", "dddd"].iter().enumerate()
+            .map(|(i, s)| {
+                let ss = s.to_style_string();
+                Button::new(
+                    root.child(move |v| &v.buttons[i],
+                               move |v| &mut v.buttons[i]),
+                    s.to_string(),
+                    root.new_shared_event(
+                        move |e| {
+                            e.content.push(ss.clone());
+                            let e = &mut **e;
+                            e.labels[0].sync(&e.content);
+                        }
+                    ),
+                )
+            }).collect();
     let mut gui =
-        Gui::new(Box::new(Table::new(root.clone(), Example {
-            buttons: [
-                Button::new(root.child(), "aaa".to_string(), Arc::new(Click("a"))),
-                Button::new(root.child(), "bbbbbbb".to_string(), Arc::new(Click("b"))),
-                Button::new(root.child(), "cccccccccc".to_string(), Arc::new(Click("c"))),
-                Button::new(root.child(), "ddddddddddddddddd".to_string(), Arc::new(Click("d"))),
-            ],
-            labels: [
-                label1,
-                label2,
-            ],
+        Gui::new(Box::new(View::new(root, Example {
+            content,
+            buttons,
+            labels,
         })));
     gui.set_background(Style {
         background: Color::Gray24(23),
         foreground: Color::Gray24(0),
         ..Style::default()
     });
-    let (events, event_receiver) = mpsc::channel();
+    let gui = Arc::new(Mutex::new(gui));
+    events.start(gui.clone());
 
     thread::spawn({
-        let events = events.clone();
+        let context = context.clone();
         move || {
             let mut reader = EventReader::new(stdin());
             loop {
@@ -96,56 +113,31 @@ fn main_impl() -> Result<(), Box<dyn Error>> {
                     eprintln!("Quitting");
                     process::exit(0);
                 }
-                events.send(next).unwrap();
+                context.run(GuiEvent::new(move |gui| {
+                    gui.handle(&next)
+                }))
             }
         }
     });
 
-    thread::spawn({
-        let events = events.clone();
-        move || {
-            let timer = Timer::new();
-            let stdout = stdout();
-            loop {
-                let output = gui.buffer();
+    thread::spawn(move || {
+        let stdout = stdout();
+        let mut buffer = vec![];
+        for () in dirty_receiver {
+            {
+                let mut gui = gui.lock().unwrap();
+                gui.paint_buffer(&mut buffer);
+            }
+            {
                 let mut lock = stdout.lock();
-                lock.write_all(&output).unwrap();
+                eprintln!("{:?}", str::from_utf8(&buffer));
+                lock.write_all(&buffer).unwrap();
                 lock.flush().unwrap();
-                output.clear();
-                mem::drop(lock);
-
-                let next = if let Ok(next) = event_receiver.recv() {
-                    next
-                } else {
-                    break;
-                };
-                let mut output_events = vec![];
-                gui.handle(&next, &mut output_events);
-                for o in output_events {
-                    if let Ok(c) = o.downcast_event::<Click>() {
-                        let v = gui.buttons[3].visible();
-                        gui.buttons[3].set_visible(!v);
-                        content.push(c.0.to_style_string());
-                        gui.labels[0].sync(&content);
-                    } else if let Ok(TimeEvent(when)) = o.downcast_event::<TimeEvent>() {
-                        let when = *when;
-                        let delay = chrono::Duration::from_std(when - Instant::now()).unwrap();
-                        timer.schedule_with_delay(
-                            delay,
-                            {
-                                let events = events.clone();
-                                move || {
-                                    events.send(Event::Time(when)).ok();
-                                }
-                            }).ignore();
-                    } else {
-                        eprintln!("Unknown {:?}", o);
-                    }
-                }
-                gui.paint();
             }
         }
     }).join().unwrap();
+
+
     println!("Done");
     Ok(())
 }

@@ -89,7 +89,6 @@ pub enum Event {
     WindowSize(isize, isize),
     TextAreaSize(isize, isize),
     ScreenSize(isize, isize),
-    Time(Instant),
 }
 
 #[derive(Debug)]

@@ -1,6 +1,15 @@
-#![feature(half_open_range_patterns, exclusive_range_pattern, str_internals, fmt_internals, coerce_unsized, unsize, arbitrary_self_types, toowned_clone_into)]
+#![feature(half_open_range_patterns)]
 #![feature(arc_new_cyclic)]
 #![feature(once_cell)]
+#![feature(raw)]
+#![feature(exclusive_range_pattern)]
+#![feature(str_internals)]
+#![feature(fmt_internals)]
+#![feature(coerce_unsized)]
+#![feature(unsize)]
+#![feature(arbitrary_self_types)]
+#![feature(toowned_clone_into)]
+
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code)]
 
 use std::iter::FromIterator;

@@ -1,10 +1,12 @@
 use crate::string::StyleString;
-use crate::gui::node::{Node, NodeImpl, NodeId};
-use crate::gui::layout::Constraint;
+use crate::gui::layout::{Constraint, Layout};
 use crate::canvas::Canvas;
-use crate::gui::gui::{InputEvent, OutputEvent};
+use crate::gui::gui::{InputEvent};
 use crate::input::{MouseEvent, Mouse};
 use std::mem;
+use crate::gui::node::{Node, NodeStrong};
+use crate::gui::view::{View, ViewImpl};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Label {
@@ -13,14 +15,14 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new(id: NodeId) -> Node<Self> {
-        Node::new(id, Label {
+    pub fn new(id: NodeStrong<Label>) -> View<Label> {
+        View::new(id, Label {
             lines: vec![],
             bottom_scroll: 0,
         })
     }
 
-    pub fn sync(self: &mut Node<Self>, source: &Vec<StyleString>) {
+    pub fn sync(self: &mut View<Self>, source: &Vec<StyleString>) {
         if self.lines.len() < source.len() {
             let len = self.lines.len();
             self.lines.extend_from_slice(&source[len..]);
@@ -33,8 +35,8 @@ impl Label {
     }
 }
 
-impl NodeImpl for Label {
-    fn paint(self: &Node<Self>, mut canvas: Canvas) {
+impl ViewImpl for Label {
+    fn self_paint_below(self: &View<Self>, mut canvas: Canvas) {
         let (width, height) = self.size();
         for y in 0..self.size().1 {
             if let Some(line) = self.lines.get((y + self.bottom_scroll - height) as usize) {
@@ -69,13 +71,7 @@ impl NodeImpl for Label {
         }
     }
 
-    fn layout(self: &mut Node<Self>, constraint: &Constraint) {
-        if let Some(size) = constraint.max_size {
-            self.set_size(size);
-        }
-    }
-
-    fn handle(self: &mut Node<Self>, event: &InputEvent, output: &mut Vec<OutputEvent>) {
+    fn self_handle(self: &mut View<Self>, event: &InputEvent) -> bool {
         match event {
             InputEvent::MouseEvent { event, inside } => {
                 if *inside {
@@ -84,19 +80,28 @@ impl NodeImpl for Label {
                             if self.bottom_scroll < self.lines.len() as isize {
                                 self.bottom_scroll += 1;
                                 self.mark_dirty();
+                                return true;
                             }
                         }
                         Mouse::ScrollUp => {
                             if self.bottom_scroll > self.size().1 {
                                 self.bottom_scroll -= 1;
                                 self.mark_dirty();
+                                return true;
                             }
                         }
                         _ => {}
                     }
                 }
             }
-            _ => {}
+        }
+        false
+    }
+
+    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
+        Layout {
+            size: constraint.max_size.unwrap_or(self.size()),
+            line_settings: HashMap::new(),
         }
     }
 }
