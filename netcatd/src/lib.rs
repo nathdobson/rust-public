@@ -28,19 +28,10 @@ use util::watch::Watchable;
 use util::rng::BoxRng;
 use std::any::Any;
 use util::any::Upcast;
+use termio::gui::gui::Gui;
+use termio::gui::node::{Node, NodeStrong};
+use termio::gui::event::SharedGuiEvent;
+use crate::tcp::NetcatController;
 
 pub mod tcp;
 pub mod proxy;
-
-pub trait EventLoop: 'static + Send + Sync {
-    fn peer_render(&self, username: &Name);
-    fn peer_shutdown(&self, username: &Name);
-}
-
-pub trait Handler: 'static + Send + Upcast<dyn Any> {
-    fn peer_add(&mut self, username: &Name);
-    fn peer_shutdown(&mut self, username: &Name);
-    fn peer_close(&mut self, username: &Name);
-    fn peer_event(&mut self, username: &Name, event: &Event);
-    fn peer_render(&mut self, username: &Name, output: &mut Vec<u8>);
-}

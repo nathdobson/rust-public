@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::ops::{Deref, DerefMut};
 use std::fmt::Debug;
-use crate::gui::context::{GuiEvent, SharedGuiEvent};
 use crate::gui::view::{View, ViewImpl};
 use crate::gui::node::{Node, NodeStrong};
 use serde::export::Formatter;
-use crate::gui::context;
+use crate::gui::tree;
+use crate::gui::event::{Priority, SharedGuiEvent};
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -105,7 +105,6 @@ impl TextButtonPaint {
 
 pub trait ButtonPaint: 'static + Sized + Debug + Send + Sync {
     fn button_paint(self: &Button<Self>, canvas: Canvas);
-    fn line_setting(self: &Button<Self>, row: isize) -> Option<LineSetting> { Some(LineSetting::Normal) }
     fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout;
 }
 
@@ -146,9 +145,9 @@ impl<T: ButtonPaint> ViewImpl for Button<T> {
                 self.over = *inside;
                 self.down = self.over && event.mouse == Mouse::Down(0);
                 if was_down && !self.down && *inside {
-                    self.context().run(self.event.once());
+                    self.event_sender().run(Priority::Now, self.event.once());
                     self.countdown += 1;
-                    self.context().run_with_delay(
+                    self.event_sender().run_with_delay(
                         Duration::from_millis(50),
                         self.node().new_event(|this| {
                             this.countdown -= 1;

@@ -16,9 +16,10 @@ use std::any::Any;
 use crate::gui::node::{Node, Children, ChildrenMut, NodeStrong};
 use crate::gui::layout::{Constraint, Layout};
 use crate::gui::gui::InputEvent;
-use crate::gui::context::{GuiEvent, Context};
+use crate::gui::tree::{Tree};
 use std::mem;
 use std::raw::TraitObject;
+use crate::gui::event::EventSender;
 
 
 #[derive(Debug)]
@@ -133,8 +134,11 @@ impl<T: ViewImpl + ?Sized> View<T> {
     pub fn set_mouse_focus(&mut self, mouse_focus: bool) {
         self.mouse_focus = mouse_focus;
     }
-    pub fn context(&self) -> &Context {
+    pub fn context(&self) -> &Tree {
         self.node.context()
+    }
+    pub fn event_sender(&self) -> &EventSender {
+        self.context().event_sender()
     }
 
     // fn mark_dirty(&mut self) { self.node().mark_dirty(); }

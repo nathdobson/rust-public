@@ -47,7 +47,7 @@ impl Constraint {
         let mut widths = vec![0; cols as usize];
         let mut heights = vec![0; rows as usize];
         for (p, child) in children.iter() {
-            let child = child.descend(view);
+            let child = child.child_mut(view);
             child.layout(&Constraint { max_size: None });
             let size = child.size();
             widths[p.0 as usize] = widths[p.0 as usize].max(size.0);
@@ -57,7 +57,7 @@ impl Constraint {
         let ys: Vec<isize> = heights.iter().scan_full(0, |y, h| y + 1 + *h).collect();
 
         for (p, child) in children.iter() {
-            child.descend(view).set_position((xs[p.0 as usize] + 1, ys[p.1 as usize] + 1));
+            child.child_mut(view).set_position((xs[p.0 as usize] + 1, ys[p.1 as usize] + 1));
         }
         let (x, y) = (*xs.last().unwrap(), *ys.last().unwrap());
         Layout { size: (x, y), line_settings: HashMap::new() }

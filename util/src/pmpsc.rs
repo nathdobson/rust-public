@@ -114,6 +114,28 @@ impl<P: Ord, T> Receiver<P, T> {
             }
         }
     }
+    pub fn try_peek(&self) -> Result<P, TryRecvError> where P: Clone {
+        let lock = self.inner.mutex.lock().unwrap();
+        if lock.senders == 0 {
+            Err(TryRecvError::Disconnected)
+        } else if let Some(result) = lock.heap.peek() {
+            Ok(result.priority.clone())
+        } else {
+            Err(TryRecvError::Empty)
+        }
+    }
+    pub fn peek(&self) -> Result<P, RecvError> where P: Clone {
+        let mut lock = self.inner.mutex.lock().unwrap();
+        loop {
+            if lock.senders == 0 {
+                return Err(RecvError);
+            } else if let Some(result) = lock.heap.peek() {
+                return Ok(result.priority.clone());
+            } else {
+                lock = self.inner.condvar.wait(lock).unwrap();
+            }
+        }
+    }
 }
 
 impl<T> Receiver<Instant, T> {

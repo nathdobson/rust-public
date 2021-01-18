@@ -63,6 +63,11 @@ impl Gui {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.writer.set_enabled(enabled);
+        self.root.mark_dirty();
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.writer.enabled()
     }
 
     pub fn paint(&mut self) {
@@ -138,11 +143,8 @@ impl Gui {
         }
     }
 
-    pub fn descendant_mut<'a, T: ViewImpl>(&'a mut self, node: Node<T>) -> &'a mut View<T> {
-        let v: &'a mut View = self.root.deref_mut();
-        let v2 :&'a mut View = node.descend(v);
-        v2.downcast_view_mut()
-    }
+    pub fn root_mut(&mut self) -> &mut View { &mut *self.root }
+    pub fn root(&self) -> &View { &*self.root }
 }
 
 impl Debug for Gui {

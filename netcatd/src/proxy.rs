@@ -11,7 +11,6 @@ use util::io::SafeWrite;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use crate::Handler;
 use std::error::Error;
 use std::borrow::Cow;
 use std::fmt::Display;
