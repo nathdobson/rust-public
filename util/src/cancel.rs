@@ -51,11 +51,12 @@ pub struct Inner {
     condvar: Condvar,
 }
 
+#[derive(Debug)]
 pub struct Context {
     inner: Arc<Inner>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Canceller {
     inner: Arc<Inner>,
 }

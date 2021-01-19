@@ -23,25 +23,26 @@ impl Constraint {
     pub fn none() -> Self {
         Constraint { max_size: None }
     }
-    // pub fn flow_layout<'a>(&'a self, children: impl Iterator<Item=&'a mut Node>, xs: isize, ys: isize) -> (isize, isize) {
-    //     let mut x = 0;
-    //     let mut y = 0;
-    //     let mut width = 0;
-    //     let mut height = 0;
-    //     let max_width = self.max_size.unwrap_or((isize::MAX, 0)).0;
-    //     for child in children {
-    //         child.layout(&Constraint::none());
-    //         if x + child.size().0 > max_width {
-    //             x = 0;
-    //             y = height + ys;
-    //         }
-    //         child.set_position((x, y));
-    //         x += child.size().1 + xs;
-    //         width = width.max(x + child.size().0);
-    //         height = height.max(y + child.size().1);
-    //     }
-    //     (width, height)
-    //
+    pub fn flow_layout(&self, view: &mut View, xs: isize, ys: isize) -> (isize, isize) {
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let max_width = self.max_size.unwrap_or((isize::MAX, 0)).0;
+        for child in view.children_mut().into_iterable().into_iter() {
+            let child = child(view);
+            child.layout(&Constraint::none());
+            if x + child.size().0 > max_width {
+                x = 0;
+                y = height + ys;
+            }
+            child.set_position((x, y));
+            x += child.size().1 + xs;
+            width = width.max(x + child.size().0);
+            height = height.max(y + child.size().1);
+        }
+        (width, height)
+    }
     pub fn table_layout(&self, view: &mut View, children: &Grid<Node>) -> Layout {
         let (cols, rows) = children.size();
         let mut widths = vec![0; cols as usize];

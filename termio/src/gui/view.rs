@@ -15,7 +15,7 @@ use util::any::{Upcast, AnyExt};
 use std::any::Any;
 use crate::gui::node::{Node, Children, ChildrenMut, NodeStrong};
 use crate::gui::layout::{Constraint, Layout};
-use crate::gui::gui::InputEvent;
+use crate::gui::gui::{InputEvent, Gui};
 use crate::gui::tree::{Tree};
 use std::mem;
 use std::raw::TraitObject;
@@ -42,7 +42,17 @@ impl<T: ViewImpl> UpcastView for T {
     fn upcast_view_mut<'a>(self: &'a mut View<Self>) -> &'a mut View<dyn ViewImpl> { self }
 }
 
-pub trait ViewImpl: 'static + Send + Sync + Upcast<dyn Any> + Debug + UpcastView {
+pub trait UpcastGui {
+    fn upcast_gui<'a>(self: &'a Gui<Self>) -> &'a Gui;
+    fn upcast_gui_mut<'a>(self: &'a mut Gui<Self>) -> &'a mut Gui;
+}
+
+impl<T: ViewImpl> UpcastGui for T {
+    fn upcast_gui<'a>(self: &'a Gui<Self>) -> &'a Gui<dyn ViewImpl> { self }
+    fn upcast_gui_mut<'a>(self: &'a mut Gui<Self>) -> &'a mut Gui<dyn ViewImpl> { self }
+}
+
+pub trait ViewImpl: 'static + Send + Sync + Upcast<dyn Any> + Debug + UpcastView + UpcastGui {
     fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout;
     fn self_handle(self: &mut View<Self>, event: &InputEvent) -> bool { false }
     fn self_paint_below(self: &View<Self>, canvas: Canvas) {}
@@ -56,7 +66,7 @@ impl<T: ?Sized> Deref for View<T> {
     }
 }
 
-impl<T: ?Sized + ViewImpl> DerefMut for View<T> {
+impl<T: ?Sized> DerefMut for View<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
@@ -189,7 +199,6 @@ impl<T: ViewImpl + ?Sized> View<T> {
     }
 
     pub fn paint(&self, mut canvas: Canvas) {
-        eprintln!("Printing {:?}", self);
         self.self_paint_below(canvas.push());
         for child in self.children().into_iter() {
             if child.visible() {

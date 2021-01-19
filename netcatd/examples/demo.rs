@@ -14,7 +14,7 @@ use termio::input::modifiers::*;
 use util::{swrite, Name};
 
 use std::{process, mem};
-use netcatd::tcp::{NetcatServer, Model, ModelExt};
+use netcatd::tcp::{NetcatServer, Model};
 use termio::gui::node::{Node, NodeStrong};
 use termio::gui::layout::{Constraint, Layout};
 use termio::screen::Style;
@@ -22,15 +22,16 @@ use util::grid::Grid;
 use std::sync::{Arc, Mutex};
 use termio::gui::event::{EventSender, SharedGuiEvent};
 use termio::gui::view::{View, ViewImpl};
+use util::shutdown::join_to_main;
+use std::time::Duration;
+use atomic_refcell::AtomicRefCell;
 
 #[derive(Debug)]
-pub struct DemoModel {
-    sender: EventSender,
-}
+pub struct DemoModel {}
 
 impl DemoModel {
     pub fn new(sender: EventSender) -> Self {
-        DemoModel { sender }
+        DemoModel {}
     }
 }
 
@@ -48,28 +49,33 @@ impl Root {
                     |r| &r.hello,
                     |r| &mut r.hello),
                 "hello".to_string(),
-                DemoModel::new_shared_event(|m|
+                SharedGuiEvent::new_dyn(|m|
                     println!("{:?} says hello", m))),
             goodbye: Button::new(
                 id.child(
                     |r| &r.goodbye,
                     |r| &mut r.goodbye),
                 "goodbye".to_string(),
-                DemoModel::new_shared_event(|m|
+                SharedGuiEvent::new_dyn(|m|
                     println!("{:?} says goodbye", m))),
         })
     }
 }
 
 impl Model for DemoModel {
-    fn make_gui(&mut self, username: &Name, node: NodeStrong) -> Gui {
-        Gui::new(Box::new(Root::new(node.downcast_node())))
+    fn make_gui(&mut self, username: &Name, node: NodeStrong) -> Box<Gui> {
+        Box::new(Gui::new(Root::new(node.downcast_node())))
     }
 }
 
 impl ViewImpl for Root {
     fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
-        let grid = Grid::from_iterator((1, 2), vec![self.hello.node().upcast_node(), ].into_iter());
+        let grid = Grid::from_iterator(
+            (1, 2),
+            vec![
+                self.hello.node().upcast_node(),
+                self.goodbye.node().upcast_node()
+            ].into_iter());
         constraint.table_layout(self, &grid)
     }
 }
@@ -80,9 +86,16 @@ fn main() {
         NetcatServer::new(
             "0.0.0.0:8000",
             |event_sender| {
-                DemoModel::new(event_sender)
+                Arc::new(AtomicRefCell::new(DemoModel::new(event_sender)))
             }).unwrap();
-    let (ctx, _canc, rec) = util::cancel::channel();
-    server.listen(ctx).unwrap();
-    rec.recv().unwrap();
+    let (ctx, canceller, receiver) = util::cancel::channel();
+    ctx.spawn({
+        let ctx = ctx.clone();
+        move || {
+            server.listen(ctx).unwrap();
+            Ok(())
+        }
+    });
+    mem::drop(ctx);
+    join_to_main(canceller, receiver, Duration::from_secs(60));
 }

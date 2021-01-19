@@ -17,7 +17,6 @@ use serde::export::Formatter;
 use std::cmp::Ordering;
 use std::ops::DerefMut;
 use crate::gui::gui::Gui;
-use crate::gui::controller::{Controller, ControllerExt};
 use crate::gui::event::{SharedGuiEvent, GuiEvent, EventSender};
 
 enum NodeParent {
@@ -27,6 +26,7 @@ enum NodeParent {
         get_mut: Box<dyn Send + Sync + for<'a> Fn(&'a mut View) -> &'a mut View>,
     },
     IsRoot {
+        gui: Weak<AtomicRefCell<Gui>>,
         get_ref: Box<dyn Send + Sync + for<'a> Fn(&'a dyn Controller) -> &'a Gui>,
         get_mut: Box<dyn Send + Sync + for<'a> Fn(&'a mut dyn Controller) -> &'a mut Gui>,
     },
@@ -77,6 +77,7 @@ impl<T: ViewImpl + ?Sized> NodeStrong<T> {
         let context = Tree::new(event_sender, Box::new(mark_dirty));
         NodeStrong(Shared::new(NodeInner {
             parent: NodeParent::IsRoot {
+                gui: todo!(),
                 get_ref: Box::new(move |controller| { get_ref(controller.upcast().downcast_ref().unwrap()) }),
                 get_mut: Box::new(move |controller| { get_mut(controller.upcast_mut().downcast_mut().unwrap()) }),
             },
@@ -123,6 +124,9 @@ impl<T: ViewImpl> NodeStrong<T> {
     pub fn new_shared_event(&self, cb: impl Fn(&mut View<T>) + Send + Sync + 'static) -> SharedGuiEvent where T: Sized {
         self.downgrade().new_shared_event(cb)
     }
+    pub fn new_root_shared_event(&self, cb: impl Fn(&mut Gui<T>) + Send + Sync + 'static) -> SharedGuiEvent where T: Sized {
+        self.downgrade().new_root_shared_event(cb)
+    }
 }
 
 impl Node<dyn ViewImpl> {
@@ -144,6 +148,26 @@ impl<T: ViewImpl + ?Sized> Node<T> {
             NodeParent::IsRoot { .. } => panic!()
         }
     }
+
+    pub fn root_mut<'a, 'b>(&'a self, controller: &'b mut dyn Controller) -> &'b mut Gui {
+        let inner = self.0.upgrade().unwrap();
+        match &inner.parent {
+            NodeParent::IsChild {
+                id,
+                get_ref,
+                get_mut
+            } => {
+                id.root_mut(controller)
+            }
+            NodeParent::IsRoot {
+                get_ref,
+                get_mut, ..
+            } => {
+                get_mut(controller)
+            }
+        }
+    }
+
     pub fn descend_mut<'a, 'b>(&'a self, controller: &'b mut dyn Controller) -> &'b mut View {
         let inner = self.0.upgrade().unwrap();
         match &inner.parent {
@@ -156,7 +180,7 @@ impl<T: ViewImpl + ?Sized> Node<T> {
             }
             NodeParent::IsRoot {
                 get_ref,
-                get_mut
+                get_mut, ..
             } => {
                 get_mut(controller).root_mut()
             }
@@ -164,10 +188,16 @@ impl<T: ViewImpl + ?Sized> Node<T> {
     }
 
     pub fn new_event(self, cb: impl FnOnce(&mut View<T>) + Send + Sync + 'static) -> GuiEvent where T: Sized {
-        GuiEvent::new_dyn(|gui| cb(gui.descendant_mut(self)))
+        //GuiEvent::new_dyn(|gui| cb(gui.descendant_mut(self)))
+        todo!()
     }
     pub fn new_shared_event(self, cb: impl Fn(&mut View<T>) + Send + Sync + 'static) -> SharedGuiEvent where T: Sized {
-        SharedGuiEvent::new_dyn(move |gui| cb(gui.descendant_mut(self.clone())))
+        //SharedGuiEvent::new_dyn(move |gui| cb(gui.descendant_mut(self.clone())))
+        todo!()
+    }
+    pub fn new_root_shared_event(self, cb: impl Fn(&mut Gui<T>) + Send + Sync + 'static) -> SharedGuiEvent where T: Sized {
+        //SharedGuiEvent::new_dyn(move |gui| cb(gui.root_mut(self.clone())))
+        todo!()
     }
 }
 

@@ -7,7 +7,7 @@ use std::any::{Any, TypeId};
 use util::any::{Upcast, AnyExt};
 use std::{fmt, thread, mem};
 use std::sync::{Arc, mpsc, Mutex, Condvar, Weak};
-use crate::input::{MouseEvent, Event};
+use crate::input::{MouseEvent, KeyEvent, Event};
 use crate::canvas::Canvas;
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, VecDeque};
@@ -19,19 +19,19 @@ use std::fmt::Debug;
 use serde::export::Formatter;
 use util::lossy;
 use crate::gui::node::{Node};
-use crate::gui::view::{View, ViewImpl};
+use crate::gui::view::{View, ViewImpl, UpcastGui};
+use std::raw::TraitObject;
 
 const FRAME_BUFFER_SIZE: usize = 1;
 
-pub struct Gui {
-    root: Box<View>,
+pub struct Gui<T: ?Sized = dyn ViewImpl> {
     style: Style,
     title: String,
     writer: TermWriter,
     size: (isize, isize),
     set_text_size_count: usize,
+    root: View<T>,
 }
-
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum InputEvent {
@@ -41,17 +41,42 @@ pub enum InputEvent {
     },
 }
 
-impl Gui {
-    pub fn new(root: Box<View>) -> Gui {
+impl<T: ViewImpl> Gui<T> {
+    pub fn new(root: View<T>) -> Gui<T> {
         let mut writer = TermWriter::new();
         writer.set_enabled(true);
         Gui {
-            root,
             style: Default::default(),
             title: "".to_string(),
             writer,
             size: (0, 0),
             set_text_size_count: 0,
+            root,
+        }
+    }
+}
+
+impl<T: ViewImpl + ?Sized> Gui<T> {
+    pub fn downcast_gui<T2: ViewImpl>(&self) -> &Gui<T2> {
+        unsafe {
+            let this: &Gui = self.upcast_gui();
+            let imp: &dyn ViewImpl = this.root.deref();
+            let any: &dyn Any = imp.upcast();
+            assert!(any.is::<T2>());
+            let to: TraitObject = mem::transmute(this);
+            let raw: *mut () = to.data;
+            mem::transmute(raw)
+        }
+    }
+    pub fn downcast_gui_mut<T2: ViewImpl>(&mut self) -> &mut Gui<T2> {
+        unsafe {
+            let this: &mut Gui = self.upcast_gui_mut();
+            let imp: &mut dyn ViewImpl = this.root.deref_mut();
+            let any: &mut dyn Any = imp.upcast_mut();
+            assert!(any.is::<T2>());
+            let to: TraitObject = mem::transmute(this);
+            let raw: *mut () = to.data;
+            mem::transmute(raw)
         }
     }
 
@@ -116,7 +141,11 @@ impl Gui {
 
     pub fn handle(&mut self, event: &Event) {
         match event {
-            Event::KeyEvent(_) => {}
+            Event::KeyEvent(e) => {
+                if *e == KeyEvent::typed('c').control() {
+                    self.set_enabled(false);
+                }
+            }
             Event::MouseEvent(event) => {
                 let mut event = event.clone();
                 event.position.0 -= 1;
@@ -143,13 +172,25 @@ impl Gui {
         }
     }
 
-    pub fn root_mut(&mut self) -> &mut View { &mut *self.root }
-    pub fn root(&self) -> &View { &*self.root }
+    pub fn root_mut(&mut self) -> &mut View<T> { &mut self.root }
+    pub fn root(&self) -> &View<T> { &self.root }
 }
 
-impl Debug for Gui {
+impl<T: ViewImpl + ?Sized> Debug for Gui<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Gui").finish()
     }
 }
 
+impl<T: ?Sized> Deref for Gui<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.root.deref()
+    }
+}
+
+impl<T: ?Sized> DerefMut for Gui<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.root.deref_mut()
+    }
+}

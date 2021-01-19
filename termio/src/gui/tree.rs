@@ -10,7 +10,6 @@ use atomic_refcell::AtomicRefCell;
 use crate::gui::node::Node;
 use util::any::Upcast;
 use crate::gui::view::{ViewImpl, View};
-use crate::gui::controller::Controller;
 use crate::gui::event::{Priority, GuiEvent, EventSender};
 
 

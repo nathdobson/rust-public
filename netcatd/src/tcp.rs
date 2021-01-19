@@ -33,34 +33,38 @@ use termio::gui::event::{EventSender, Priority, GuiEvent, SharedGuiEvent};
 use termio::gui::event;
 use util::any::Upcast;
 use std::any::Any;
+use atomic_refcell::AtomicRefCell;
+use std::fmt::Debug;
+use termio::gui::event::EventReceiver;
 
-
-pub trait Model: 'static + Send + Sync + Upcast<dyn Any> {
-    fn make_gui(&mut self, username: &Name, node: NodeStrong) -> Gui;
+pub trait Model: 'static + Send + Sync + Debug + Upcast<dyn Any> {
+    fn make_gui(&mut self, username: &Name, node: NodeStrong) -> Box<Gui>;
 }
+//
+// pub trait ModelExt: Model {
+//     fn new_shared_event(f: impl 'static + Send + Sync + Fn(&mut Self)) -> SharedGuiEvent where Self: Sized {
+//         SharedGuiEvent::new(move |c: &mut NetcatController| f((&mut *c.model).upcast_mut().downcast_mut().unwrap()))
+//     }
+//     fn new_event(f: impl 'static + Send + Sync + FnOnce(&mut Self)) -> GuiEvent where Self: Sized {
+//         GuiEvent::new(move |c: &mut NetcatController| f((&mut *c.model).upcast_mut().downcast_mut().unwrap()))
+//     }
+// }
+//
+// impl<T: Model> ModelExt for T {}
 
-pub trait ModelExt: Model {
-    fn new_shared_event(f: impl 'static + Send + Sync + Fn(&mut Self)) -> SharedGuiEvent where Self: Sized {
-        SharedGuiEvent::new(move |c: &mut NetcatController| f((&mut *c.model).upcast_mut().downcast_mut().unwrap()))
-    }
-    fn new_event(f: impl 'static + Send + Sync + FnOnce(&mut Self)) -> GuiEvent where Self: Sized {
-        GuiEvent::new(move |c: &mut NetcatController| f((&mut *c.model).upcast_mut().downcast_mut().unwrap()))
-    }
-}
-
-impl<T: Model> ModelExt for T {}
-
+#[derive(Debug)]
 pub struct NetcatController {
     peers: HashMap<Name, Peer>,
     streams: HashSet<Shared<TcpStream>>,
-    model: Box<dyn Model>,
+    model: Arc<AtomicRefCell<dyn Model>>,
 }
 
 impl Controller for NetcatController {}
 
+#[derive(Debug)]
 struct Peer {
     stream: Shared<TcpStream>,
-    gui: Gui,
+    gui: Box<Gui>,
     terminate: Arc<Condvar>,
 }
 
@@ -71,12 +75,15 @@ pub struct NetcatServer {
 }
 
 impl NetcatServer {
-    pub fn new<T: Model>(address: &str, model: impl Fn(EventSender) -> T) -> io::Result<Arc<Self>> {
-        let (event_sender, event_receiver) = event::channel();
+    pub fn new<T: Model>(
+        address: &str,
+        event_sender: EventSender,
+        event_receiver: EventReceiver,
+        model: Arc<AtomicRefCell<T>>) -> io::Result<Arc<Self>> {
         let controller = Arc::new(Mutex::new(NetcatController {
             peers: HashMap::new(),
             streams: HashSet::new(),
-            model: Box::new(model(event_sender.clone())),
+            model,
         }));
         let result = Arc::new(NetcatServer {
             listener: TcpListener::bind(address)?,
@@ -92,12 +99,12 @@ impl NetcatServer {
     fn handle_stream(self: &Arc<Self>,
                      mut stream: Shared<TcpStream>)
                      -> Result<(), Box<dyn error::Error>> {
-        println!("Handling Stream");
         let (host, _) = proxy::run_proxy_server(&mut stream)?;
         let username = Arc::new(host.to_string()?);
         let username1 = username.clone();
         let username2 = username.clone();
         let (dirty_sender, dirty_receiver) = lossy::channel();
+        dirty_sender.send(());
         let mut lock = self.controller.lock().unwrap();
         let node = NodeStrong::<dyn ViewImpl>::root(
             self.event_sender.clone(),
@@ -113,7 +120,7 @@ impl NetcatServer {
                     peer.get().terminate.clone()
                 }
                 Entry::Vacant(x) => {
-                    let gui = lock_mut.model.make_gui(&username, node);
+                    let gui = lock_mut.model.borrow_mut().make_gui(&username, node);
                     x.insert(Peer {
                         stream: stream.clone(),
                         gui,
@@ -124,7 +131,6 @@ impl NetcatServer {
             };
             lock = condvar.wait(lock).unwrap();
         }
-        println!("Inserted");
         mem::drop(lock);
         let send_handle = thread::spawn({
             let username = username.clone();
@@ -133,7 +139,6 @@ impl NetcatServer {
             move || {
                 let mut buffer = vec![];
                 for () in dirty_receiver {
-                    println!("Painting");
                     let enabled;
                     {
                         let mut lock = controller.lock().unwrap();
@@ -158,7 +163,6 @@ impl NetcatServer {
             loop {
                 match event_reader.read() {
                     Ok(event) => {
-                        println!("Event {:?}", event);
                         let username3 = username.clone();
                         self.event_sender.run(
                             Priority::Later,

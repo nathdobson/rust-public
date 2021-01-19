@@ -9,8 +9,9 @@
 #![feature(unsize)]
 #![feature(arbitrary_self_types)]
 #![feature(toowned_clone_into)]
+#![feature(specialization)]
 
-#![allow(unused_imports, unused_variables, dead_code, unreachable_code)]
+#![allow(unused_imports, unused_variables, dead_code, unreachable_code, incomplete_features)]
 
 use std::iter::FromIterator;
 use std::ops::DerefMut;

@@ -12,7 +12,9 @@ pub fn join_to_main(canceller: cancel::Canceller, receiver: cancel::Receiver, ti
         let mut lock = counter.lock().unwrap();
         match *lock {
             0 => canceller.cancel(),
-            1 => exit(3),
+            1..=3 => println!("Really skip cancellation?"),
+            4 => exit(3),
+            5..=8 => println!("Burninate?"),
             _ => abort(),
         }
         *lock += 1;

@@ -1,4 +1,3 @@
-use crate::gui::controller::Controller;
 use util::pmpsc;
 use std::sync::{Arc, Mutex};
 use util::any::Upcast;
@@ -9,6 +8,7 @@ use std::sync::mpsc::RecvError;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fmt;
+
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum Priority {
@@ -24,8 +24,16 @@ pub struct GuiEvent(Box<dyn FnOnce(&mut dyn Controller) + Send + Sync>);
 #[derive(Clone)]
 pub struct SharedGuiEvent(Arc<dyn Fn(&mut dyn Controller) + Send + Sync>);
 
+#[derive(Debug)]
+pub struct EventSequence;
+
+pub type EventMutex = Arc<Mutex<EventSequence>>;
+
 #[must_use]
-pub struct EventReceiver(pub pmpsc::Receiver<Priority, GuiEvent>);
+pub struct EventReceiver {
+    event_receiver: pmpsc::Receiver<Priority, GuiEvent>,
+    event_mutex: EventMutex,
+}
 
 struct EventSenderInner {
     timer: Timer,
@@ -63,15 +71,17 @@ impl GuiEvent {
     }
 }
 
-pub fn channel() -> (EventSender, EventReceiver) {
+pub fn channel() -> (MainMutex, EventSender, EventReceiver) {
+    let event_mutex = Arc::new(Mutex::new(EventSequence));
     let (event_sender, event_receiver) = pmpsc::channel();
     let timer = Timer::new();
     (
+        mutex,
         EventSender(Arc::new(Mutex::new(EventSenderInner {
             timer,
             event_sender,
         }))),
-        EventReceiver(event_receiver),
+        EventReceiver { event_mutex, event_receiver },
     )
 }
 
@@ -98,7 +108,7 @@ impl EventSender {
 }
 
 impl EventReceiver {
-    pub fn start(self, controller: Arc<Mutex<dyn Controller>>) {
+    pub fn start(self) {
         thread::spawn(move || {
             loop {
                 if let Err(RecvError) = self.0.peek() {

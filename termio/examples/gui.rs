@@ -30,9 +30,10 @@ use termio::gui::event::{Priority, GuiEvent, SharedGuiEvent};
 use termio::gui::event;
 use termio::gui::controller::Controller;
 
+#[derive(Debug)]
 struct ExampleController {
     model: Vec<StyleString>,
-    gui: Gui,
+    gui: Gui<ExampleView>,
 }
 
 #[derive(Debug)]
@@ -98,10 +99,10 @@ fn main_impl() -> Result<(), Box<dyn Error>> {
                 )
             }).collect();
     let mut gui =
-        Gui::new(Box::new(View::new(root, ExampleView {
+        Gui::new(View::new(root, ExampleView {
             buttons,
             labels,
-        })));
+        }));
     gui.set_background(Style {
         background: Color::Gray24(23),
         foreground: Color::Gray24(0),
