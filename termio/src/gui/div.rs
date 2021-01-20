@@ -80,11 +80,11 @@ impl<T: DivImpl> DivRc<T> {
 impl<T: DivImpl + ?Sized> DivRc<T> {
     pub fn read(&self) -> DivRef<T> { self.0.read() }
     pub fn write(&mut self) -> DivRefMut<T> { self.0.write() }
-    pub fn borrow_mut(&self)->DivRefMut<T> { self.0.borrow_mut() }
+    pub fn borrow_mut(&self) -> DivRefMut<T> { self.0.borrow_mut() }
 }
 
 impl<T: DivImpl + ?Sized> Div<T> {
-    pub fn div_rc(&self) -> DivRc<T> { self.this.upgrade().downcast_div() }
+    pub fn div_rc(&self) -> DivRc<T> { self.this.upgrade().unwrap().downcast_div() }
     pub fn div_weak(&self) -> DivWeak<T> {
         self.this.clone().downcast_div()
     }
@@ -217,11 +217,19 @@ impl<T: DivImpl + ?Sized> Div<T> {
 impl<T: DivImpl + ?Sized> DivWeak<T> {
     pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Div<T>)) -> GuiEvent {
         let this = self.clone();
-        GuiEvent::new(move || f(&mut *this.upgrade().write()))
+        GuiEvent::new(move || {
+            if let Some(mut this) = this.upgrade() {
+                f(&mut *this.write())
+            }
+        })
     }
     pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Div<T>)) -> SharedGuiEvent {
         let this = self.clone();
-        SharedGuiEvent::new(move || f(&mut *this.upgrade().write()))
+        SharedGuiEvent::new(move || {
+            if let Some(mut this) = this.upgrade() {
+                f(&mut *this.write())
+            }
+        })
     }
 }
 
@@ -362,7 +370,7 @@ impl<T: DivImpl + ?Sized> DivWeak<T> {
         }
         DivWeak::<T2>::downcast_div_impl(self.upcast_div())
     }
-    pub fn upgrade(&self) -> DivRc<T> { DivRc(self.0.upgrade().unwrap()) }
+    pub fn upgrade(&self) -> Option<DivRc<T>> { Some(DivRc(self.0.upgrade()?)) }
 }
 
 impl<T: ?Sized> Eq for DivRc<T> {}

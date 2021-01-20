@@ -35,7 +35,8 @@ use termio::gui::tree::Tree;
 use util::mutrc::MutRc;
 
 pub trait Model: 'static + Send + Sync + Debug + Upcast<dyn Any> {
-    fn make_gui(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
+    fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
+    fn remove_peer(&mut self, username: &Name);
 }
 
 #[derive(Debug)]
@@ -103,7 +104,7 @@ impl NetcatServer {
             };
             lock = condvar.wait(lock).unwrap();
         }
-        let gui = self.model.borrow_mut().make_gui(&username, tree);
+        let gui = self.model.borrow_mut().add_peer(&username, tree);
         mem::drop(lock);
         let send_joiner = thread::spawn({
             let event_mutex = self.event_mutex.clone();
@@ -132,6 +133,7 @@ impl NetcatServer {
         {
             let lock = self.event_mutex.lock().unwrap();
             self.state.borrow_mut().peers.remove(&username).unwrap().terminate.notify_all();
+            self.model.borrow_mut().remove_peer(&username);
             mem::drop(lock);
         }
         Ok(())
@@ -146,6 +148,7 @@ impl NetcatServer {
             for peer in state.peers.values_mut() {
                 peer.stream.shutdown(Shutdown::Read).ok();
             }
+            mem::drop(state);
             mem::drop(lock);
             TcpStream::connect(self2.listener.local_addr().unwrap()).ok();
         });

@@ -67,7 +67,7 @@ impl Root {
 
 impl Model for DemoModel {
     fn make_gui(&mut self, username: &Name, tree: Tree) -> MutRc<Gui> {
-        MutRc::new(Gui::new(Root::new(tree)))
+        MutRc::new(Gui::new(tree.clone(), Root::new(tree)))
     }
 }
 

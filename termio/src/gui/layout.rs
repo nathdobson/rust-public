@@ -22,13 +22,13 @@ impl Constraint {
     pub fn none() -> Self {
         Constraint { max_size: None }
     }
-    pub fn flow_layout(&self, div: &mut Div, xs: isize, ys: isize) -> (isize, isize) {
+    pub fn flow_layout<'a>(&self, children: impl Iterator<Item=DivRc>, xs: isize, ys: isize) -> (isize, isize) {
         let mut x = 0;
         let mut y = 0;
         let mut width = 0;
         let mut height = 0;
         let max_width = self.max_size.unwrap_or((isize::MAX, 0)).0;
-        for mut child in div.children_mut() {
+        for mut child in children {
             let mut child = child.write();
             child.layout(&Constraint::none());
             if x + child.size().0 > max_width {
@@ -36,7 +36,7 @@ impl Constraint {
                 y = height + ys;
             }
             child.set_position((x, y));
-            x += child.size().1 + xs;
+            x += child.size().0 + xs;
             width = width.max(x + child.size().0);
             height = height.max(y + child.size().1);
         }

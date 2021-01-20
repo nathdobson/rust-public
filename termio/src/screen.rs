@@ -131,8 +131,8 @@ impl Row {
             text,
             style,
         };
-        for x1 in x + 1..x + dx {
-            *self.rune_mut(x1) = Rune {
+        for x1 in x + 1..(x + dx).min(self.runes.len() as isize) {
+            self.runes[x1 as usize] = Rune {
                 text: ArrayString::new(),
                 style,
             };
