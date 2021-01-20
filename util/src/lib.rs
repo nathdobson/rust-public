@@ -1,6 +1,7 @@
 #![feature(unsize, coerce_unsized, rustc_private, negative_impls, never_type, write_all_vectored, vec_into_raw_parts, raw, can_vector, bound_cloned, backtrace, type_name_of_val)]
 #![allow(unused_imports)]
 #![feature(arbitrary_self_types, unboxed_closures)]
+#![feature(arc_new_cyclic)]
 
 use std::mem;
 use std::collections::BTreeMap;
@@ -35,6 +36,8 @@ pub mod dynbag;
 pub mod web;
 pub mod tree;
 pub mod itertools;
+pub mod mutrc;
+pub mod atomic_refcell;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,

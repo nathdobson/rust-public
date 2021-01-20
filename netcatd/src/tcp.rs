@@ -26,71 +26,55 @@ use util::cancel::RecvError::Cancelling;
 use std::collections::hash_map::Entry;
 use std::str;
 use termio::gui::gui::Gui;
-use termio::gui::node::{Node, NodeStrong};
-use termio::gui::controller::Controller;
-use termio::gui::view::ViewImpl;
-use termio::gui::event::{EventSender, Priority, GuiEvent, SharedGuiEvent};
+use termio::gui::event::{EventSender, Priority, GuiEvent, SharedGuiEvent, EventMutex, read_loop};
 use termio::gui::event;
 use util::any::Upcast;
 use std::any::Any;
-use atomic_refcell::AtomicRefCell;
 use std::fmt::Debug;
-use termio::gui::event::EventReceiver;
+use termio::gui::tree::Tree;
+use util::mutrc::MutRc;
 
 pub trait Model: 'static + Send + Sync + Debug + Upcast<dyn Any> {
-    fn make_gui(&mut self, username: &Name, node: NodeStrong) -> Box<Gui>;
+    fn make_gui(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
 }
-//
-// pub trait ModelExt: Model {
-//     fn new_shared_event(f: impl 'static + Send + Sync + Fn(&mut Self)) -> SharedGuiEvent where Self: Sized {
-//         SharedGuiEvent::new(move |c: &mut NetcatController| f((&mut *c.model).upcast_mut().downcast_mut().unwrap()))
-//     }
-//     fn new_event(f: impl 'static + Send + Sync + FnOnce(&mut Self)) -> GuiEvent where Self: Sized {
-//         GuiEvent::new(move |c: &mut NetcatController| f((&mut *c.model).upcast_mut().downcast_mut().unwrap()))
-//     }
-// }
-//
-// impl<T: Model> ModelExt for T {}
 
 #[derive(Debug)]
-pub struct NetcatController {
+pub struct NetcatState {
     peers: HashMap<Name, Peer>,
     streams: HashSet<Shared<TcpStream>>,
-    model: Arc<AtomicRefCell<dyn Model>>,
 }
-
-impl Controller for NetcatController {}
 
 #[derive(Debug)]
 struct Peer {
     stream: Shared<TcpStream>,
-    gui: Box<Gui>,
     terminate: Arc<Condvar>,
 }
 
 pub struct NetcatServer {
     listener: TcpListener,
     event_sender: EventSender,
-    controller: Arc<Mutex<NetcatController>>,
+    event_mutex: EventMutex,
+    state: MutRc<NetcatState>,
+    model: MutRc<dyn Model>,
 }
 
 impl NetcatServer {
-    pub fn new<T: Model>(
+    pub fn new(
         address: &str,
+        event_mutex: EventMutex,
         event_sender: EventSender,
-        event_receiver: EventReceiver,
-        model: Arc<AtomicRefCell<T>>) -> io::Result<Arc<Self>> {
-        let controller = Arc::new(Mutex::new(NetcatController {
+        model: MutRc<dyn Model>) -> io::Result<Arc<Self>> {
+        let state = MutRc::new(NetcatState {
             peers: HashMap::new(),
             streams: HashSet::new(),
-            model,
-        }));
+        });
         let result = Arc::new(NetcatServer {
             listener: TcpListener::bind(address)?,
             event_sender,
-            controller: controller.clone(),
+            event_mutex,
+            state,
+            model,
         });
-        event_receiver.start(controller);
         Ok(result)
     }
 }
@@ -101,29 +85,17 @@ impl NetcatServer {
                      -> Result<(), Box<dyn error::Error>> {
         let (host, _) = proxy::run_proxy_server(&mut stream)?;
         let username = Arc::new(host.to_string()?);
-        let username1 = username.clone();
-        let username2 = username.clone();
-        let (dirty_sender, dirty_receiver) = lossy::channel();
-        dirty_sender.send(());
-        let mut lock = self.controller.lock().unwrap();
-        let node = NodeStrong::<dyn ViewImpl>::root(
-            self.event_sender.clone(),
-            move || dirty_sender.send(()),
-            move |c: &NetcatController| &c.peers.get(&username1).unwrap().gui,
-            move |c: &mut NetcatController| &mut c.peers.get_mut(&username2).unwrap().gui,
-        );
+        let mut lock = self.event_mutex.lock().unwrap();
+        let (tree, render_loop) = event::render_loop(self.event_sender.clone());
         loop {
-            let lock_mut = &mut *lock;
-            let condvar = match lock_mut.peers.entry(username.clone()) {
+            let condvar = match self.state.borrow_mut().peers.entry(username.clone()) {
                 Entry::Occupied(peer) => {
                     peer.get().stream.shutdown(Shutdown::Read).ok();
                     peer.get().terminate.clone()
                 }
                 Entry::Vacant(x) => {
-                    let gui = lock_mut.model.borrow_mut().make_gui(&username, node);
                     x.insert(Peer {
                         stream: stream.clone(),
-                        gui,
                         terminate: Arc::new(Condvar::new()),
                     });
                     break;
@@ -131,65 +103,36 @@ impl NetcatServer {
             };
             lock = condvar.wait(lock).unwrap();
         }
+        let gui = self.model.borrow_mut().make_gui(&username, tree);
         mem::drop(lock);
-        let send_handle = thread::spawn({
-            let username = username.clone();
-            let mut stream = stream.clone();
-            let controller = self.controller.clone();
+        let send_joiner = thread::spawn({
+            let event_mutex = self.event_mutex.clone();
+            let gui = gui.clone();
+            let stream = stream.clone();
             move || {
-                let mut buffer = vec![];
-                for () in dirty_receiver {
-                    let enabled;
-                    {
-                        let mut lock = controller.lock().unwrap();
-                        let peer = lock.peers.get_mut(&username).unwrap();
-                        peer.gui.paint_buffer(&mut buffer);
-                        enabled = peer.gui.enabled();
-                    }
-                    if let Err(e) = stream.write_all(&buffer) {
-                        eprintln!("Send error {:?}", e);
-                        break;
-                    }
-                    buffer.clear();
-                    if !enabled {
-                        break;
-                    }
-                }
+                render_loop.run(event_mutex, gui, stream.clone());
                 stream.shutdown(Shutdown::Both).ok();
             }
         });
         {
-            let mut event_reader = EventReader::new(stream.clone());
-            loop {
-                match event_reader.read() {
-                    Ok(event) => {
-                        let username3 = username.clone();
-                        self.event_sender.run(
-                            Priority::Later,
-                            GuiEvent::new(move |c: &mut NetcatController| {
-                                c.peers.get_mut(&username3).unwrap().gui.handle(&event)
-                            }));
-                    }
-                    Err(error) => {
-                        if error.kind() == ErrorKind::UnexpectedEof {
-                            println!("Peer {:?} shutdown", username);
-                        } else {
-                            println!("Peer {:?} failed: {:?}", username, error);
-                        }
-                        break;
-                    }
+            if let Err(error) = read_loop(self.event_sender.clone(), gui.clone(), stream) {
+                if error.kind() == ErrorKind::UnexpectedEof {
+                    println!("Peer {:?} shutdown", username);
+                } else {
+                    println!("Peer {:?} failed: {:?}", username, error);
                 }
             }
         }
         {
-            let mut lock = self.controller.lock().unwrap();
-            let peer = lock.peers.get_mut(&username).unwrap();
-            peer.gui.set_enabled(false);
+            let lock = self.event_mutex.lock().unwrap();
+            gui.borrow_mut().set_enabled(false);
+            mem::drop(lock);
         }
-        send_handle.join().unwrap();
+        send_joiner.join().unwrap();
         {
-            let mut lock = self.controller.lock().unwrap();
-            lock.peers.remove(&username).unwrap().terminate.notify_all();
+            let lock = self.event_mutex.lock().unwrap();
+            self.state.borrow_mut().peers.remove(&username).unwrap().terminate.notify_all();
+            mem::drop(lock);
         }
         Ok(())
     }
@@ -197,9 +140,10 @@ impl NetcatServer {
     pub fn listen(self: &Arc<Self>, context: Context) -> io::Result<()> {
         let self2 = self.clone();
         let on_cancel = context.on_cancel(move || {
-            let mut lock = self2.controller.lock().unwrap();
+            let lock = self2.event_mutex.lock().unwrap();
+            let mut state = self2.state.borrow_mut();
             self2.listener.set_nonblocking(true).unwrap();
-            for peer in lock.peers.values_mut() {
+            for peer in state.peers.values_mut() {
                 peer.stream.shutdown(Shutdown::Read).ok();
             }
             mem::drop(lock);
@@ -210,8 +154,9 @@ impl NetcatServer {
                 return Ok(());
             }
             let stream = Shared::new(stream_result?);
-            let mut lock = self.controller.lock().unwrap();
-            lock.streams.insert(stream.clone());
+            let lock = self.event_mutex.lock().unwrap();
+            self.state.borrow_mut().streams.insert(stream.clone());
+            mem::drop(lock);
             let self2 = self.clone();
             context.spawn(move || -> cancel::Result<()>{
                 if let Err(e) = self2.handle_stream(stream.clone()) {
@@ -225,7 +170,9 @@ impl NetcatServer {
                         eprintln!("Comm error: {:?}", e);
                     }
                 }
-                self2.controller.lock().unwrap().streams.remove(&stream);
+                let lock = self2.event_mutex.lock().unwrap();
+                self2.state.borrow_mut().streams.remove(&stream);
+                mem::drop(lock);
                 Ok(())
             });
         }

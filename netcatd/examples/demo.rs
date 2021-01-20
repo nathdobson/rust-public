@@ -12,19 +12,19 @@ use termio::canvas::Canvas;
 use termio::output::{Foreground, DoubleHeightTop, DoubleHeightBottom};
 use termio::input::modifiers::*;
 use util::{swrite, Name};
-
+use termio::gui::event;
 use std::{process, mem};
 use netcatd::tcp::{NetcatServer, Model};
-use termio::gui::node::{Node, NodeStrong};
 use termio::gui::layout::{Constraint, Layout};
 use termio::screen::Style;
 use util::grid::Grid;
 use std::sync::{Arc, Mutex};
 use termio::gui::event::{EventSender, SharedGuiEvent};
-use termio::gui::view::{View, ViewImpl};
 use util::shutdown::join_to_main;
 use std::time::Duration;
-use atomic_refcell::AtomicRefCell;
+use termio::gui::tree::Tree;
+use termio::gui::div::{DivRc, Div, DivImpl};
+use util::mutrc::MutRc;
 
 #[derive(Debug)]
 pub struct DemoModel {}
@@ -37,57 +37,62 @@ impl DemoModel {
 
 #[derive(Debug)]
 struct Root {
-    hello: View<Button>,
-    goodbye: View<Button>,
+    hello: DivRc<Button>,
+    goodbye: DivRc<Button>,
 }
 
 impl Root {
-    fn new(id: NodeStrong<Root>) -> View<Self> {
-        View::new(id.clone(), Root {
+    fn new(tree: Tree) -> DivRc<Self> {
+        let mut result = DivRc::new(tree.clone(), Root {
             hello: Button::new(
-                id.child(
-                    |r| &r.hello,
-                    |r| &mut r.hello),
+                tree.clone(),
                 "hello".to_string(),
-                SharedGuiEvent::new_dyn(|m|
-                    println!("{:?} says hello", m))),
+                SharedGuiEvent::new(||
+                    println!("Hello"))),
             goodbye: Button::new(
-                id.child(
-                    |r| &r.goodbye,
-                    |r| &mut r.goodbye),
+                tree.clone(),
                 "goodbye".to_string(),
-                SharedGuiEvent::new_dyn(|m|
-                    println!("{:?} says goodbye", m))),
-        })
+                SharedGuiEvent::new(||
+                    println!("Goodbye"))),
+        });
+        let mut write = result.write();
+        let hello = write.hello.clone();
+        let goodbye = write.goodbye.clone();
+        write.add(hello);
+        write.add(goodbye);
+        mem::drop(write);
+        result
     }
 }
 
 impl Model for DemoModel {
-    fn make_gui(&mut self, username: &Name, node: NodeStrong) -> Box<Gui> {
-        Box::new(Gui::new(Root::new(node.downcast_node())))
+    fn make_gui(&mut self, username: &Name, tree: Tree) -> MutRc<Gui> {
+        MutRc::new(Gui::new(Root::new(tree)))
     }
 }
 
-impl ViewImpl for Root {
-    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
-        let grid = Grid::from_iterator(
+impl DivImpl for Root {
+    fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
+        let mut grid = Grid::from_iterator(
             (1, 2),
             vec![
-                self.hello.node().upcast_node(),
-                self.goodbye.node().upcast_node()
+                self.hello.clone().upcast_div(),
+                self.goodbye.clone().upcast_div(),
             ].into_iter());
-        constraint.table_layout(self, &grid)
+        constraint.table_layout(&mut grid)
     }
 }
 
 fn main() {
     println!("Binding 0.0.0.0:8000");
+    let (event_mutex, event_sender, event_joiner) = event::event_loop();
     let server =
         NetcatServer::new(
             "0.0.0.0:8000",
-            |event_sender| {
-                Arc::new(AtomicRefCell::new(DemoModel::new(event_sender)))
-            }).unwrap();
+            event_mutex,
+            event_sender.clone(),
+            MutRc::new(DemoModel::new(event_sender)),
+        ).unwrap();
     let (ctx, canceller, receiver) = util::cancel::channel();
     ctx.spawn({
         let ctx = ctx.clone();

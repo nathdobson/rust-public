@@ -4,9 +4,9 @@ use crate::canvas::Canvas;
 use crate::gui::gui::{InputEvent};
 use crate::input::{MouseEvent, Mouse};
 use std::mem;
-use crate::gui::node::{Node, NodeStrong};
-use crate::gui::view::{View, ViewImpl};
 use std::collections::HashMap;
+use crate::gui::div::{DivRc, DivImpl, Div};
+use crate::gui::tree::Tree;
 
 #[derive(Debug)]
 pub struct Label {
@@ -15,14 +15,14 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new(id: NodeStrong<Label>) -> View<Label> {
-        View::new(id, Label {
+    pub fn new(tree: Tree) -> DivRc<Label> {
+        DivRc::new(tree, Label {
             lines: vec![],
             bottom_scroll: 0,
         })
     }
 
-    pub fn sync(self: &mut View<Self>, source: &Vec<StyleString>) {
+    pub fn sync(self: &mut Div<Self>, source: &Vec<StyleString>) {
         if self.lines.len() < source.len() {
             let len = self.lines.len();
             self.lines.extend_from_slice(&source[len..]);
@@ -35,8 +35,8 @@ impl Label {
     }
 }
 
-impl ViewImpl for Label {
-    fn self_paint_below(self: &View<Self>, mut canvas: Canvas) {
+impl DivImpl for Label {
+    fn self_paint_below(self: &Div<Self>, mut canvas: Canvas) {
         let (width, height) = self.size();
         for y in 0..self.size().1 {
             if let Some(line) = self.lines.get((y + self.bottom_scroll - height) as usize) {
@@ -71,7 +71,7 @@ impl ViewImpl for Label {
         }
     }
 
-    fn self_handle(self: &mut View<Self>, event: &InputEvent) -> bool {
+    fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool {
         match event {
             InputEvent::MouseEvent { event, inside } => {
                 if *inside {
@@ -94,11 +94,12 @@ impl ViewImpl for Label {
                     }
                 }
             }
+            _ => {}
         }
         false
     }
 
-    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
+    fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
         Layout {
             size: constraint.max_size.unwrap_or(self.size()),
             line_settings: HashMap::new(),

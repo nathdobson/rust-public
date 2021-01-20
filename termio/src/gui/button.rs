@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::ops::{Deref, DerefMut};
 use std::fmt::Debug;
-use crate::gui::view::{View, ViewImpl};
-use crate::gui::node::{Node, NodeStrong};
 use serde::export::Formatter;
 use crate::gui::tree;
 use crate::gui::event::{Priority, SharedGuiEvent};
+use crate::gui::div::{Div, DivRc, DivImpl};
+use crate::gui::tree::Tree;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -41,8 +41,8 @@ pub struct TextButtonPaint {
 }
 
 impl<T: ButtonPaint> Button<T> {
-    pub fn new_from_paint(id: NodeStrong<Button<T>>, paint: T, event: SharedGuiEvent) -> View<Self> {
-        View::new(id, Button {
+    pub fn new_from_paint(tree: Tree, paint: T, event: SharedGuiEvent) -> DivRc<Self> {
+        DivRc::new(tree, Button {
             event,
             over: false,
             down: false,
@@ -54,8 +54,8 @@ impl<T: ButtonPaint> Button<T> {
 }
 
 impl Button {
-    pub fn new(id: NodeStrong<Button>, text: String, event: SharedGuiEvent) -> View<Button> {
-        Button::new_from_paint(id, TextButtonPaint::new(text), event)
+    pub fn new(tree: Tree, text: String, event: SharedGuiEvent) -> DivRc<Button> {
+        Button::new_from_paint(tree, TextButtonPaint::new(text), event)
     }
 }
 
@@ -63,7 +63,7 @@ impl<T: ButtonPaint> Button<T> {
     pub fn state(&self) -> PaintState {
         self.state
     }
-    fn sync(self: &mut View<Self>) {
+    fn sync(self: &mut Div<Self>) {
         let new_state =
             if self.down || self.countdown > 0 {
                 PaintState::Down
@@ -136,8 +136,8 @@ impl ButtonPaint for TextButtonPaint {
 }
 
 
-impl<T: ButtonPaint> ViewImpl for Button<T> {
-    fn self_handle(self: &mut View<Self>, event: &InputEvent) -> bool {
+impl<T: ButtonPaint> DivImpl for Button<T> {
+    fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool {
         match event {
             InputEvent::MouseEvent { event, inside } => {
                 let was_down = self.down;
@@ -149,22 +149,23 @@ impl<T: ButtonPaint> ViewImpl for Button<T> {
                     self.countdown += 1;
                     self.event_sender().run_with_delay(
                         Duration::from_millis(50),
-                        self.node().new_event(|this| {
+                        self.new_event(|this| {
                             this.countdown -= 1;
                             this.sync();
                         })).ignore();
                 }
             }
+            _ => {},
         }
         self.sync();
         true
     }
 
-    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
+    fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
         self.button_layout(constraint)
     }
 
-    fn self_paint_below(self: &View<Self>, canvas: Canvas) {
+    fn self_paint_below(self: &Div<Self>, canvas: Canvas) {
         self.button_paint(canvas)
     }
 }

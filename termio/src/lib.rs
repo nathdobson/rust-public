@@ -10,6 +10,8 @@
 #![feature(arbitrary_self_types)]
 #![feature(toowned_clone_into)]
 #![feature(specialization)]
+#![feature(box_syntax)]
+#![feature(never_type)]
 
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code, incomplete_features)]
 

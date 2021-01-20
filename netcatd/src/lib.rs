@@ -29,9 +29,7 @@ use util::rng::BoxRng;
 use std::any::Any;
 use util::any::Upcast;
 use termio::gui::gui::Gui;
-use termio::gui::node::{Node, NodeStrong};
 use termio::gui::event::SharedGuiEvent;
-use crate::tcp::NetcatController;
 
 pub mod tcp;
 pub mod proxy;

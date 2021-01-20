@@ -6,10 +6,8 @@ use std::time::{Duration, Instant};
 use util::pmpsc;
 use std::sync::mpsc::RecvError;
 use std::any::Any;
-use atomic_refcell::AtomicRefCell;
-use crate::gui::node::Node;
+use util::atomic_refcell::AtomicRefCell;
 use util::any::Upcast;
-use crate::gui::view::{ViewImpl, View};
 use crate::gui::event::{Priority, GuiEvent, EventSender};
 
 
@@ -27,13 +25,12 @@ impl Tree {
         Tree(Arc::new(TreeInner { event_sender, mark_dirty }))
     }
 
-    pub fn event_sender(&self)->&EventSender{&self.0.event_sender}
+    pub fn event_sender(&self) -> &EventSender { &self.0.event_sender }
 
     pub fn mark_dirty(&self) {
         (self.0.mark_dirty)()
     }
 }
-
 
 
 impl Debug for TreeInner {

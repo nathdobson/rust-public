@@ -1,10 +1,10 @@
 #![feature(never_type, arbitrary_self_types)]
+#![feature(box_syntax)]
 #![allow(unused_imports)]
 
-use termio::gui::gui::{Gui};
+use termio::gui::gui::{Gui, InputEvent};
 use termio::gui::button::Button;
 use std::sync::{Arc, mpsc, Mutex};
-use termio::gui::node::{Node, NodeStrong};
 use termio::input::{EventReader, Event, KeyEvent};
 use std::io::{stdin, stdout, Write};
 use std::error::Error;
@@ -22,131 +22,97 @@ use std::time::Instant;
 use chrono;
 use std::time;
 use termio::gui::tree::{Tree};
-use termio::gui::view::{View, ViewImpl};
 use termio::gui::layout::{Constraint, Layout};
 use util::lossy;
 use std::str;
 use termio::gui::event::{Priority, GuiEvent, SharedGuiEvent};
 use termio::gui::event;
-use termio::gui::controller::Controller;
+use termio::gui::div::{Div, DivImpl, DivRc, DivWeak};
+use util::atomic_refcell::AtomicRefCell;
+use util::mutrc::MutRc;
 
 #[derive(Debug)]
-struct ExampleController {
+struct Example {
     model: Vec<StyleString>,
-    gui: Gui<ExampleView>,
+    buttons: Vec<DivRc<Button>>,
+    labels: Vec<DivRc<Label>>,
+    grid: Grid<DivRc>,
 }
 
-#[derive(Debug)]
-struct ExampleView {
-    buttons: Vec<View<Button>>,
-    labels: Vec<View<Label>>,
+impl Example {
+    fn new(tree: Tree) -> DivRc<Self> {
+        let mut result = DivRc::new_cyclic(tree.clone(), |example: DivWeak<Example>| {
+            let model = vec!["a".to_style_string()];
+            let mut labels = vec![Label::new(tree.clone()), Label::new(tree.clone())];
+            labels[0].write().sync(&model);
+            labels[0].write().set_size((40, 10));
+            labels[1].write().set_size((10, 10));
+            let buttons: Vec<DivRc<Button>> =
+                ["a", "bb", "ccc", "dddd"].iter()
+                    .map(|s| {
+                        let ss = s.to_style_string();
+                        Button::new(
+                            tree.clone(),
+                            s.to_string(),
+                            example.new_shared_event(move |e| {
+                                let e = &mut **e;
+                                e.model.push(ss.clone());
+                                e.labels[0].write().sync(&e.model);
+                            }),
+                        )
+                    }).collect();
+            let grid = Grid::new((2, 3), |x, y| {
+                match (x, y) {
+                    (0, 0) => buttons[0].clone().upcast_div(),
+                    (1, 0) => buttons[1].clone(),
+                    (0, 1) => buttons[2].clone(),
+                    (1, 1) => buttons[3].clone(),
+                    (0, 2) => labels[0].clone(),
+                    (1, 2) => labels[1].clone(),
+                    _ => panic!()
+                }
+            });
+            Example {
+                model,
+                buttons,
+                labels,
+                grid,
+            }
+        });
+        let mut this = result.write();
+        for button in this.buttons.clone().iter() {
+            this.add(button.clone())
+        }
+        for label in this.labels.clone().iter() {
+            this.add(label.clone());
+        }
+        mem::drop(this);
+        result
+    }
+    fn new_gui(tree: Tree) -> MutRc<Gui> {
+        let mut gui = Gui::new(tree.clone(), Example::new(tree));
+        gui.set_background(Style {
+            background: Color::Gray24(23),
+            foreground: Color::Gray24(0),
+            ..Style::default()
+        });
+        MutRc::new(gui)
+    }
 }
 
-impl Controller for ExampleController {}
-
-impl ViewImpl for ExampleView {
-    fn layout_impl(self: &mut View<Self>, constraint: &Constraint) -> Layout {
-        let grid = Grid::from_iterator(
-            (2, 3),
-            self
-                .buttons.iter().map(|x| x.node_strong().downgrade())
-                .chain(self.labels.iter().map(|x| x.node_strong().downgrade())
-                ),
-        );
-        constraint.table_layout(
-            self,
-            &grid,
-        )
+impl DivImpl for Example {
+    fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
+        constraint.table_layout(&mut self.grid)
+    }
+    fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool {
+        if *event == InputEvent::KeyEvent(KeyEvent::typed('c').control()) {
+            eprintln!("Quitting");
+            std::process::exit(0);
+        }
+        false
     }
 }
 
 fn main() {
-    main_impl().unwrap();
-}
-
-fn main_impl() -> Result<(), Box<dyn Error>> {
-    let (dirty_sender, dirty_receiver) = lossy::channel();
-    let (event_sender, event_receiver) = event::channel();
-    let root = NodeStrong::<ExampleView>::root(
-        event_sender.clone(),
-        move || { dirty_sender.send(()); },
-        |controller: &ExampleController| { &controller.gui },
-        |controller: &mut ExampleController| { &mut controller.gui });
-    let model = vec!["a".to_style_string()];
-    let mut labels = vec![
-        Label::new(root.child(
-            |v| &v.labels[0],
-            |v| &mut v.labels[0])),
-        Label::new(root.child(
-            |v| &v.labels[1],
-            |v| &mut v.labels[1]))
-    ];
-    labels[0].sync(&model);
-    labels[0].set_size((40, 10));
-    labels[1].set_size((10, 10));
-    let buttons =
-        ["a", "bb", "ccc", "dddd"].iter().enumerate()
-            .map(|(i, s)| {
-                let ss = s.to_style_string();
-                Button::new(
-                    root.child(move |v| &v.buttons[i],
-                               move |v| &mut v.buttons[i]),
-                    s.to_string(),
-                    SharedGuiEvent::new(move |c: &mut ExampleController| {
-                        c.model.push(ss.clone());
-                        c.gui.root_mut().downcast_view_mut::<ExampleView>().labels[0].sync(&c.model);
-                    }),
-                )
-            }).collect();
-    let mut gui =
-        Gui::new(View::new(root, ExampleView {
-            buttons,
-            labels,
-        }));
-    gui.set_background(Style {
-        background: Color::Gray24(23),
-        foreground: Color::Gray24(0),
-        ..Style::default()
-    });
-    let controller = ExampleController { model, gui };
-    let controller = Arc::new(Mutex::new(controller));
-    event_receiver.start(controller.clone());
-
-    thread::spawn({
-        let event_sender = event_sender.clone();
-        move || {
-            let mut reader = EventReader::new(stdin());
-            loop {
-                let next = reader.read().unwrap();
-                if next == Event::KeyEvent(KeyEvent::typed('c').control()) {
-                    eprintln!("Quitting");
-                    process::exit(0);
-                }
-                event_sender.run(Priority::Later, GuiEvent::new(move |controller: &mut ExampleController| {
-                    controller.gui.handle(&next)
-                }))
-            }
-        }
-    });
-
-    thread::spawn(move || {
-        let stdout = stdout();
-        let mut buffer = vec![];
-        for () in dirty_receiver {
-            {
-                let mut controller = controller.lock().unwrap();
-                controller.gui.paint_buffer(&mut buffer);
-            }
-            {
-                let mut lock = stdout.lock();
-                eprintln!("{:?}", str::from_utf8(&buffer));
-                lock.write_all(&buffer).unwrap();
-                lock.flush().unwrap();
-            }
-        }
-    }).join().unwrap();
-
-
-    println!("Done");
-    Ok(())
+    event::run_local(|tree| Example::new_gui(tree));
 }
