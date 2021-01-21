@@ -126,6 +126,9 @@ impl Gui {
             Event::KeyEvent(e) => {
                 if *e == KeyEvent::typed('c').control() {
                     self.set_enabled(false);
+                }else{
+                    let mut root=self.root.write();
+                    root.handle(&InputEvent::KeyEvent(e.clone()));
                 }
             }
             Event::MouseEvent(event) => {

@@ -1,0 +1,13 @@
+[package]
+name = "async-util"
+version = "0.1.0"
+authors = ["Nathan Dobson <nadobson@mac.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-std = { version = "1.9.0", features = ["unstable"] }
+futures = "0.3.12"
+
+
