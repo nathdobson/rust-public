@@ -9,5 +9,11 @@ edition = "2018"
 [dependencies]
 async-std = { version = "1.9.0", features = ["unstable"] }
 futures = "0.3.12"
+pin-project = "1.0.4"
+event-listener = "2.5.1"
+async-channel = "1.5.1"
+ondrop = "0.1.0"
+ctrlc = "3.1.7"
+
 
 

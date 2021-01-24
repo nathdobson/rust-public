@@ -17,7 +17,6 @@ use std::any::Any;
 use std::ops::Deref;
 use termio::screen::Style;
 use termio::color::Color;
-use timer::Timer;
 use std::time::Instant;
 use chrono;
 use std::time;
@@ -25,11 +24,13 @@ use termio::gui::tree::{Tree};
 use termio::gui::layout::{Constraint, Layout};
 use util::lossy;
 use std::str;
-use termio::gui::event::{Priority, GuiEvent, SharedGuiEvent};
+use termio::gui::event::{GuiEvent, SharedGuiEvent};
 use termio::gui::event;
 use termio::gui::div::{Div, DivImpl, DivRc, DivWeak};
 use util::atomic_refcell::AtomicRefCell;
 use util::mutrc::MutRc;
+use futures::executor::block_on;
+use termio::gui::run_local;
 
 #[derive(Debug)]
 struct Example {
@@ -114,5 +115,5 @@ impl DivImpl for Example {
 }
 
 fn main() {
-    event::run_local(|tree| Example::new_gui(tree));
+    run_local(|tree| Example::new_gui(tree));
 }

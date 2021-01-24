@@ -15,7 +15,7 @@ cancellation = "0.1.0"
 defer = "0.1.0"
 atomic_refcell = "0.1.6"
 by_address = "1.0.4"
-
+futures = "0.3.12"
 
 [dev-dependencies]
 crossbeam = "0.7.3"

@@ -1,12 +1,10 @@
 use util::{pmpsc, lossy};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use util::any::Upcast;
-use timer::Timer;
-use std::{thread, mem, io};
+use std::{thread, mem, sync};
 use std::time::{Duration, Instant};
 use std::sync::mpsc::RecvError;
 use std::fmt::{Debug};
-use std::io::{Write, Read, stdin, stdout};
 use std::fmt::Formatter;
 use std::fmt;
 use crate::gui::tree::Tree;
@@ -17,16 +15,15 @@ use std::thread::JoinHandle;
 use crate::input::EventReader;
 use std::cell::RefCell;
 use libc::close;
-use std::os::unix::io::AsRawFd;
 use util::mutrc::MutRc;
-
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
-pub enum Priority {
-    Now,
-    Later,
-}
-
-pub type Guard = timer::Guard;
+use async_util::{Mutex, Condvar, Executor};
+use std::collections::VecDeque;
+use std::future::Future;
+use async_std::io::Read;
+use std::io;
+use futures::pin_mut;
+use futures::task::SpawnExt;
+use async_std::task;
 
 #[must_use]
 pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
@@ -34,23 +31,21 @@ pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
 #[derive(Clone)]
 pub struct SharedGuiEvent(Arc<dyn Fn() + Send + Sync>);
 
-#[derive(Debug)]
-pub struct EventSequence;
 
-pub type EventMutex = Arc<Mutex<EventSequence>>;
-
-#[must_use]
-pub struct DirtyReceiver {
-    dirty_receiver: lossy::Receiver<()>,
+struct EventQueue {
+    now: VecDeque<GuiEvent>,
+    later: VecDeque<GuiEvent>,
 }
 
 struct EventSenderInner {
-    timer: Timer,
-    event_sender: pmpsc::Sender<Priority, GuiEvent>,
+    mutex: Mutex,
+    exec: Executor,
+    queue: MutRc<EventQueue>,
+    available: Condvar,
 }
 
 #[derive(Clone, Debug)]
-pub struct EventSender(Arc<Mutex<EventSenderInner>>);
+pub struct EventSender(Arc<EventSenderInner>);
 
 impl GuiEvent {
     pub fn new(f: impl 'static + Send + Sync + FnOnce()) -> Self {
@@ -74,101 +69,95 @@ impl GuiEvent {
     }
 }
 
-pub fn event_loop() -> (EventMutex, EventSender, JoinHandle<()>) {
-    let event_mutex = Arc::new(Mutex::new(EventSequence));
-    let (event_sender, event_receiver) =
-        pmpsc::channel::<Priority, GuiEvent>();
-    let timer = Timer::new();
+pub fn event_loop(mutex: Mutex, exec: Executor) -> (EventSender, impl Future<Output=()>) {
+    let queue = MutRc::new(EventQueue {
+        now: Default::default(),
+        later: Default::default(),
+    });
+    let available = Condvar::new();
 
-    let event_joiner = thread::spawn({
-        let event_mutex = event_mutex.clone();
-        move || {
+    let event_loop = {
+        let mutex = mutex.clone();
+        let available = available.downgrade();
+        let mut queue = queue.clone();
+        async move {
+            let mut lock = mutex.lock().await;
             loop {
-                if let Err(RecvError) = event_receiver.peek() {
-                    break;
+                if let Some(now) = {
+                    let x = queue.write().now.pop_front();
+                    x
+                } {
+                    now.run();
+                    continue;
                 }
-                let sequence = event_mutex.lock().unwrap();
-                while let Ok(event) = event_receiver.try_recv() {
-                    event.1.run();
+                if let Some(now) = {
+                    let x = queue.write().later.pop_front();
+                    x
+                } {
+                    now.run();
+                    continue;
                 }
-                mem::drop(sequence);
+                let l2 = lock;
+                match available.wait(l2).await {
+                    Ok(l) => { lock = l; }
+                    Err(_) => break,
+                }
             }
         }
-    });
+    };
     (
-        event_mutex.clone(),
-        EventSender(Arc::new(Mutex::new(EventSenderInner {
-            timer,
-            event_sender,
-        }))),
-        event_joiner
+        EventSender(Arc::new(EventSenderInner { mutex, queue, available, exec })),
+        event_loop
     )
 }
 
-pub fn render_loop(event_sender: EventSender) -> (Tree, DirtyReceiver) {
-    let (dirty_sender, dirty_receiver) = lossy::channel();
-    dirty_sender.send(());
-    (Tree::new(event_sender, box move || dirty_sender.send(())), DirtyReceiver { dirty_receiver })
-}
-
-pub fn read_loop(
+pub async fn read_loop(
     event_sender: EventSender,
     gui: MutRc<Gui>,
     read: impl 'static + Send + Read) -> io::Result<!> {
-    let mut reader = EventReader::new(read);
+    let reader = EventReader::new(read);
+    pin_mut!(reader);
     loop {
-        let next = reader.read()?;
+        let next = reader.as_mut().read().await?;
         let gui = gui.clone();
-        event_sender.run(Priority::Later, GuiEvent::new(move || {
+        let now = Instant::now();
+        event_sender.run_later(GuiEvent::new(move || {
             gui.borrow_mut().handle(&next)
         }))
     }
 }
 
 impl EventSender {
-    pub fn run(&self, priority: Priority, event: GuiEvent) {
-        self.0.lock().unwrap().event_sender.send(priority, event);
+    pub fn run_now(&self, event: GuiEvent) {
+        self.0.queue.borrow_mut().now.push_back(event);
+        self.0.available.notify_one();
+    }
+    async fn run_with_guard(self, event: GuiEvent) {
+        let lock = self.0.mutex.lock().await;
+        self.0.queue.borrow_mut().later.push_back(event);
+        self.0.available.notify_one();
+        mem::drop(lock);
+    }
+    pub fn run_later(&self, event: GuiEvent) {
+        self.0.exec.spawn(self.clone().run_with_guard(event)).unwrap();
     }
 
-    #[must_use]
-    pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) -> Guard {
-        let mut event = Some(event);
-        let this = self.clone();
-        self.0.lock().unwrap().timer.schedule_with_delay(
-            chrono::Duration::from_std(delay).unwrap(),
-            move || { this.run(Priority::Later, event.take().unwrap()) })
+    pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) {
+        let this=self.clone();
+        self.0.exec.spawn(async move{
+            task::sleep(delay).await;
+            this.run_with_guard(event).await;
+        }).unwrap();
     }
 
-    #[must_use]
-    pub fn run_at(&self, instant: Instant, event: GuiEvent) -> Guard {
+    pub fn run_at(&self, instant: Instant, event: GuiEvent) {
         self.run_with_delay(
             instant.checked_duration_since(Instant::now()).unwrap_or_default(),
             event)
     }
-}
 
-impl DirtyReceiver {
-    pub fn run(self,
-               event_mutex: EventMutex,
-               gui: MutRc<Gui>,
-               mut write: impl 'static + Send + Write) {
-        let mut buffer = vec![];
-        for () in self.dirty_receiver {
-            let enabled;
-            {
-                let _sequence = event_mutex.lock().unwrap();
-                let mut gui = gui.borrow_mut();
-                gui.paint_buffer(&mut buffer);
-                enabled = gui.enabled();
-            }
-            {
-                write.write_all(&buffer).unwrap();
-                write.flush().unwrap();
-            }
-            if !enabled {
-                break;
-            }
-        }
+    pub fn mutex(&self) -> &Mutex {
+        &self.0.mutex
     }
 }
 
@@ -176,19 +165,4 @@ impl Debug for EventSenderInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventSenderInner").finish()
     }
-}
-
-pub fn run_local(gui: impl FnOnce(Tree) -> MutRc<Gui>) {
-    let (event_mutex, event_sender, event_joiner) = event_loop();
-    let (tree, dirty_receiver) = render_loop(event_sender.clone());
-    let gui = gui(tree.clone());
-    thread::spawn({
-        let gui = gui.clone();
-        let event_sender = event_sender.clone();
-        move || read_loop(event_sender, gui, stdin())
-    });
-    mem::drop(event_sender);
-    mem::drop(event_joiner);
-    mem::drop(tree);
-    dirty_receiver.run(event_mutex, gui, stdout());
 }

@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use termio::gui::gui::{Gui, InputEvent};
 use termio::input::{Event, Key, Mouse};
-
+use futures::executor::{ThreadPool, block_on};
 use termio::color::Color;
 use termio::gui::button::Button;
 use termio::canvas::Canvas;
@@ -13,18 +13,23 @@ use termio::output::{Foreground, DoubleHeightTop, DoubleHeightBottom};
 use termio::input::modifiers::*;
 use util::{swrite, Name};
 use termio::gui::event;
-use std::{process, mem};
-use netcatd::tcp::{NetcatServer, Model};
+use std::{process, mem, io};
+use netcatd::tcp::{NetcatServer, Model, NetcatServerBuilder};
 use termio::gui::layout::{Constraint, Layout};
 use termio::screen::Style;
 use util::grid::Grid;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use termio::gui::event::{EventSender, SharedGuiEvent};
 use util::shutdown::join_to_main;
 use std::time::Duration;
 use termio::gui::tree::Tree;
 use termio::gui::div::{DivRc, Div, DivImpl};
 use util::mutrc::MutRc;
+use async_util::Mutex;
+use async_util::Executor;
+use futures::executor::LocalPool;
+use async_util::cancel::Cancel;
+use futures::task::{Spawn, SpawnExt};
 
 #[derive(Debug)]
 pub struct DemoModel {}
@@ -66,8 +71,12 @@ impl Root {
 }
 
 impl Model for DemoModel {
-    fn make_gui(&mut self, username: &Name, tree: Tree) -> MutRc<Gui> {
+    fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui> {
         MutRc::new(Gui::new(tree.clone(), Root::new(tree)))
+    }
+
+    fn remove_peer(&mut self, username: &Name) {
+        println!("Removing {}", username);
     }
 }
 
@@ -84,23 +93,8 @@ impl DivImpl for Root {
 }
 
 fn main() {
-    println!("Binding 0.0.0.0:8000");
-    let (event_mutex, event_sender, event_joiner) = event::event_loop();
-    let server =
-        NetcatServer::new(
-            "0.0.0.0:8000",
-            event_mutex,
-            event_sender.clone(),
-            MutRc::new(DemoModel::new(event_sender)),
-        ).unwrap();
-    let (ctx, canceller, receiver) = util::cancel::channel();
-    ctx.spawn({
-        let ctx = ctx.clone();
-        move || {
-            server.listen(ctx).unwrap();
-            Ok(())
-        }
-    });
-    mem::drop(ctx);
-    join_to_main(canceller, receiver, Duration::from_secs(60));
+    let builder = NetcatServerBuilder::new();
+    let model =
+        MutRc::new(DemoModel::new(builder.event_sender.clone()));
+    builder.run_main("0.0.0.0:8000", model);
 }

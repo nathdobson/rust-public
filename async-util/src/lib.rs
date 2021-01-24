@@ -1,4 +1,10 @@
 #![feature(never_type)]
+#![feature(negative_impls)]
+//#![feature(associated_type_bounds)]
+#![feature(unboxed_closures)]
+
+pub mod bytes;
+pub mod cancel;
 
 use async_std::sync;
 use std::sync::Arc;
@@ -9,19 +15,21 @@ use futures::{
     select,
 };
 use async_std::channel::RecvError;
+use futures::task::Spawn;
 
+#[derive(Debug)]
 struct CondvarInner {
     condvar: sync::Condvar,
     closed: channel::Receiver<!>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Condvar(Arc<CondvarInner>, channel::Sender<!>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CondvarWeak(Arc<CondvarInner>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Mutex(Arc<sync::Mutex<()>>);
 
 pub struct MutexGuard<'a>(sync::MutexGuard<'a, ()>);
@@ -36,7 +44,7 @@ impl Mutex {
 }
 
 impl CondvarInner {
-    async fn wait<'a>(&'a self, guard: MutexGuard<'a>) -> Result<MutexGuard<'a>, RecvError> {
+    async fn wait<'a>(&self, guard: MutexGuard<'a>) -> Result<MutexGuard<'a>, RecvError> {
         let wait = self.condvar.wait(guard.0).fuse();
         let recv = self.closed.recv().fuse();
         pin_mut!(wait, recv);
@@ -61,10 +69,10 @@ impl Condvar {
     pub fn notify_one(&self) {
         self.0.condvar.notify_one();
     }
-    pub fn notity_all(&self) {
+    pub fn notify_all(&self) {
         self.0.condvar.notify_all();
     }
-    pub async fn wait<'a>(&'a self, guard: MutexGuard<'a>) -> Result<MutexGuard<'a>, RecvError> {
+    pub async fn wait<'a>(&self, guard: MutexGuard<'a>) -> Result<MutexGuard<'a>, RecvError> {
         self.0.wait(guard).await
     }
 }
@@ -74,3 +82,5 @@ impl CondvarWeak {
         self.0.wait(guard).await
     }
 }
+
+pub type Executor = Arc<(dyn Spawn + Sync + Send + 'static)>;

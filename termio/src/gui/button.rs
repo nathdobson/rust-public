@@ -12,9 +12,9 @@ use std::ops::{Deref, DerefMut};
 use std::fmt::Debug;
 use serde::export::Formatter;
 use crate::gui::tree;
-use crate::gui::event::{Priority, SharedGuiEvent};
+use crate::gui::event::{SharedGuiEvent};
 use crate::gui::div::{Div, DivRc, DivImpl};
-use crate::gui::tree::Tree;
+use crate::gui::tree::{Tree, Dirty};
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -74,7 +74,7 @@ impl<T: ButtonPaint> Button<T> {
             };
         if self.state != new_state {
             self.state = new_state;
-            self.mark_dirty();
+            self.mark_dirty(Dirty::Paint);
         }
     }
 }
@@ -145,17 +145,17 @@ impl<T: ButtonPaint> DivImpl for Button<T> {
                 self.over = *inside;
                 self.down = self.over && event.mouse == Mouse::Down(0);
                 if was_down && !self.down && *inside {
-                    self.event_sender().run(Priority::Now, self.event.once());
+                    self.event_sender().run_now(self.event.once());
                     self.countdown += 1;
                     self.event_sender().run_with_delay(
                         Duration::from_millis(50),
                         self.new_event(|this| {
                             this.countdown -= 1;
                             this.sync();
-                        })).ignore();
+                        }));
                 }
             }
-            _ => {},
+            _ => {}
         }
         self.sync();
         true

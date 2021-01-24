@@ -18,7 +18,7 @@ use std::mem;
 use crate::gui::gui::InputEvent;
 use crate::canvas::Canvas;
 use crate::input::MouseEvent;
-use crate::gui::tree::Tree;
+use crate::gui::tree::{Tree, Dirty};
 use crate::gui::event::{EventSender, GuiEvent, SharedGuiEvent};
 use std::hash::{Hash, Hasher};
 use std::ptr::{null, null_mut};
@@ -88,17 +88,20 @@ impl<T: DivImpl + ?Sized> Div<T> {
     pub fn div_weak(&self) -> DivWeak<T> {
         self.this.clone().downcast_div()
     }
-    pub fn mark_dirty(&self) { self.tree().mark_dirty() }
+    pub fn mark_dirty(&mut self, dirty: Dirty) { self.tree_mut().mark_dirty(dirty) }
     pub fn bounds(&self) -> Rect {
         self.bounds
     }
     pub fn set_bounds(&mut self, bounds: Rect) {
-        self.bounds = bounds;
+        if self.bounds != bounds {
+            self.bounds = bounds;
+            self.mark_dirty(Dirty::Paint);
+        }
     }
     pub fn set_visible(&mut self, visible: bool) {
         if self.visible != visible {
             self.visible = visible;
-            self.mark_dirty();
+            self.mark_dirty(Dirty::Paint);
         }
     }
     pub fn visible(&self) -> bool {
@@ -117,6 +120,7 @@ impl<T: DivImpl + ?Sized> Div<T> {
         self.mouse_focus = mouse_focus;
     }
     pub fn tree(&self) -> &Tree { &self.tree }
+    pub fn tree_mut(&mut self) -> &mut Tree { &mut self.tree }
     pub fn event_sender(&self) -> &EventSender { self.tree().event_sender() }
 
     pub fn size(&self) -> (isize, isize) { self.bounds().size() }

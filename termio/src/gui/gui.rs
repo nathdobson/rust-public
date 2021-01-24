@@ -19,7 +19,7 @@ use serde::export::Formatter;
 use util::lossy;
 use std::raw::TraitObject;
 use crate::gui::div::{Div, DivRc};
-use crate::gui::tree::Tree;
+use crate::gui::tree::{Tree, Dirty};
 
 const FRAME_BUFFER_SIZE: usize = 1;
 
@@ -63,13 +63,13 @@ impl Gui {
         mem::swap(self.buffer(), output);
     }
 
-    pub fn mark_dirty(&mut self){
-        self.tree.mark_dirty();
+    pub fn mark_dirty(&mut self, dirty: Dirty) {
+        self.tree.mark_dirty(dirty);
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.writer.set_enabled(enabled);
-        self.mark_dirty();
+        self.mark_dirty(Dirty::Paint);
     }
 
     pub fn enabled(&self) -> bool {
@@ -102,14 +102,14 @@ impl Gui {
     pub fn set_background(&mut self, style: Style) {
         if self.style != style {
             self.style = style;
-            self.mark_dirty();
+            self.mark_dirty(Dirty::Paint);
         }
     }
 
     pub fn set_title(&mut self, title: String) {
         if self.title != title {
             self.title = title;
-            self.mark_dirty();
+            self.mark_dirty(Dirty::Paint);
         }
     }
 
@@ -126,8 +126,9 @@ impl Gui {
             Event::KeyEvent(e) => {
                 if *e == KeyEvent::typed('c').control() {
                     self.set_enabled(false);
-                }else{
-                    let mut root=self.root.write();
+                    self.mark_dirty(Dirty::Close);
+                } else {
+                    let mut root = self.root.write();
                     root.handle(&InputEvent::KeyEvent(e.clone()));
                 }
             }
@@ -150,8 +151,7 @@ impl Gui {
                 self.set_text_size_count += 1;
                 if self.size != (*w, *h) {
                     self.size = (*w, *h);
-                    self.layout();
-                    self.mark_dirty();
+                    self.mark_dirty(Dirty::Layout);
                 }
             }
             Event::ScreenSize(_, _) => {}

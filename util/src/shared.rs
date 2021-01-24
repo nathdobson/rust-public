@@ -7,6 +7,9 @@ use std::marker::Unsize;
 use std::ops::{CoerceUnsized, Deref};
 use std::io::{Write, IoSlice, Read, IoSliceMut};
 use std::any::Any;
+use futures::{AsyncRead, AsyncWrite};
+use futures::task::{Context, Poll};
+use std::pin::Pin;
 
 pub struct Shared<T: ?Sized>(Arc<T>);
 
@@ -358,6 +361,46 @@ impl<T: ObjectInner> Shared<T> {
     pub fn as_object(&self) -> Object {
         let result: Shared<dyn ObjectInner> = self.clone();
         result.downgrade()
+    }
+}
+
+impl<T: ?Sized> AsyncRead for Shared<T> where for<'a> &'a T: AsyncRead {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        Pin::new(&mut &**self).poll_read(cx, buf)
+    }
+}
+
+impl<'a, T: ?Sized> AsyncRead for &'a Shared<T> where for<'b> &'b T: AsyncRead {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        Pin::new(&mut &**self).poll_read(cx, buf)
+    }
+}
+
+impl<T: ?Sized> AsyncWrite for Shared<T> where for<'a> &'a T: AsyncWrite {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        Pin::new(&mut &**self).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut &**self).poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut &**self).poll_close(cx)
+    }
+}
+
+impl<'a, T: ?Sized> AsyncWrite for &'a Shared<T> where for<'b> &'b T: AsyncWrite {
+    fn poll_write<'b>(self: Pin<&'b mut Self>, cx: &'b mut Context<'_>, buf: &'b [u8]) -> Poll<io::Result<usize>> {
+        Pin::new(&mut &**self).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut &**self).poll_flush(cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut &**self).poll_close(cx)
     }
 }
 

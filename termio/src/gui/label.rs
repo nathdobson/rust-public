@@ -6,7 +6,7 @@ use crate::input::{MouseEvent, Mouse};
 use std::mem;
 use std::collections::HashMap;
 use crate::gui::div::{DivRc, DivImpl, Div};
-use crate::gui::tree::Tree;
+use crate::gui::tree::{Tree, Dirty};
 
 #[derive(Debug)]
 pub struct Label {
@@ -27,10 +27,10 @@ impl Label {
             let len = self.lines.len();
             self.lines.extend_from_slice(&source[len..]);
             self.bottom_scroll = self.lines.len() as isize;
-            self.mark_dirty();
+            self.mark_dirty(Dirty::Paint);
         } else if source.is_empty() && !self.lines.is_empty() {
             self.lines.clear();
-            self.mark_dirty();
+            self.mark_dirty(Dirty::Paint);
         }
     }
 }
@@ -79,14 +79,14 @@ impl DivImpl for Label {
                         Mouse::ScrollDown => {
                             if self.bottom_scroll < self.lines.len() as isize {
                                 self.bottom_scroll += 1;
-                                self.mark_dirty();
+                                self.mark_dirty(Dirty::Paint);
                                 return true;
                             }
                         }
                         Mouse::ScrollUp => {
                             if self.bottom_scroll > self.size().1 {
                                 self.bottom_scroll -= 1;
-                                self.mark_dirty();
+                                self.mark_dirty(Dirty::Paint);
                                 return true;
                             }
                         }

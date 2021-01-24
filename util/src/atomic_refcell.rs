@@ -128,3 +128,5 @@ impl<'a, T: ?Sized + Debug> Debug for AtomicRefMut<'a, T> {
         self.deref().fmt(f)
     }
 }
+
+impl<'a, T> ! Send for AtomicRefMut<'a, T> {}
