@@ -36,6 +36,7 @@ use async_util::cancel::{Cancel, Canceled};
 use futures::task::{SpawnExt, Spawn};
 use futures::channel::oneshot;
 use futures::executor::ThreadPool;
+use async_util::promise::Promise;
 
 type StreamRc = Shared<TcpStream>;
 
@@ -195,16 +196,15 @@ impl NetcatServer {
     }
 
     pub async fn listen(self: &Arc<Self>) -> io::Result<()> {
-        let (live_sender, live_receiver) = async_channel::bounded::<!>(1);
+        let bundle = Promise::new();
         loop {
             let stream =
                 match self.cancel.checked(self.listener.accept()).await {
                     Err(Canceled) => break,
                     Ok(stream_result) => Shared::new(stream_result?.0),
                 };
-            let live_sender = live_sender.clone();
             let self2 = self.clone();
-            self.exec.spawn(async move {
+            self.exec.spawn(bundle.outlive(async move {
                 if let Err(e) = self2.handle_stream(stream.clone()).await {
                     if let Some(io) = e.downcast_ref::<io::Error>() {
                         match io.kind() {
@@ -216,12 +216,10 @@ impl NetcatServer {
                         eprintln!("Comm error: {:?}", e);
                     }
                 }
-                mem::drop(live_sender);
-            }).unwrap();
+            })).unwrap();
         }
         eprintln!("NetcatServer waiting for servlets");
-        mem::drop(live_sender);
-        live_receiver.recv().await.err();
+        bundle.join().await;
         eprintln!("NetcatServer done waiting for servlets");
         Ok(())
     }

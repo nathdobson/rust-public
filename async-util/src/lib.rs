@@ -2,9 +2,11 @@
 #![feature(negative_impls)]
 //#![feature(associated_type_bounds)]
 #![feature(unboxed_closures)]
+#![feature(once_cell)]
 
 pub mod bytes;
 pub mod cancel;
+pub mod promise;
 
 use async_std::sync;
 use std::sync::Arc;

@@ -4,11 +4,9 @@ use std::io::ErrorKind;
 use std::fmt::{Display, Formatter};
 use std::error::Error;
 use std::fmt;
-use std::sync::{Arc};
 use futures::FutureExt;
 use futures::pin_mut;
 use futures::select;
-use async_channel;
 use futures::task::{Spawn, SpawnExt};
 use futures::channel::oneshot;
 use ondrop::OnDrop;
@@ -18,16 +16,11 @@ use std::time::Duration;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use async_std::task;
 use futures::executor::block_on;
-
-#[derive(Debug)]
-struct Inner {
-    sender: async_channel::Sender<!>,
-    receiver: async_channel::Receiver<!>,
-}
+use crate::promise::Promise;
 
 #[derive(Clone, Debug)]
 #[must_use]
-pub struct Cancel(Arc<Inner>);
+pub struct Cancel(Promise);
 
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, Default)]
 pub struct Canceled;
@@ -47,20 +40,16 @@ pub enum TryCancelError {
 /// `Cancel::cancel` has been called.
 impl Cancel {
     pub fn new() -> Self {
-        let (sender, receiver) = async_channel::bounded(1);
-        Cancel(Arc::new(Inner { sender, receiver }))
+        Cancel(Promise::new())
     }
 
     pub fn cancel(&self) {
-        self.0.sender.close();
+        self.0.complete_ok();
     }
 
     // Wait for cancel to be called.
     pub async fn wait(&self) {
-        match self.0.receiver.recv().await {
-            Ok(x) => match x {},
-            Err(async_channel::RecvError) => (),
-        }
+        self.0.recv_ok().await;
     }
 
     // Run the f until cancel is called, then drop f. This effectively wraps a synchronously
