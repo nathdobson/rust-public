@@ -96,6 +96,7 @@ pub enum Event {
     WindowSize(isize, isize),
     TextAreaSize(isize, isize),
     ScreenSize(isize, isize),
+    CursorPosition(isize, isize),
 }
 
 #[derive(Debug)]
@@ -252,6 +253,7 @@ impl<R: Read> EventReader<R> {
             (&[], 'I') => Ok(Focus(true)),
             (&[], 'O') => Ok(Focus(false)),
             (&[], 'Z') => known(SHIFT, Type('\t')),
+            (&[y, x], 'R') => Ok(CursorPosition(x, y)),
             (&[3, x, y], 't') => Ok(WindowPosition(x, y)),
             (&[4, h, w], 't') => Ok(WindowSize(w, h)),
             (&[8, h, w], 't') => Ok(TextAreaSize(w, h)),

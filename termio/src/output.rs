@@ -134,6 +134,7 @@ pub const SendSecondaryDeviceAttributes: &'static str = "\x1B[>c";
 pub const ReportWindowPosition: &'static str = "\x1B[13t";
 pub const ReportWindowSize: &'static str = "\x1B[14t";
 pub const ReportTextAreaSize: &'static str = "\x1B[18t";
+pub const ReportCursorPosition:&'static str = "\x1B[6n";
 pub const ScreenSize: &'static str = "\x1B[19t";
 pub const RaiseWindow: &'static str = "\x1B[5t";
 pub const LowerWindow: &'static str = "\x1B[6t";

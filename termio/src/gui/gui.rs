@@ -155,6 +155,7 @@ impl Gui {
                 }
             }
             Event::ScreenSize(_, _) => {}
+            Event::CursorPosition(_, _) => {}
         }
     }
 

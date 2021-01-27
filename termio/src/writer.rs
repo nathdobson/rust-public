@@ -116,6 +116,9 @@ impl TermWriter {
     pub fn get_text_size_count(&self) -> usize {
         self.get_text_size_count
     }
+    pub fn get_cursor_position(&mut self) {
+        swrite!(self.inner,"{}",ReportCursorPosition);
+    }
     pub fn repair(&mut self) {
         swrite!(self.inner, "{}", CursorPosition(self.cursor.0 as usize, self.cursor.1 as usize));
         return;
