@@ -31,7 +31,6 @@ pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
 #[derive(Clone)]
 pub struct SharedGuiEvent(Arc<dyn Fn() + Send + Sync>);
 
-
 struct EventQueue {
     now: VecDeque<GuiEvent>,
     later: VecDeque<GuiEvent>,
@@ -143,8 +142,8 @@ impl EventSender {
     }
 
     pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) {
-        let this=self.clone();
-        self.0.exec.spawn(async move{
+        let this = self.clone();
+        self.0.exec.spawn(async move {
             task::sleep(delay).await;
             this.run_with_guard(event).await;
         }).unwrap();
@@ -164,5 +163,17 @@ impl EventSender {
 impl Debug for EventSenderInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventSenderInner").finish()
+    }
+}
+
+impl Debug for SharedGuiEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SharedGuiEvent").finish()
+    }
+}
+
+impl Debug for GuiEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GuiEvent").finish()
     }
 }

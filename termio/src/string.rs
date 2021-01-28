@@ -60,6 +60,9 @@ impl StyleString {
             vector: vec![],
         }
     }
+    pub fn inner(&self) -> &[(StyleOption, String)] {
+        &self.vector
+    }
 }
 
 impl<'a> StyleFormatter<'a> {

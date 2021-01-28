@@ -23,6 +23,13 @@ impl Label {
     }
 
     pub fn sync(self: &mut Div<Self>, source: &Vec<StyleString>) {
+        if self.lines != *source {
+            self.lines.clone_from(source);
+            self.mark_dirty(Dirty::Paint);
+        }
+    }
+
+    pub fn sync_log(self: &mut Div<Self>, source: &Vec<StyleString>) {
         if self.lines.len() < source.len() {
             let len = self.lines.len();
             self.lines.extend_from_slice(&source[len..]);

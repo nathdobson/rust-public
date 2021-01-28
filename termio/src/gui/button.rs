@@ -15,6 +15,8 @@ use crate::gui::tree;
 use crate::gui::event::{SharedGuiEvent};
 use crate::gui::div::{Div, DivRc, DivImpl};
 use crate::gui::tree::{Tree, Dirty};
+use crate::advance::{advance_of_grapheme, advance_of_string};
+use crate::string::StyleString;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -40,6 +42,14 @@ pub struct TextButtonPaint {
     down_style: Style,
 }
 
+#[derive(Debug)]
+pub struct SmallButtonPaint {
+    text: String,
+    normal_style: Style,
+    over_style: Style,
+    down_style: Style,
+}
+
 impl<T: ButtonPaint> Button<T> {
     pub fn new_from_paint(tree: Tree, paint: T, event: SharedGuiEvent) -> DivRc<Self> {
         DivRc::new(tree, Button {
@@ -56,6 +66,12 @@ impl<T: ButtonPaint> Button<T> {
 impl Button {
     pub fn new(tree: Tree, text: String, event: SharedGuiEvent) -> DivRc<Button> {
         Button::new_from_paint(tree, TextButtonPaint::new(text), event)
+    }
+}
+
+impl Button<SmallButtonPaint> {
+    pub fn new_small(tree: Tree, text: String, event: SharedGuiEvent) -> DivRc<Self> {
+        Button::new_from_paint(tree, SmallButtonPaint::new(text), event)
     }
 }
 
@@ -103,6 +119,30 @@ impl TextButtonPaint {
     }
 }
 
+impl SmallButtonPaint {
+    fn new(text: String) -> Self {
+        let base = Style {
+            foreground: Color::RGB666(0, 0, 0),
+            ..Style::default()
+        };
+        SmallButtonPaint {
+            text,
+            normal_style: Style {
+                background: Color::Gray24(15),
+                ..base
+            },
+            over_style: Style {
+                background: Color::Gray24(18),
+                ..base
+            },
+            down_style: Style {
+                background: Color::Gray24(23),
+                ..base
+            },
+        }
+    }
+}
+
 pub trait ButtonPaint: 'static + Sized + Debug + Send + Sync {
     fn button_paint(self: &Button<Self>, canvas: Canvas);
     fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout;
@@ -129,7 +169,26 @@ impl ButtonPaint for TextButtonPaint {
 
     fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout {
         Layout {
-            size: ((self.text.len() + 2) as isize, 3),
+            size: ((advance_of_string(&self.text) + 2) as isize, 3),
+            line_settings: HashMap::new(),
+        }
+    }
+}
+
+
+impl ButtonPaint for SmallButtonPaint {
+    fn button_paint(self: &Button<Self>, mut w: Canvas) {
+        w.style = match self.state() {
+            PaintState::Normal => self.normal_style,
+            PaintState::Over => self.over_style,
+            PaintState::Down => self.down_style,
+        };
+        w.draw((0, 0), &format!("{}", self.text, ));
+    }
+
+    fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout {
+        Layout {
+            size: (advance_of_string(&self.text) as isize, 1),
             line_settings: HashMap::new(),
         }
     }

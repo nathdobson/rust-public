@@ -15,7 +15,7 @@ use termio::string::{StyleFormatExt, StyleString};
 use util::any::{Upcast, AnyExt};
 use std::any::Any;
 use std::ops::Deref;
-use termio::screen::Style;
+use termio::screen::{Style, Rune};
 use termio::color::Color;
 use std::time::Instant;
 use chrono;
@@ -31,11 +31,13 @@ use util::atomic_refcell::AtomicRefCell;
 use util::mutrc::MutRc;
 use futures::executor::block_on;
 use termio::gui::run_local;
+use termio::gui::checkbox::CheckBox;
 
 #[derive(Debug)]
 struct Example {
     model: Vec<StyleString>,
     buttons: Vec<DivRc<Button>>,
+    checkboxes: Vec<DivRc<CheckBox>>,
     labels: Vec<DivRc<Label>>,
     grid: Grid<DivRc>,
 }
@@ -45,7 +47,7 @@ impl Example {
         let mut result = DivRc::new_cyclic(tree.clone(), |example: DivWeak<Example>| {
             let model = vec!["a".to_style_string()];
             let mut labels = vec![Label::new(tree.clone()), Label::new(tree.clone())];
-            labels[0].write().sync(&model);
+            labels[0].write().sync_log(&model);
             labels[0].write().set_size((40, 10));
             labels[1].write().set_size((10, 10));
             let buttons: Vec<DivRc<Button>> =
@@ -58,24 +60,35 @@ impl Example {
                             example.new_shared_event(move |e| {
                                 let e = &mut **e;
                                 e.model.push(ss.clone());
-                                e.labels[0].write().sync(&e.model);
+                                e.labels[0].write().sync_log(&e.model);
                             }),
                         )
                     }).collect();
-            let grid = Grid::new((2, 3), |x, y| {
+            let checkboxes: Vec<DivRc<CheckBox>> = ["Red", "Green"].iter().map(|s| {
+                let ss = s.to_style_string();
+                CheckBox::new(tree.clone(), ss.clone(), false, example.new_shared_event(move |e| {
+                    let e = &mut **e;
+                    e.model.push(ss.clone());
+                    e.labels[0].write().sync_log(&e.model);
+                }))
+            }).collect();
+            let grid = Grid::new((2, 4), |x, y| {
                 match (x, y) {
                     (0, 0) => buttons[0].clone().upcast_div(),
                     (1, 0) => buttons[1].clone(),
                     (0, 1) => buttons[2].clone(),
                     (1, 1) => buttons[3].clone(),
-                    (0, 2) => labels[0].clone(),
-                    (1, 2) => labels[1].clone(),
+                    (0, 2) => checkboxes[0].clone(),
+                    (1, 2) => checkboxes[1].clone(),
+                    (0, 3) => labels[0].clone(),
+                    (1, 3) => labels[1].clone(),
                     _ => panic!()
                 }
             });
             Example {
                 model,
                 buttons,
+                checkboxes,
                 labels,
                 grid,
             }
@@ -83,6 +96,9 @@ impl Example {
         let mut this = result.write();
         for button in this.buttons.clone().iter() {
             this.add(button.clone())
+        }
+        for checkbox in this.checkboxes.clone().iter() {
+            this.add(checkbox.clone())
         }
         for label in this.labels.clone().iter() {
             this.add(label.clone());

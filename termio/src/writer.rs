@@ -11,12 +11,13 @@ use util::profile::Profile;
 use crate::color::Color;
 use crate::output::*;
 use crate::output::DoubleHeightTop;
-use crate::screen::{advance, LineSetting, Rune, Screen, Style, Row};
+use crate::screen::{LineSetting, Rune, Screen, Style, Row};
 use crate::util::io::SafeWrite;
 use util::rect::Rect;
 use itertools::Itertools;
 use arrayvec::ArrayString;
 use std::borrow::Borrow;
+use crate::advance::advance_of_grapheme;
 
 #[derive(Debug)]
 pub struct TermWriter {
@@ -207,7 +208,7 @@ impl TermWriter {
                 if self.screen.rows[y].runes[x] != *rune {
                     self.move_cursor(x as isize, y as isize);
                     self.set_style(&rune.style);
-                    self.write(advance(&rune.text), &rune.text);
+                    self.write(advance_of_grapheme(&rune.text), &rune.text);
                 }
             }
             //TODO empty line optimization

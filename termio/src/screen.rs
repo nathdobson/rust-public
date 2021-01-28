@@ -80,13 +80,6 @@ impl Style {
     }
 }
 
-pub fn advance(string: &str) -> isize {
-    match string {
-        "" => 0,
-        "Ａ" | "Ｋ" | "Ｑ" | "Ｊ" | "🐕" | "🦅" | "🐉" => 2,
-        _ => 1,
-    }
-}
 
 
 impl Screen {

@@ -11,13 +11,15 @@ use crate::output::Foreground;
 use crate::output::DoubleHeightTop;
 use crate::output::DoubleHeightBottom;
 use crate::output::SingleWidthLine;
-use crate::screen::{LineSetting, Screen, Rune, Style, advance};
+use crate::screen::{LineSetting, Screen, Rune, Style};
 use crate::writer::TermWriter;
 use std::fmt;
 use std::fmt::{Formatter, Display};
 use crate::string::{StyleFormat, StyleWrite, StyleOption, StyleFormatter};
 use itertools::Format;
 use arrayvec::ArrayString;
+use crate::advance::advance_of_grapheme;
+use crate::image::Image;
 
 pub struct Canvas<'a> {
     screen: &'a mut Screen,
@@ -55,7 +57,7 @@ impl<'a> Canvas<'a> {
         if row.line_setting != LineSetting::Normal {
             x = (x - 1) / 2 + 1;
         }
-        let dx = advance(grapheme);
+        let dx = advance_of_grapheme(grapheme);
         row.write(x, dx, grapheme, self.style);
         x += dx;
         if row.line_setting != LineSetting::Normal {
@@ -65,6 +67,11 @@ impl<'a> Canvas<'a> {
     }
     pub fn draw(&mut self, p: (isize, isize), item: &dyn StyleFormat) {
         item.style_format(StyleFormatter::new(&mut self.push_translate(p)));
+    }
+    pub fn draw_image(&mut self, p: (isize, isize), image: &Image) {
+        for (y, row) in image.rows().iter().enumerate() {
+            self.draw((p.0, p.1 + y as isize), &row.string);
+        }
     }
     pub fn push<'b>(&'b mut self) -> Canvas<'b> {
         Canvas {
