@@ -19,7 +19,7 @@ pub struct CheckBox {
 
 impl CheckBox {
     pub fn new(tree: Tree, text: StyleString, state: bool, event: SharedGuiEvent) -> DivRc<CheckBox> {
-        DivRc::new(tree, CheckBox { event, text, state: false })
+        DivRc::new(tree, CheckBox { event, text, state })
     }
     pub fn get_state(&self) -> bool {
         self.state
