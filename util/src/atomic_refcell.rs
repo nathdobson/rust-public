@@ -71,6 +71,12 @@ impl<T: ?Sized> AtomicRefCell<T> {
         lock.writer = Some(Backtrace::capture());
         AtomicRefMut { cell: self }
     }
+    pub fn as_ptr(&self) -> *mut T {
+        self.inner.get()
+    }
+    pub unsafe fn raw_get(this: *const AtomicRefCell<T>) -> *mut T {
+        UnsafeCell::raw_get(&raw const (*this).inner)
+    }
 }
 
 impl<'a, T: ?Sized> Drop for AtomicRef<'a, T> {

@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::any::Any;
-use util::any::Upcast;
 use util::atomic_refcell::{AtomicRefCell, AtomicRefMut, AtomicRef};
 use std::rc::Rc;
 use util::shared::{Shared, ObjectInner};
@@ -12,7 +11,6 @@ use crate::gui::layout::{Constraint, Layout};
 use std::ops::{Deref, DerefMut, CoerceUnsized};
 use std::cmp::Ordering;
 use std::marker::Unsize;
-use sealed::UpcastDiv;
 use std::raw::TraitObject;
 use std::mem;
 use crate::gui::gui::InputEvent;
@@ -24,8 +22,11 @@ use std::hash::{Hash, Hasher};
 use std::ptr::{null, null_mut};
 use util::mutrc::{MutRc, MutWeak};
 use std::borrow::BorrowMut;
+use util::any;
+use util::any::{TypeInfo, Downcast, Upcast, RawAny};
+use crate::gui::div::sealed::DivTypeInfo;
 
-pub trait DivImpl: 'static + Send + Sync + Upcast<dyn Any> + Debug + UpcastDiv {
+pub trait DivImpl: 'static + Send + Sync + Debug + DivTypeInfo {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout;
     fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool { false }
     fn self_paint_below(self: &Div<Self>, canvas: Canvas) {}
@@ -246,133 +247,47 @@ impl<T: DivImpl + ?Sized> DivRc<T> {
     }
 }
 
+unsafe impl RawAny for Div<dyn DivImpl> {
+    fn raw_type_info(self: *const Self) -> TypeInfo { self.div_type_info() }
+}
+
 impl<T: DivImpl + ?Sized> Div<T> {
-    pub fn upcast_div(&self) -> &Div { self.upcast_div_impl() }
-    pub fn upcast_div_mut(&mut self) -> &mut Div { self.upcast_div_mut_impl() }
-    pub fn downcast_div<T2: DivImpl>(&self) -> &Div<T2> {
-        unsafe {
-            let this: &Div = self.upcast_div();
-            let imp: &dyn DivImpl = this.deref();
-            let any: &dyn Any = imp.upcast();
-            assert!(any.is::<T2>());
-            let to: TraitObject = mem::transmute(this);
-            let raw: *mut () = to.data;
-            mem::transmute(raw)
-        }
-    }
-    pub fn downcast_div_mut<T2: DivImpl>(&mut self) -> &mut Div<T2> {
-        unsafe {
-            let this: &mut Div = self.upcast_div_mut();
-            let imp: &mut dyn DivImpl = this.deref_mut();
-            let any: &mut dyn Any = imp.upcast_mut();
-            assert!(any.is::<T2>());
-            let to: TraitObject = mem::transmute(this);
-            let raw: *mut () = to.data;
-            mem::transmute(raw)
-        }
+    fn upcast_div(&self) -> &Div { Upcast::upcast(self) }
+    fn upcast_div_mut(&mut self) -> &mut Div { Upcast::upcast(self) }
+    fn downcast_div(&self) -> &Div { Downcast::downcast(self).unwrap() }
+    fn downcast_div_mut(&mut self) -> &mut Div { Downcast::downcast(self).unwrap() }
+    pub unsafe fn raw_get(this: *const Self) -> *const T {
+        &raw const (*this).inner
     }
 }
 
 mod sealed {
     use crate::gui::div::{DivImpl, Div};
+    use std::any::TypeId;
+    use util::atomic_refcell::AtomicRefCell;
+    use util::any::TypeInfo;
 
-    pub trait UpcastDiv {
-        fn upcast_div_impl<'a>(self: &'a Div<Self>) -> &'a Div;
-        fn upcast_div_mut_impl<'a>(self: &'a mut Div<Self>) -> &'a mut Div;
-    }
+    pub trait DivTypeInfo { fn div_type_info(self: *const Div<Self>) -> TypeInfo; }
 
-    impl<T: DivImpl> UpcastDiv for T {
-        fn upcast_div_impl<'a>(self: &'a Div<Self>) -> &'a Div<dyn DivImpl> { self }
-        fn upcast_div_mut_impl<'a>(self: &'a mut Div<Self>) -> &'a mut Div<dyn DivImpl> { self }
-    }
+    impl<T: DivImpl> DivTypeInfo for T { fn div_type_info(self: *const Div<Self>) -> TypeInfo { TypeInfo::of::<Div<T>>() } }
 }
 
 impl<T: DivImpl + ?Sized> DivRc<T> {
     pub fn upcast_div(self) -> DivRc {
-        trait DivRcImpl {
-            fn upcast_div_impl(self) -> DivRc;
-        }
-        impl<T: DivImpl + ?Sized> DivRcImpl for DivRc<T> {
-            default fn upcast_div_impl(self) -> DivRc { unimplemented!() }
-        }
-        impl DivRcImpl for DivRc {
-            fn upcast_div_impl(self) -> DivRc { self }
-        }
-        impl<T2: DivImpl> DivRcImpl for DivRc<T2> {
-            fn upcast_div_impl(self) -> DivRc { self }
-        }
-        self.upcast_div_impl()
+        DivRc(Upcast::upcast(self.0))
     }
     pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivRc<T2> {
-        trait DivRcImpl {
-            fn downcast_div_impl(this: DivRc) -> Self;
-        }
-        impl<T: DivImpl + ?Sized> DivRcImpl for DivRc<T> {
-            default fn downcast_div_impl(this: DivRc) -> Self { unimplemented!() }
-        }
-        impl DivRcImpl for DivRc {
-            fn downcast_div_impl(this: DivRc) -> Self { this }
-        }
-        impl<T: DivImpl> DivRcImpl for DivRc<T> {
-            fn downcast_div_impl(this: DivRc) -> Self {
-                unsafe {
-                    let null: *mut T = null_mut();
-                    let null_div: *mut dyn DivImpl = null;
-                    let expected_trait_object: TraitObject = mem::transmute(null_div);
-                    let this_ptr: *const AtomicRefCell<Div<dyn DivImpl>> = MutRc::into_raw(this.0);
-                    let trait_object: TraitObject = mem::transmute(this_ptr);
-                    assert_eq!(expected_trait_object.vtable, trait_object.vtable);
-                    let this_ptr_cast: *const AtomicRefCell<Div<T>> = mem::transmute(trait_object.data);
-                    DivRc(MutRc::from_raw(this_ptr_cast))
-                }
-            }
-        }
-        DivRc::<T2>::downcast_div_impl(self.upcast_div())
+        DivRc(Downcast::downcast(self.0).unwrap())
     }
     pub fn downgrade(&self) -> DivWeak<T> { DivWeak(MutRc::downgrade(&self.0)) }
 }
 
 impl<T: DivImpl + ?Sized> DivWeak<T> {
     pub fn upcast_div(self) -> DivWeak {
-        trait DivWeakImpl {
-            fn upcast_div_impl(self) -> DivWeak;
-        }
-        impl<T: DivImpl + ?Sized> DivWeakImpl for DivWeak<T> {
-            default fn upcast_div_impl(self) -> DivWeak<dyn DivImpl> { unimplemented!() }
-        }
-        impl DivWeakImpl for DivWeak {
-            fn upcast_div_impl(self) -> DivWeak<dyn DivImpl> { self }
-        }
-        impl<T: DivImpl> DivWeakImpl for DivWeak<T> {
-            fn upcast_div_impl(self) -> DivWeak<dyn DivImpl> { self }
-        }
-        self.upcast_div_impl()
+        DivWeak(Upcast::upcast(self.0))
     }
     pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivWeak<T2> {
-        trait DivWeakImpl {
-            fn downcast_div_impl(this: DivWeak) -> Self;
-        }
-        impl<T: DivImpl + ?Sized> DivWeakImpl for DivWeak<T> {
-            default fn downcast_div_impl(this: DivWeak) -> Self { unimplemented!() }
-        }
-        impl DivWeakImpl for DivWeak {
-            fn downcast_div_impl(this: DivWeak) -> Self { this }
-        }
-        impl<T: DivImpl> DivWeakImpl for DivWeak<T> {
-            fn downcast_div_impl(this: DivWeak) -> Self {
-                unsafe {
-                    let null: *mut T = null_mut();
-                    let null_div: *mut dyn DivImpl = null;
-                    let expected_trait_object: TraitObject = mem::transmute(null_div);
-                    let this_ptr: *const AtomicRefCell<Div<dyn DivImpl>> = this.0.into_raw();
-                    let trait_object: TraitObject = mem::transmute(this_ptr);
-                    assert_eq!(expected_trait_object.vtable, trait_object.vtable);
-                    let this_ptr_cast: *const AtomicRefCell<Div<T>> = mem::transmute(trait_object.data);
-                    DivWeak(MutWeak::from_raw(this_ptr_cast))
-                }
-            }
-        }
-        DivWeak::<T2>::downcast_div_impl(self.upcast_div())
+        DivWeak(Downcast::downcast(self.0).unwrap())
     }
     pub fn upgrade(&self) -> Option<DivRc<T>> { Some(DivRc(self.0.upgrade()?)) }
 }

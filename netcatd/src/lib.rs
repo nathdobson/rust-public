@@ -27,7 +27,6 @@ use std::collections::HashMap;
 use util::watch::Watchable;
 use util::rng::BoxRng;
 use std::any::Any;
-use util::any::Upcast;
 use termio::gui::gui::Gui;
 use termio::gui::event::SharedGuiEvent;
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::ops::{Deref, DerefMut};
 use std::fmt::Debug;
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use crate::gui::tree;
 use crate::gui::event::{SharedGuiEvent};
 use crate::gui::div::{Div, DivRc, DivImpl};

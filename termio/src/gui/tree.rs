@@ -6,7 +6,7 @@ use util::pmpsc;
 use std::sync::mpsc::RecvError;
 use std::any::Any;
 use util::atomic_refcell::AtomicRefCell;
-use util::any::Upcast;
+//use util::any::Upcast;
 use crate::gui::event::{GuiEvent, EventSender};
 use util::mutrc::MutRc;
 use async_util::{Condvar, Mutex, CondvarWeak};

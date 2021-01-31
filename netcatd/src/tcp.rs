@@ -23,7 +23,6 @@ use std::str;
 use termio::gui::gui::Gui;
 use termio::gui::event::{EventSender, GuiEvent, SharedGuiEvent, read_loop};
 use termio::gui::event;
-use util::any::Upcast;
 use std::any::Any;
 use std::fmt::Debug;
 use termio::gui::tree::{Tree, Dirty};
@@ -40,7 +39,7 @@ use async_util::promise::Promise;
 
 type StreamRc = Shared<TcpStream>;
 
-pub trait Model: 'static + Send + Sync + Debug + Upcast<dyn Any> {
+pub trait Model: 'static + Send + Sync + Debug {
     fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
     fn remove_peer(&mut self, username: &Name);
 }

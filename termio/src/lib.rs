@@ -12,6 +12,7 @@
 #![feature(specialization)]
 #![feature(box_syntax)]
 #![feature(never_type)]
+#![feature(raw_ref_op)]
 
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code, incomplete_features)]
 

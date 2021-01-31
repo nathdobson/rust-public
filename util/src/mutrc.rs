@@ -9,6 +9,7 @@ use std::marker::Unsize;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 use crate::atomic_refcell::{AtomicRef, AtomicRefMut};
+use crate::any::Pointy;
 
 pub struct MutRc<T: ?Sized>(Arc<AtomicRefCell<T>>);
 
@@ -42,6 +43,9 @@ impl<T: ?Sized> MutRc<T> {
     pub fn as_ptr(&self) -> *const u8 {
         unsafe { mem::transmute_copy::<Self, *const u8>(self) }
     }
+    pub fn as_inner_ptr(&self) -> *mut T {
+        self.0.as_ptr()
+    }
     pub fn into_raw(this: Self) -> *const AtomicRefCell<T> {
         Arc::into_raw(this.0)
     }
@@ -57,6 +61,7 @@ impl<T: ?Sized> MutWeak<T> {
     pub fn as_ptr(&self) -> *const u8 {
         unsafe { mem::transmute_copy::<Self, *const u8>(self) }
     }
+    pub fn as_inner_ptr(&self) -> *mut T { unsafe { AtomicRefCell::raw_get(self.0.as_ptr()) } }
     pub fn into_raw(self) -> *const AtomicRefCell<T> {
         self.0.into_raw()
     }
@@ -158,3 +163,7 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for MutWeak<T> {
 impl<T, U> CoerceUnsized<MutRc<U>> for MutRc<T> where T: ?Sized + Unsize<U>, U: ?Sized {}
 
 impl<T, U> CoerceUnsized<MutWeak<U>> for MutWeak<T> where T: ?Sized + Unsize<U>, U: ?Sized {}
+
+unsafe impl<T:?Sized> Pointy for MutRc<T>{ type Target = T; }
+
+unsafe impl<T:?Sized> Pointy for MutWeak<T>{ type Target = T; }

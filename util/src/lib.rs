@@ -2,6 +2,12 @@
 #![allow(unused_imports)]
 #![feature(arbitrary_self_types, unboxed_closures)]
 #![feature(arc_new_cyclic)]
+#![feature(unsafe_cell_raw_get)]
+#![feature(raw_ref_op)]
+#![feature(box_syntax)]
+#![feature(associated_type_defaults)]
+#![feature(specialization)]
+#![allow(incomplete_features)]
 
 use std::mem;
 use std::collections::BTreeMap;

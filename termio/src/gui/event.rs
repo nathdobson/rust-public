@@ -1,6 +1,6 @@
 use util::{pmpsc, lossy};
 use std::sync::{Arc};
-use util::any::Upcast;
+//use util::any::Upcast;
 use std::{thread, mem, sync};
 use std::time::{Duration, Instant};
 use std::sync::mpsc::RecvError;
