@@ -13,6 +13,50 @@ pub struct Layout {
     pub line_settings: HashMap::<isize, LineSetting>,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum Rounding {
+    Int,
+    Even,
+    Odd,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Align {
+    pub(crate) percent: f64,
+    pub(crate) rounding: Rounding,
+}
+
+pub const LEFT: Align = Align::new(0.0);
+pub const TOP: Align = Align::new(0.0);
+pub const CENTER: Align = Align::new(0.5);
+pub const RIGHT: Align = Align::new(1.0);
+pub const BOTTOM: Align = Align::new(1.0);
+
+impl Align {
+    pub const fn new(x: f64) -> Self {
+        Align {
+            percent: x,
+            rounding: Rounding::Int,
+        }
+    }
+    pub fn odd(mut self) -> Self {
+        self.rounding = Rounding::Odd;
+        self
+    }
+    pub fn even(mut self) -> Self {
+        self.rounding = Rounding::Even;
+        self
+    }
+    pub fn align(&self, start: isize, inner_size: isize, outer_size: isize) -> isize {
+        let x = (start as f64 + self.percent * (outer_size as f64 - inner_size as f64)).round() as isize;
+        match self.rounding {
+            Rounding::Int => x,
+            Rounding::Even => x & !1,
+            Rounding::Odd => (x & !1) + 1,
+        }
+    }
+}
+
 impl Constraint {
     pub fn from_max(max_size: (isize, isize)) -> Self {
         assert!(max_size.0 >= 0);
@@ -22,45 +66,5 @@ impl Constraint {
     pub fn none() -> Self {
         Constraint { max_size: None }
     }
-    pub fn flow_layout<'a>(&self, children: impl Iterator<Item=DivRc>, xs: isize, ys: isize) -> (isize, isize) {
-        let mut x = 0;
-        let mut y = 0;
-        let mut width = 0;
-        let mut height = 0;
-        let max_width = self.max_size.unwrap_or((isize::MAX, 0)).0;
-        for mut child in children {
-            let mut child = child.write();
-            child.layout(&Constraint::none());
-            if x + child.size().0 > max_width {
-                x = 0;
-                y = height + ys;
-            }
-            child.set_position((x, y));
-            x += child.size().0 + xs;
-            width = width.max(x + child.size().0);
-            height = height.max(y + child.size().1);
-        }
-        (width, height)
-    }
-    pub fn table_layout(&self, children: &mut Grid<DivRc>) -> Layout {
-        let (cols, rows) = children.size();
-        let mut widths = vec![0; cols as usize];
-        let mut heights = vec![0; rows as usize];
-        for (p, child) in children.iter_mut() {
-            let mut child = child.write();
-            child.layout(&Constraint { max_size: None });
-            let size = child.size();
-            widths[p.0 as usize] = widths[p.0 as usize].max(size.0);
-            heights[p.1 as usize] = heights[p.1 as usize].max(size.1);
-        }
-        let xs: Vec<isize> = widths.iter().scan_full(0, |x, w| x + 1 + *w).collect();
-        let ys: Vec<isize> = heights.iter().scan_full(0, |y, h| y + 1 + *h).collect();
 
-        for (p, child) in children.iter_mut() {
-            let mut child = child.write();
-            child.set_position((xs[p.0 as usize] + 1, ys[p.1 as usize] + 1));
-        }
-        let (x, y) = (*xs.last().unwrap(), *ys.last().unwrap());
-        Layout { size: (x, y), line_settings: HashMap::new() }
-    }
 }

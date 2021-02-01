@@ -21,6 +21,10 @@ pub mod label;
 pub mod event;
 pub mod div;
 pub mod checkbox;
+pub mod flow;
+pub mod pad;
+pub mod table;
+pub mod select;
 
 pub fn run_local(gui: impl Send + FnOnce(Tree) -> MutRc<Gui>) {
     fn run_local_impl(gui: impl Send + FnOnce(Tree) -> MutRc<Gui>) -> impl Future<Output=()> + Send {

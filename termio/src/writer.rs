@@ -138,6 +138,9 @@ impl TermWriter {
         if *old != setting {
             *old = setting;
             self.move_cursor(1, y);
+            let bg = self.screen.background;
+            self.set_style(&bg);
+            self.erase_line();
             match setting {
                 LineSetting::Normal => swrite!(self.inner, "{}", SingleWidthLine),
                 LineSetting::DoubleHeightTop => swrite!(self.inner, "{}", DoubleHeightTop),
@@ -154,6 +157,11 @@ impl TermWriter {
             swrite!(self.inner, "{}", Background(style.background));
             self.style.background = style.background;
         }
+    }
+    pub fn erase_line(&mut self) {
+        swrite!(self.inner, "{}", DeleteLineAll);
+        let row = &mut self.screen.rows[self.cursor.1 as usize];
+        row.runes.fill(Rune::new(self.screen.background));
     }
     pub fn write(&mut self, length: isize, text: &str) {
         swrite!(self.inner, "{}", text);

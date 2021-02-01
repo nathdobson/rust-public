@@ -7,7 +7,7 @@ use util::rect::Rect;
 use std::collections::{HashMap, HashSet};
 use crate::screen::LineSetting;
 use std::sync::{Arc, Weak};
-use crate::gui::layout::{Constraint, Layout};
+use crate::gui::layout::{Constraint, Layout, Align};
 use std::ops::{Deref, DerefMut, CoerceUnsized};
 use std::cmp::Ordering;
 use std::marker::Unsize;
@@ -134,6 +134,13 @@ impl<T: DivImpl + ?Sized> Div<T> {
     pub fn set_position(&mut self, position: (isize, isize)) {
         self.set_bounds(Rect::from_position_size(position, self.bounds().size()));
     }
+    pub fn set_position_aligned(&mut self, position: (isize, isize), align: (Align, Align), contain_size: (isize, isize)) {
+        self.set_position
+        ((
+            align.0.align(position.0, self.size().0, contain_size.0),
+            align.1.align(position.1, self.size().1, contain_size.1),
+        ));
+    }
 
     pub fn children<'a>(&'a self) -> impl 'a + Iterator<Item=&'a DivRc> {
         self.children.iter()
@@ -142,7 +149,7 @@ impl<T: DivImpl + ?Sized> Div<T> {
         self.children.iter().cloned()
     }
     pub fn add(&mut self, mut child: DivRc) {
-        assert!(child.write().parent.replace(self.this.clone()).is_none());
+        assert!(child.write().parent.replace(self.this.clone()).is_none(), "Multiple parents");
         assert!(self.children.insert(child));
     }
     pub fn remove(&mut self, child: &DivRc) {

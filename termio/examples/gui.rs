@@ -12,7 +12,6 @@ use std::{mem, thread, process};
 use util::grid::Grid;
 use termio::gui::label::Label;
 use termio::string::{StyleFormatExt, StyleString};
-use util::any::{Upcast, AnyExt};
 use std::any::Any;
 use std::ops::Deref;
 use termio::screen::{Style, Rune};
@@ -32,6 +31,9 @@ use util::mutrc::MutRc;
 use futures::executor::block_on;
 use termio::gui::run_local;
 use termio::gui::checkbox::CheckBox;
+use termio::gui::table::{Table, TableDiv};
+use termio::line::Stroke;
+use termio::canvas::Canvas;
 
 #[derive(Debug)]
 struct Example {
@@ -39,7 +41,7 @@ struct Example {
     buttons: Vec<DivRc<Button>>,
     checkboxes: Vec<DivRc<CheckBox>>,
     labels: Vec<DivRc<Label>>,
-    grid: Grid<DivRc>,
+    table: DivRc<Table>,
 }
 
 impl Example {
@@ -74,36 +76,69 @@ impl Example {
             }).collect();
             let grid = Grid::new((2, 4), |x, y| {
                 match (x, y) {
-                    (0, 0) => buttons[0].clone().upcast_div(),
-                    (1, 0) => buttons[1].clone(),
-                    (0, 1) => buttons[2].clone(),
-                    (1, 1) => buttons[3].clone(),
-                    (0, 2) => checkboxes[0].clone(),
-                    (1, 2) => checkboxes[1].clone(),
-                    (0, 3) => labels[0].clone(),
-                    (1, 3) => labels[1].clone(),
+                    (0, 0) => TableDiv {
+                        div: buttons[0].clone(),
+                        flex: false,
+                        align: (0.0, 0.0),
+                    },
+                    (1, 0) => TableDiv {
+                        div: buttons[1].clone(),
+                        flex: false,
+                        align: (0.0, 0.0),
+                    },
+                    (0, 1) => TableDiv {
+                        div: buttons[2].clone(),
+                        flex: false,
+                        align: (0.0, 0.0),
+                    },
+                    (1, 1) => TableDiv {
+                        div: buttons[3].clone(),
+                        flex: false,
+                        align: (0.0, 0.0),
+                    },
+                    (0, 2) => TableDiv {
+                        div: checkboxes[0].clone(),
+                        flex: false,
+                        align: (0.0, 0.0),
+                    },
+                    (1, 2) => TableDiv {
+                        div: checkboxes[1].clone(),
+                        flex: false,
+                        align: (0.0, 0.0),
+                    },
+                    (0, 3) => TableDiv {
+                        div: labels[0].clone(),
+                        flex: true,
+                        align: (0.0, 0.0),
+                    },
+                    (1, 3) => TableDiv {
+                        div: labels[1].clone(),
+                        flex: true,
+                        align: (0.0, 0.0),
+                    },
                     _ => panic!()
                 }
             });
+            let table = Table::new(
+                tree.clone(),
+                grid,
+                vec![1.0, 2.0],
+                vec![1.0, 4.0, 3.0, 2.0],
+                Grid::new((2, 5), |_, _| Stroke::Narrow),
+                Grid::new((3, 4), |_, _| Stroke::Double),
+            );
             Example {
                 model,
                 buttons,
                 checkboxes,
                 labels,
-                grid,
+                table,
             }
         });
-        let mut this = result.write();
-        for button in this.buttons.clone().iter() {
-            this.add(button.clone())
-        }
-        for checkbox in this.checkboxes.clone().iter() {
-            this.add(checkbox.clone())
-        }
-        for label in this.labels.clone().iter() {
-            this.add(label.clone());
-        }
-        mem::drop(this);
+        let mut write1 = result.write();
+        let write = &mut *write1;
+        write.add(write.table.clone());
+        mem::drop(write1);
         result
     }
     fn new_gui(tree: Tree) -> MutRc<Gui> {
@@ -119,7 +154,9 @@ impl Example {
 
 impl DivImpl for Example {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
-        constraint.table_layout(&mut self.grid)
+        let mut table = self.table.write();
+        table.layout(constraint);
+        Layout { size: table.size(), line_settings: Default::default() }
     }
     fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool {
         if *event == InputEvent::KeyEvent(KeyEvent::typed('c').control()) {

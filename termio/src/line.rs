@@ -300,20 +300,20 @@ impl TableBorder {
     }
 }
 
-#[test]
-fn test_table() {
-    let mut screen = Screen::new();
-    let canvas = Canvas::new(&mut screen,
-                             Rect::from_position_size((0, 0), (20, 20)),
-                             (0, 0),
-                             Style::default());
-    let table = TableBorder {
-        xs: vec![0, 5, 10],
-        ys: vec![3, 8, 13],
-        horizontals: Grid::new((2, 3), |x, y| { Stroke::Narrow }),
-        verticals: Grid::new((3, 2), |x, y| { Stroke::Narrow }),
-    };
-    println!("{:?}", table);
-    table.paint_border(canvas);
-    println!("{:?}", screen);
-}
+// #[test]
+// fn test_table() {
+//     let mut screen = Screen::new();
+//     let canvas = Canvas::new(&mut screen,
+//                              Rect::from_position_size((0, 0), (20, 20)),
+//                              (0, 0),
+//                              Style::default());
+//     let table = TableBorder {
+//         xs: vec![0, 5, 10],
+//         ys: vec![3, 8, 13],
+//         horizontals: Grid::new((2, 3), |x, y| { Stroke::Narrow }),
+//         verticals: Grid::new((3, 2), |x, y| { Stroke::Narrow }),
+//     };
+//     println!("{:?}", table);
+//     table.paint_border(canvas);
+//     println!("{:?}", screen);
+// }
