@@ -127,6 +127,9 @@ impl KeyEvent {
     pub fn typed(c: char) -> Self {
         KeyEvent { key: Key::Type(c), modifier: Modifier::default() }
     }
+    pub fn key(key: Key) -> Self {
+        KeyEvent { modifier: Default::default(), key }
+    }
     pub fn control(mut self) -> Self {
         self.modifier.control = true;
         self
