@@ -31,6 +31,7 @@ use util::mutrc::MutRc;
 use futures::executor::block_on;
 use termio::gui::run_local;
 use termio::gui::checkbox::CheckBox;
+use termio::gui::field::Field;
 use termio::gui::table::{Table, TableDiv};
 use termio::line::Stroke;
 use termio::canvas::Canvas;
@@ -39,7 +40,8 @@ use termio::canvas::Canvas;
 struct Example {
     model: Vec<StyleString>,
     buttons: Vec<DivRc<Button>>,
-    checkboxes: Vec<DivRc<CheckBox>>,
+    checkbox: DivRc<CheckBox>,
+    field: DivRc<Field>,
     labels: Vec<DivRc<Label>>,
     table: DivRc<Table>,
 }
@@ -66,14 +68,17 @@ impl Example {
                             }),
                         )
                     }).collect();
-            let checkboxes: Vec<DivRc<CheckBox>> = ["Red", "Green"].iter().map(|s| {
-                let ss = s.to_style_string();
-                CheckBox::new(tree.clone(), ss.clone(), false, example.new_shared_event(move |e| {
-                    let e = &mut **e;
-                    e.model.push(ss.clone());
-                    e.labels[0].write().sync_log(&e.model);
-                }))
-            }).collect();
+            let checkbox: DivRc<CheckBox> =
+                CheckBox::new(
+                    tree.clone(),
+                    "x".to_style_string(),
+                    false,
+                    example.new_shared_event(move |e| {
+                        let e = &mut **e;
+                        e.model.push("y".to_style_string());
+                        e.labels[0].write().sync_log(&e.model);
+                    }));
+            let field: DivRc<Field> = Field::new(tree.clone(),"text".to_string());
             let grid = Grid::new((2, 4), |x, y| {
                 match (x, y) {
                     (0, 0) => TableDiv {
@@ -97,12 +102,12 @@ impl Example {
                         align: (0.0, 0.0),
                     },
                     (0, 2) => TableDiv {
-                        div: checkboxes[0].clone(),
+                        div: checkbox.clone(),
                         flex: false,
                         align: (0.0, 0.0),
                     },
                     (1, 2) => TableDiv {
-                        div: checkboxes[1].clone(),
+                        div: field.clone(),
                         flex: false,
                         align: (0.0, 0.0),
                     },
@@ -130,7 +135,8 @@ impl Example {
             Example {
                 model,
                 buttons,
-                checkboxes,
+                checkbox,
+                field,
                 labels,
                 table,
             }
@@ -162,6 +168,8 @@ impl DivImpl for Example {
         if *event == InputEvent::KeyEvent(KeyEvent::typed('c').control()) {
             eprintln!("Quitting");
             std::process::exit(0);
+        }else{
+            self.field.write().handle(event);
         }
         false
     }
