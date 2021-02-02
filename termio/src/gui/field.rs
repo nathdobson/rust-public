@@ -15,7 +15,7 @@ use crate::Direction;
 pub struct Field {
     content: String,
     enabled: bool,
-    cursor: isize,
+    cursor: usize,
 }
 
 impl Field {
@@ -47,8 +47,8 @@ impl Field {
     pub fn content(&self) -> &str {
         &self.content
     }
-    pub fn set_cursor(self: &mut Div<Self>, mut cursor: isize) {
-        cursor = cursor.max(0).min(self.content.graphemes(true).count() as isize);
+    pub fn set_cursor(self: &mut Div<Self>, mut cursor: usize) {
+        cursor = cursor.max(0).min(self.content.len() as usize);
         if self.cursor != cursor {
             self.cursor = cursor;
             self.mark_dirty(Dirty::Paint);
@@ -65,7 +65,7 @@ impl DivImpl for Field {
         match event {
             InputEvent::MouseEvent { event, inside } => {
                 if *inside && !event.motion && event.mouse == Mouse::Down(0) {
-                    self.set_cursor(event.position.0);
+                    self.set_cursor(event.position.0 as usize);
                     return true;
                 }
             }
@@ -74,11 +74,19 @@ impl DivImpl for Field {
                     Key::Arrow(arrow) => {
                         match arrow {
                             Direction::Right => {
-                                self.set_cursor(self.cursor + 1);
+                                if let Some(skip) = self.content[self.cursor..].graphemes(true).next() {
+                                    let cursor = self.cursor;
+                                    let len = skip.len();
+                                    self.set_cursor(cursor + len);
+                                }
                                 return true;
                             }
                             Direction::Left => {
-                                self.set_cursor(self.cursor - 1);
+                                if let Some(skip) = self.content[..self.cursor].graphemes(true).next_back() {
+                                    let cursor = self.cursor;
+                                    let len = skip.len();
+                                    self.set_cursor(cursor - len);
+                                }
                                 return true;
                             }
                             _ => {}
@@ -86,24 +94,27 @@ impl DivImpl for Field {
                     }
                     Key::Type('\r') => {}
                     Key::Type(c) => {
-                        let offset: usize = self.content.graphemes(true).take(self.cursor as usize).map(|x| x.len()).sum();
-                        self.cursor += 1;
-                        self.content.insert(offset, c);
+                        let s = format!("{}", c);
+                        let cursor = self.cursor;
+                        self.content.insert_str(cursor, &s);
+                        self.cursor += s.len();
                         self.mark_dirty(Dirty::Paint);
                     }
                     Key::Func(_) => {}
                     Key::Delete => {
-                        let offset: usize = self.content.graphemes(true).take(self.cursor as usize).map(|x| x.len()).sum();
-                        if offset > 0 {
-                            self.cursor -= 1;
-                            self.content.remove(offset - 1);
+                        if let Some(skip) = self.content[..self.cursor].graphemes(true).next_back() {
+                            let cursor = self.cursor;
+                            let len = skip.len();
+                            self.content.drain(cursor - len..cursor);
+                            self.set_cursor(cursor - len);
                             self.mark_dirty(Dirty::Paint);
                         }
                     }
                     Key::ForwardDelete => {
-                        let offset: usize = self.content.graphemes(true).take(self.cursor as usize).map(|x| x.len()).sum();
-                        if offset < self.content.len() {
-                            self.content.remove(offset);
+                        if let Some(skip) = self.content[self.cursor..].graphemes(true).next() {
+                            let cursor = self.cursor;
+                            let len = skip.len();
+                            self.content.drain(cursor..cursor + len);
                             self.mark_dirty(Dirty::Paint);
                         }
                     }
@@ -117,7 +128,7 @@ impl DivImpl for Field {
             let mut canvas = canvas.push();
             canvas.style.foreground = Color::Gray24(0);
             canvas.style.background = Color::Gray24(23);
-            if index == self.cursor as usize && self.enabled {
+            if index == self.cursor && self.enabled {
                 mem::swap(&mut canvas.style.background, &mut canvas.style.foreground);
             }
             canvas.draw((index as isize, 0), &grapheme);
