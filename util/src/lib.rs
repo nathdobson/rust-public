@@ -44,6 +44,7 @@ pub mod tree;
 pub mod itertools;
 pub mod mutrc;
 pub mod atomic_refcell;
+pub mod slice;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,

@@ -17,6 +17,7 @@ use std::time::Instant;
 use std::pin::Pin;
 use pin_project::pin_project;
 use futures::{AsyncBufRead, AsyncBufReadExt};
+use async_util::read::Parser;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Mouse {
@@ -147,7 +148,7 @@ impl KeyEvent {
 #[pin_project]
 pub struct EventReader<R: Read> {
     #[pin]
-    inner: Tokenizer<BufReader<R>>,
+    inner: Parser<R>,
 }
 
 fn known(modifier: Modifier, key: Key) -> EventResult {
@@ -157,7 +158,7 @@ fn known(modifier: Modifier, key: Key) -> EventResult {
 impl<R: Read> EventReader<R> {
     pub fn new(inner: R) -> EventReader<R> {
         EventReader {
-            inner: Tokenizer::new(BufReader::new(inner)),
+            inner: Parser::new(inner)
         }
     }
     pub async fn read(mut self: Pin<&mut Self>) -> io::Result<Event> {
@@ -169,10 +170,21 @@ impl<R: Read> EventReader<R> {
         }
     }
     pub async fn read_maybe(mut self: Pin<&mut Self>) -> io::Result<Result<Event, ParseError>> {
-        self.as_mut().project().inner.clear_log();
+        let mut this = self.as_mut().project();
+        let start = this.inner.as_mut().position();
+        this.inner.as_mut().free(start);
+        mem::drop(this);
         Ok(match self.as_mut().read_maybe_impl().await? {
             Ok(event) => Ok(event),
-            Err(Unknown) => Err(ParseError(self.as_mut().project().inner.take_log())),
+            Err(Unknown) => {
+                let mut this = self.as_mut().project();
+                let end = this.inner.as_mut().position();
+                this.inner.as_mut().seek_back(start);
+                let mut buf = vec![0u8; (end - start) as usize];
+                this.inner.as_mut().read(&mut buf).await?;
+                this.inner.as_mut().seek_back(start + 1);
+                Err(ParseError(buf))
+            }
         })
     }
     async fn read_maybe_impl(mut self: Pin<&mut Self>) -> io::Result<EventResult> {
@@ -314,7 +326,7 @@ impl<R: Read> EventReader<R> {
     }
     async fn peek(mut self: Pin<&mut Self>) -> io::Result<Option<u8>> {
         let mut this = self.as_mut().project();
-        let buf = this.inner.fill_buf().await?;
+        let buf = this.inner.lookahead(1).await?;
         if buf.len() == 0 {
             return Ok(None);
         }

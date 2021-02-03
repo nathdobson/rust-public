@@ -7,6 +7,8 @@
 pub mod bytes;
 pub mod cancel;
 pub mod promise;
+pub mod read;
+pub mod pipe;
 
 use async_std::sync;
 use std::sync::Arc;
