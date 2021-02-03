@@ -325,7 +325,7 @@ impl<R: Read> EventReader<R> {
         Ok(s.chars().exactly_one().unwrap())
     }
     async fn peek(mut self: Pin<&mut Self>) -> io::Result<Option<u8>> {
-        let mut this = self.as_mut().project();
+        let this = self.as_mut().project();
         let buf = this.inner.lookahead(1).await?;
         if buf.len() == 0 {
             return Ok(None);

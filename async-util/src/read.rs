@@ -1,13 +1,11 @@
-use futures::{AsyncRead, FutureExt, AsyncReadExt};
+use futures::{AsyncRead};
 use std::io::Write;
-use futures::task::{Context, Poll, SpawnExt};
+use futures::task::{Context, Poll};
 use pin_project::__private::Pin;
-use std::{io, mem};
+use std::{io};
 use std::collections::{VecDeque};
 use pin_project::pin_project;
 use util::slice::SlicePair;
-use crate::pipe::pipe;
-use futures::executor::LocalPool;
 use futures::future::poll_fn;
 
 #[pin_project]
@@ -30,7 +28,7 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
             inner,
         }
     }
-    pub fn free(mut self: Pin<&mut Self>, position: u64) {
+    pub fn free(self: Pin<&mut Self>, position: u64) {
         let this = self.project();
         assert!(position >= *this.freed);
         let diff = (position - *this.freed) as usize;
@@ -38,17 +36,17 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
         *this.freed = position;
         this.buf.drain(..diff);
     }
-    pub fn seek_back(mut self: Pin<&mut Self>, position: u64) {
+    pub fn seek_back(self: Pin<&mut Self>, position: u64) {
         let this = self.project();
         assert!(position >= *this.freed);
         assert!(position <= *this.freed + this.buf.len() as u64);
         *this.front = position;
     }
-    pub fn position(mut self: Pin<&mut Self>) -> u64 {
+    pub fn position(self: Pin<&mut Self>) -> u64 {
         self.front
     }
     pub async fn lookahead<'a>(mut self: Pin<&'a mut Self>, lookahead: usize) -> io::Result<SlicePair<&'a [u8]>> {
-        poll_fn(|cx| self.as_mut().poll_lookahead(cx, lookahead)).await;
+        poll_fn(|cx| self.as_mut().poll_lookahead(cx, lookahead)).await?;
         Ok(self.as_slice())
     }
     pub fn as_slice<'a>(self: Pin<&'a mut Self>) -> SlicePair<&'a [u8]> {
@@ -119,9 +117,14 @@ fn test_slice_pair() {
 
 #[test]
 fn test_parser() {
+    use crate::pipe::pipe;
+    use futures::task::SpawnExt;
+    use futures::executor::LocalPool;
+
     let (mut write, read) = pipe();
     let mut pool = LocalPool::new();
     let spawner = pool.spawner();
+
     let joiner = spawner.spawn_with_handle(async {
         let mut parser = Parser::new(read);
         let mut buf = [0u8; 2];

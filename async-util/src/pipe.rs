@@ -1,13 +1,12 @@
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
-use futures::{AsyncRead, AsyncReadExt, FutureExt};
-use futures::task::{Context, Poll, SpawnExt};
+use futures::{AsyncRead};
+use futures::task::{Context, Poll};
 use std::pin::Pin;
 use std::{io};
 use std::task::Waker;
 use std::io::Write;
 use util::slice::SlicePair;
-use futures::executor::LocalPool;
 
 struct State {
     closed: bool,
@@ -80,6 +79,11 @@ impl Write for PipeWrite {
 
 #[test]
 fn test_pipe() {
+    use futures::task::SpawnExt;
+    use futures::executor::LocalPool;
+    use futures::AsyncReadExt;
+    use futures::FutureExt;
+
     let (mut write, mut read) = pipe();
     let mut pool = LocalPool::new();
     let spawner = pool.spawner();
