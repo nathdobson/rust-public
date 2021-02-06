@@ -1,13 +1,17 @@
 #![feature(never_type)]
 #![feature(negative_impls)]
-//#![feature(associated_type_bounds)]
 #![feature(unboxed_closures)]
 #![feature(once_cell)]
+#![feature(arbitrary_self_types)]
+#![allow(unused_imports)]
+#![feature(or_patterns)]
+#![feature(slice_ptr_len)]
 
 pub mod bytes;
 pub mod cancel;
 pub mod promise;
-pub mod read;
+pub mod parser;
+pub mod waker;
 pub mod pipe;
 
 use async_std::sync;

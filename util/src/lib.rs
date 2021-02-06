@@ -7,6 +7,8 @@
 #![feature(box_syntax)]
 #![feature(associated_type_defaults)]
 #![feature(specialization)]
+#![feature(slice_ptr_len)]
+#![feature(slice_index_methods)]
 #![allow(incomplete_features)]
 
 use std::mem;

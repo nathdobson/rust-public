@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 async-std = { version = "1.9.0", features = ["unstable"] }
-futures = "0.3.12"
+futures = { version = "0.3.12", features = ["executor","thread-pool"] }
 pin-project = "1.0.4"
 event-listener = "2.5.1"
 async-channel = "1.5.1"
@@ -16,6 +16,13 @@ ondrop = "0.1.0"
 ctrlc = "3.1.7"
 async-weighted-semaphore = "0.1.0"
 util = { path = "../util" }
+futures-util = "0.3.12"
 
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.4"
+
+[dev-dependencies]
+rand = "0.8.3"
 
 

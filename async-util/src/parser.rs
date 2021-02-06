@@ -1,4 +1,4 @@
-use futures::{AsyncRead};
+use futures::{AsyncRead, AsyncReadExt, FutureExt};
 use std::io::Write;
 use futures::task::{Context, Poll};
 use pin_project::__private::Pin;
@@ -52,7 +52,7 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
     pub fn as_slice<'a>(self: Pin<&'a mut Self>) -> SlicePair<&'a [u8]> {
         let this = self.project();
         SlicePair::from_deque(this.buf)
-            .index((*this.front - *this.freed) as usize..(*this.back - *this.freed) as usize)
+            .range((*this.front - *this.freed) as usize..(*this.back - *this.freed) as usize)
     }
     pub fn consume(self: Pin<&mut Self>, count: usize) {
         let this = self.project();
@@ -71,8 +71,8 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
             if (*this.back - *this.front) as usize >= lookahead {
                 return Poll::Ready(Ok(()));
             }
-            let mut dest = SlicePair::from_deque_mut(&mut this.buf);
-            let mut dest = dest.index_mut(stored..min_size);
+            let dest = SlicePair::from_deque_mut(&mut this.buf);
+            let mut dest = dest.range(stored..min_size);
             match this.inner.as_mut().poll_read_vectored(cx, &mut dest.as_io_mut())? {
                 Poll::Ready(count) => { *this.back += count as u64; }
                 Poll::Pending => {
@@ -93,7 +93,7 @@ impl<R: AsyncRead + ?Sized> AsyncRead for Parser<R> {
         assert!(this.front < this.back);
         let consumed = ((*this.back - *this.front) as usize).min(buf.len());
         let start = (*this.front - *this.freed) as usize;
-        let source = SlicePair::from_deque(&this.buf).index(start..start + consumed);
+        let source = SlicePair::from_deque(&this.buf).range(start..start + consumed);
         (&mut buf[..consumed]).write_vectored(&mut source.as_io()).unwrap();
         *this.front += consumed as u64;
         Poll::Ready(Ok(consumed))
@@ -117,7 +117,7 @@ fn test_slice_pair() {
 
 #[test]
 fn test_parser() {
-    use crate::pipe::pipe;
+    use crate::pipe::unbounded::pipe;
     use futures::task::SpawnExt;
     use futures::executor::LocalPool;
 
@@ -126,15 +126,16 @@ fn test_parser() {
     let spawner = pool.spawner();
 
     let joiner = spawner.spawn_with_handle(async {
-        let mut parser = Parser::new(read);
+        let mut parser = Box::pin(Parser::new(read));
+        let mut parser = parser.as_mut();
         let mut buf = [0u8; 2];
-        assert_eq!(2, parser.read(&mut buf).await.unwrap());
+        assert_eq!(2, parser.as_mut().read(&mut buf).await.unwrap());
         assert_eq!(buf, [1, 2]);
-        parser.free(1);
-        assert_eq!(1, parser.read(&mut buf).await.unwrap());
+        parser.as_mut().free(1);
+        assert_eq!(1, parser.as_mut().read(&mut buf).await.unwrap());
         assert_eq!(buf[..1], [3]);
-        parser.seek_back(1);
-        assert_eq!(2, parser.read(&mut buf).await.unwrap());
+        parser.as_mut().seek_back(1);
+        assert_eq!(2, parser.as_mut().read(&mut buf).await.unwrap());
         assert_eq!(buf, [2, 3]);
     }).unwrap();
     pool.run_until_stalled();

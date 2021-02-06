@@ -17,7 +17,7 @@ use std::time::Instant;
 use std::pin::Pin;
 use pin_project::pin_project;
 use futures::{AsyncBufRead, AsyncBufReadExt};
-use async_util::read::Parser;
+use async_util::parser::Parser;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Mouse {
