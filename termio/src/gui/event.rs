@@ -16,14 +16,24 @@ use crate::input::EventReader;
 use std::cell::RefCell;
 use libc::close;
 use util::mutrc::MutRc;
-use async_util::{Mutex, Condvar, Executor};
 use std::collections::VecDeque;
 use std::future::Future;
 use async_std::io::Read;
 use std::io;
-use futures::pin_mut;
+use futures::{pin_mut, StreamExt};
 use futures::task::SpawnExt;
 use async_std::task;
+use std::task::{Context, Poll};
+use crate::gui::div::{DivRc, Div, DivImpl};
+use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc;
+use futures::stream::FusedStream;
+use futures::future::poll_fn;
+use futures::stream::Stream;
+use std::pin::Pin;
+use futures::FutureExt;
+use async_util::priority::{priority_join2, PriorityPool};
+use async_util::{Executor, priority};
 
 #[must_use]
 pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
@@ -31,16 +41,17 @@ pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
 #[derive(Clone)]
 pub struct SharedGuiEvent(Arc<dyn Fn() + Send + Sync>);
 
-struct EventQueue {
-    now: VecDeque<GuiEvent>,
-    later: VecDeque<GuiEvent>,
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash, Debug)]
+pub enum GuiPriority {
+    Action,
+    Simulate,
+    Read,
+    Layout,
+    Paint,
 }
 
 struct EventSenderInner {
-    mutex: Mutex,
-    exec: Executor,
-    queue: MutRc<EventQueue>,
-    available: Condvar,
+    spawner: PriorityPool<GuiPriority>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,45 +79,29 @@ impl GuiEvent {
     }
 }
 
-pub fn event_loop(mutex: Mutex, exec: Executor) -> (EventSender, impl Future<Output=()>) {
-    let queue = MutRc::new(EventQueue {
-        now: Default::default(),
-        later: Default::default(),
-    });
-    let available = Condvar::new();
-
-    let event_loop = {
-        let mutex = mutex.clone();
-        let available = available.downgrade();
-        let mut queue = queue.clone();
-        async move {
-            let mut lock = mutex.lock().await;
-            loop {
-                if let Some(now) = {
-                    let x = queue.write().now.pop_front();
-                    x
-                } {
-                    now.run();
-                    continue;
+pub fn priority_consume<S: Stream>(x: S, mut f: impl FnMut(S::Item)) -> impl Future<Output=()> {
+    async move {
+        pin_mut!(x);
+        poll_fn(|cx| {
+            match x.as_mut().poll_next(cx) {
+                Poll::Ready(Some(x)) => {
+                    f(x);
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
                 }
-                if let Some(now) = {
-                    let x = queue.write().later.pop_front();
-                    x
-                } {
-                    now.run();
-                    continue;
-                }
-                let l2 = lock;
-                match available.wait(l2).await {
-                    Ok(l) => { lock = l; }
-                    Err(_) => break,
-                }
+                Poll::Ready(None) => Poll::Ready(()),
+                Poll::Pending => Poll::Pending,
             }
-        }
-    };
+        }).await
+    }
+}
+
+
+pub fn event_loop() -> (EventSender, impl Future<Output=()>) {
+    let (spawner, runner) = priority::channel();
     (
-        EventSender(Arc::new(EventSenderInner { mutex, queue, available, exec })),
-        event_loop
+        EventSender(Arc::new(EventSenderInner { spawner })),
+        runner
     )
 }
 
@@ -128,35 +123,38 @@ pub async fn read_loop(
 
 impl EventSender {
     pub fn run_now(&self, event: GuiEvent) {
-        self.0.queue.borrow_mut().now.push_back(event);
-        self.0.available.notify_one();
-    }
-    async fn run_with_guard(self, event: GuiEvent) {
-        let lock = self.0.mutex.lock().await;
-        self.0.queue.borrow_mut().later.push_back(event);
-        self.0.available.notify_one();
-        mem::drop(lock);
+        self.0.spawner.spawn(GuiPriority::Action, async { event.run() });
     }
     pub fn run_later(&self, event: GuiEvent) {
-        self.0.exec.spawn(self.clone().run_with_guard(event)).unwrap();
+        self.0.spawner.spawn(GuiPriority::Simulate, async { event.run() });
     }
-
+    pub fn spawner(&self) -> &PriorityPool<GuiPriority> {
+        &self.0.spawner
+    }
     pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) {
-        let this = self.clone();
-        self.0.exec.spawn(async move {
+        self.0.spawner.spawn(GuiPriority::Simulate, async move {
             task::sleep(delay).await;
-            this.run_with_guard(event).await;
-        }).unwrap();
+            event.run();
+        });
     }
-
     pub fn run_at(&self, instant: Instant, event: GuiEvent) {
         self.run_with_delay(
             instant.checked_duration_since(Instant::now()).unwrap_or_default(),
             event)
     }
 
-    pub fn mutex(&self) -> &Mutex {
-        &self.0.mutex
+    pub fn spawn_poll_div<T: DivImpl, F>(&self, mut poll: F, div: DivRc<T>)
+        where F: FnMut(&mut Div<T>, &mut Context) -> Poll<()> + Send + 'static {
+        let div = div.downgrade();
+        self.0.spawner.spawn(GuiPriority::Simulate, async move {
+            poll_fn(|cx| {
+                if let Some(mut div) = div.upgrade() {
+                    poll(&mut *div.write(), cx)
+                } else {
+                    Poll::Ready(())
+                }
+            }).await;
+        });
     }
 }
 

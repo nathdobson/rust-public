@@ -2,7 +2,6 @@ use std::{error, io, mem, thread};
 use async_std::io::{ErrorKind, Write, Read};
 use async_std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc};
-use async_util::Mutex;
 
 use termio::input::{Event, EventReader};
 use util::shared::{Object, Shared};
@@ -21,7 +20,7 @@ use chrono::format::Item::Error;
 use std::collections::hash_map::Entry;
 use std::str;
 use termio::gui::gui::Gui;
-use termio::gui::event::{EventSender, GuiEvent, SharedGuiEvent, read_loop};
+use termio::gui::event::{EventSender, GuiEvent, SharedGuiEvent, read_loop, GuiPriority};
 use termio::gui::event;
 use std::any::Any;
 use std::fmt::Debug;
@@ -29,13 +28,15 @@ use termio::gui::tree::{Tree, Dirty};
 use util::mutrc::MutRc;
 use std::pin::Pin;
 use by_address::ByAddress;
-use async_util::{Condvar, Executor};
+use async_util::{Executor};
 use futures::join;
 use async_util::cancel::{Cancel, Canceled};
 use futures::task::{SpawnExt, Spawn};
 use futures::channel::oneshot;
 use futures::executor::ThreadPool;
 use async_util::promise::Promise;
+use async_util::priority::PriorityPool;
+use std::future::Future;
 
 type StreamRc = Shared<TcpStream>;
 
@@ -52,12 +53,11 @@ pub struct NetcatState {
 #[derive(Debug)]
 struct Peer {
     stream: StreamRc,
-    terminate: Condvar,
+    terminated: Promise<!>,
 }
 
 pub struct NetcatServerBuilder {
     pub cancel: Cancel,
-    pub exec: Arc<dyn Spawn + Send + Sync>,
     pub event_sender: EventSender,
 }
 
@@ -67,26 +67,17 @@ pub struct NetcatServer {
     state: MutRc<NetcatState>,
     model: MutRc<dyn Model>,
     cancel: Cancel,
-    exec: Arc<dyn Spawn + Send + Sync>,
 }
 
 impl NetcatServerBuilder {
-    pub fn new() -> Self {
-        let pool = ThreadPool::new().unwrap();
+    pub fn new() -> (Self, impl Future<Output=()>) {
         let cancel = Cancel::new();
-        let exec: Arc<(dyn Spawn + Sync + Send + 'static)> = Arc::new(pool);
-        let mutex = Mutex::new();
         let (event_sender, event_joiner) =
-            event::event_loop(mutex.clone(), exec.clone());
-        exec.spawn({
-            let cancel = cancel.clone();
-            async move { cancel.checked(event_joiner).await.err(); }
-        }).unwrap();
-        NetcatServerBuilder {
+            event::event_loop();
+        (NetcatServerBuilder {
             cancel,
-            exec,
             event_sender,
-        }
+        }, event_joiner)
     }
 
     pub async fn build(self, address: &str, model: MutRc<dyn Model>)
@@ -95,7 +86,6 @@ impl NetcatServerBuilder {
             address,
             self.event_sender,
             model,
-            self.exec,
             self.cancel,
         ).await
     }
@@ -106,8 +96,8 @@ impl NetcatServerBuilder {
         Ok(())
     }
 
-    pub fn run_main(self, address: &str, model: MutRc<dyn Model>) -> ! {
-        self.cancel.clone().run_main(Duration::from_secs(5), self.run(address, model))
+    pub async fn run_main(self, address: &str, model: MutRc<dyn Model>) -> ! {
+        self.cancel.clone().run_main(Duration::from_secs(5), self.run(address, model)).await
     }
 }
 
@@ -116,7 +106,6 @@ impl NetcatServer {
         address: &str,
         event_sender: EventSender,
         model: MutRc<dyn Model>,
-        exec: Arc<dyn Spawn + Send + Sync>,
         cancel: Cancel) -> io::Result<Arc<Self>> {
         let state = MutRc::new(NetcatState {
             peers: HashMap::new(),
@@ -127,70 +116,79 @@ impl NetcatServer {
             state,
             model,
             cancel,
-            exec,
         });
         Ok(result)
     }
     async fn handle_stream(self: &Arc<Self>,
                            mut stream: StreamRc)
                            -> Result<(), Box<dyn error::Error>> {
+        let user_cancel = Cancel::new();
         let (host, _) = proxy::run_proxy_server(&mut stream).await?;
         let username = Arc::new(host.to_string()?);
-        let mut lock = self.event_sender.mutex().lock().await;
-        let tree = Tree::new(self.event_sender.clone());
+        let (tree, paint, layout) =
+            Tree::new(user_cancel.clone(), self.event_sender.clone());
+        user_cancel.attach(&self.cancel,
+                           &self.event_sender.spawner().at_priority(GuiPriority::Action));
+
         loop {
-            let condvar: Condvar = match self.state.borrow_mut().peers.entry(username.clone()) {
+            let terminated: Promise<!> = match self.state.borrow_mut().peers.entry(username.clone()) {
                 Entry::Occupied(peer) => {
                     peer.get().stream.shutdown(Shutdown::Read).ok();
-                    peer.get().terminate.clone()
+                    peer.get().terminated.clone()
                 }
                 Entry::Vacant(x) => {
                     x.insert(Peer {
                         stream: stream.clone(),
-                        terminate: Condvar::new(),
+                        terminated: Promise::new(),
                     });
                     break;
                 }
             };
-            lock = condvar.wait(lock).await.unwrap();
+            terminated.join().await;
         }
         let gui = self.model.borrow_mut().add_peer(&username, tree.clone());
-        mem::drop(lock);
-        let sender = async {
-            if let Err(e) = tree.render_loop(gui.clone(), Pin::new(&mut &*stream)).await {
-                eprintln!("Send failure {}", e);
+
+        let ll = layout.layout_loop(gui.clone());
+        let wl = {
+            let gui = gui.clone();
+            let stream = stream.clone();
+            async move {
+                if let Err(e) = paint.render_loop(gui, Pin::new(&mut &*stream)).await {
+                    eprintln!("Send failure {}", e);
+                }
+                stream.shutdown(Shutdown::Both).ok();
             }
-            stream.shutdown(Shutdown::Both).ok();
         };
-        let receiver = async {
-            match self.cancel.checked(read_loop(
-                self.event_sender.clone(),
-                gui.clone(),
-                stream.clone())).await {
-                Ok(Ok(x)) => match x {}
-                Ok(Err(error)) => {
-                    if error.kind() == ErrorKind::UnexpectedEof {
-                        eprintln!("Peer {:?} shutdown", username);
-                    } else {
-                        eprintln!("Peer {:?} failed: {}", username, error);
+        let rl = {
+            let cancel = self.cancel.clone();
+            let event_sender = self.event_sender.clone();
+            let username = username.clone();
+            async move {
+                match cancel.checked(read_loop(
+                    event_sender,
+                    gui.clone(),
+                    stream.clone())).await {
+                    Ok(Ok(x)) => match x {}
+                    Ok(Err(error)) => {
+                        if error.kind() == ErrorKind::UnexpectedEof {
+                            eprintln!("Peer {:?} shutdown", username);
+                        } else {
+                            eprintln!("Peer {:?} failed: {}", username, error);
+                        }
+                    }
+                    Err(_canceled) => {
+                        eprintln!("Canceled peer receive {:?}", username);
                     }
                 }
-                Err(_canceled) => {
-                    eprintln!("Canceled peer receive {:?}", username);
-                }
+                gui.borrow_mut().set_enabled(false);
+                gui.borrow_mut().tree().cancel().cancel();
             }
-            let lock = self.event_sender.mutex().lock().await;
-            gui.borrow_mut().set_enabled(false);
-            gui.borrow_mut().mark_dirty(Dirty::Close);
-            mem::drop(lock);
         };
-        join!(sender, receiver);
-        {
-            let lock = self.event_sender.mutex().lock().await;
-            self.state.borrow_mut().peers.remove(&username).unwrap().terminate.notify_all();
-            self.model.borrow_mut().remove_peer(&username);
-            mem::drop(lock);
-        }
+        join!(self.event_sender.spawner().spawn_with_handle(GuiPriority::Read, rl),
+              self.event_sender.spawner().spawn_with_handle(GuiPriority::Layout, ll),
+              self.event_sender.spawner().spawn_with_handle(GuiPriority::Paint, wl));
+        self.state.borrow_mut().peers.remove(&username).unwrap();
+        self.model.borrow_mut().remove_peer(&username);
         Ok(())
     }
 
@@ -203,7 +201,7 @@ impl NetcatServer {
                     Ok(stream_result) => Shared::new(stream_result?.0),
                 };
             let self2 = self.clone();
-            self.exec.spawn(bundle.outlive(async move {
+            self.event_sender.spawner().spawn(GuiPriority::Read, bundle.outlive(async move {
                 if let Err(e) = self2.handle_stream(stream.clone()).await {
                     if let Some(io) = e.downcast_ref::<io::Error>() {
                         match io.kind() {
@@ -215,7 +213,7 @@ impl NetcatServer {
                         eprintln!("Comm error: {:?}", e);
                     }
                 }
-            })).unwrap();
+            }));
         }
         eprintln!("NetcatServer waiting for servlets");
         bundle.join().await;

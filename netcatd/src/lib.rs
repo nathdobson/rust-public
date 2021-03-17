@@ -1,5 +1,6 @@
 #![feature(never_type)]
 #![allow(unused_imports)]
+#![deny(unused_must_use)]
 
 extern crate serde;
 #[macro_use]
@@ -15,7 +16,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use termio::input::{Event, EventReader};
-use util::listen::{Listen, Listeners};
 use util::socket::{set_reuse_port, set_linger};
 use util::shared::{Shared, SharedMut};
 use util::shared::Object;

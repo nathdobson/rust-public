@@ -13,6 +13,8 @@
 #![feature(box_syntax)]
 #![feature(never_type)]
 #![feature(raw_ref_op)]
+#![feature(or_patterns)]
+#![feature(async_stream)]
 
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code, incomplete_features)]
 

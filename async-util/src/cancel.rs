@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_std::task;
 use futures::executor::block_on;
 use crate::promise::Promise;
+use futures::future::{select, Either};
 
 #[derive(Clone, Debug)]
 #[must_use]
@@ -52,15 +53,27 @@ impl Cancel {
         self.0.recv_ok().await;
     }
 
+    pub fn attach(&self, parent: &Self, spawn: &dyn Spawn) {
+        let this = self.clone();
+        let parent = parent.clone();
+        spawn.spawn(async move {
+            let this2 = this.clone();
+            this.checked(async move {
+                parent.wait().await;
+                this2.cancel();
+            }).await.ok();
+        }).unwrap();
+    }
+
     // Run the f until cancel is called, then drop f. This effectively wraps a synchronously
     // canceled future as an asynchronously canceled future.
-    pub async fn checked<F: Future>(&self, f: F) -> Result<F::Output, Canceled> {
-        let success = f.fuse();
-        let failure = self.wait().fuse();
+    pub async fn checked<F: Future>(&self, success: F) -> Result<F::Output, Canceled> {
+        let failure = self.wait();
         pin_mut!(success, failure);
-        select! {
-            _ = failure => Err(Canceled),
-            success = success => Ok(success),
+        if let Either::Left((x, _)) = select(success, failure).await {
+            Ok(x)
+        } else {
+            Err(Canceled)
         }
     }
 
@@ -149,21 +162,19 @@ impl Cancel {
         }).unwrap();
     }
 
-    pub fn run_main<E: Display>(&self, dur: Duration, f: impl Future<Output=Result<(), E>>) -> ! {
+    pub async fn run_main<E: Display>(&self, dur: Duration, f: impl Future<Output=Result<(), E>>) -> ! {
         self.cancel_on_control_c();
-        block_on(async {
-            match self.checked_timeout(dur, f).await {
-                Ok(Ok(())) => std::process::exit(0),
-                Ok(Err(internal)) => {
-                    eprintln!("{}", internal);
-                    std::process::exit(1);
-                }
-                Err(Timeout) => {
-                    eprintln!("Asynchronous cancellation timeout: terminating...");
-                    std::process::exit(1)
-                }
+        match self.checked_timeout(dur, f).await {
+            Ok(Ok(())) => std::process::exit(0),
+            Ok(Err(internal)) => {
+                eprintln!("{}", internal);
+                std::process::exit(1);
             }
-        })
+            Err(Timeout) => {
+                eprintln!("Asynchronous cancellation timeout: terminating...");
+                std::process::exit(1)
+            }
+        }
     }
 }
 

@@ -111,7 +111,7 @@ impl AsyncWrite for PipeWrite {
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.inner.closed.store(true, Relaxed);
-        unsafe { self.inner.reader.wake(); }
+        self.inner.reader.wake();
         Poll::Ready(Ok(()))
     }
 }
@@ -119,7 +119,7 @@ impl AsyncWrite for PipeWrite {
 impl Drop for PipeWrite {
     fn drop(&mut self) {
         self.inner.closed.store(true, Relaxed);
-        unsafe { self.inner.reader.wake(); }
+        self.inner.reader.wake();
     }
 }
 

@@ -195,10 +195,10 @@ fn test_pointy() {
     impl X for B {}
     let a: Box<dyn X> = box A;
     let b: Box<dyn X> = box B;
-    assert_eq!(box A, downcast::<_, Box<A>>(a).unwrap());
-    let err = downcast::<_, Box<A>>(b).unwrap_err();
-    assert_eq!(err.from.name, "util::any::test_pointy::B");
-    assert_eq!(err.to.name, "util::any::test_pointy::A");
+    assert_eq!(box A, downcast_sized::<_, Box<A>>(a).unwrap());
+    let err = downcast_sized::<_, Box<A>>(b).unwrap_err();
+    assert_eq!(err.from, "util::any::test_pointy::B");
+    assert_eq!(err.to, "util::any::test_pointy::A");
 }
 
 #[test]
@@ -227,10 +227,10 @@ fn test_pointy2() {
     let a: F<A> = F(1, A);
     let x: &F<dyn X> = &a;
 
-    assert_eq!(&a, downcast::<&F<dyn X>, &F<A>>(x).unwrap());
-    let err = downcast::<&F<dyn X>, &F<B>>(x).unwrap_err();
-    assert_eq!(err.from.name, "util::any::test_pointy2::F<util::any::test_pointy2::A>");
-    assert_eq!(err.to.name, "util::any::test_pointy2::F<util::any::test_pointy2::B>");
+    assert_eq!(&a, downcast_sized::<&F<dyn X>, &F<A>>(x).unwrap());
+    let err = downcast_sized::<&F<dyn X>, &F<B>>(x).unwrap_err();
+    assert_eq!(err.from, "util::any::test_pointy2::F<util::any::test_pointy2::A>");
+    assert_eq!(err.to, "util::any::test_pointy2::F<util::any::test_pointy2::B>");
 }
 
 #[test]
@@ -243,17 +243,17 @@ fn test_pointy_ref() {
     let mut x = 1u32;
     {
         let y: &dyn Extension = &x;
-        assert_eq!(&1u32, downcast::<_, &u32>(y).unwrap());
-        let err = downcast::<_, &i32>(y).unwrap_err();
-        assert_eq!(err.from.name, "u32");
-        assert_eq!(err.from.name, "i32");
+        assert_eq!(&1u32, downcast_sized::<_, &u32>(y).unwrap());
+        let err = downcast_sized::<_, &i32>(y).unwrap_err();
+        assert_eq!(err.from, "u32");
+        assert_eq!(err.from, "i32");
     }
     {
         let z: &mut dyn Extension = &mut x;
-        assert_eq!(&mut 1u32, downcast::<_, &mut u32>(&mut *z).unwrap());
-        let err = downcast::<_, &mut i32>(z).unwrap_err();
-        assert_eq!(err.from.name, "u32");
-        assert_eq!(err.from.name, "i32");
+        assert_eq!(&mut 1u32, downcast_sized::<_, &mut u32>(&mut *z).unwrap());
+        let err = downcast_sized::<_, &mut i32>(z).unwrap_err();
+        assert_eq!(err.from, "u32");
+        assert_eq!(err.from, "i32");
     }
 }
 

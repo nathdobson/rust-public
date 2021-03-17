@@ -9,7 +9,12 @@
 #![feature(specialization)]
 #![feature(slice_ptr_len)]
 #![feature(slice_index_methods)]
+#![feature(try_trait)]
+#![feature(maybe_uninit_extra)]
+#![feature(fn_traits)]
+#![feature(allocator_api)]
 #![allow(incomplete_features)]
+#![allow(unused_variables)]
 
 use std::mem;
 use std::collections::BTreeMap;
@@ -17,7 +22,7 @@ use std::sync::Arc;
 use std::marker::{Unsize, PhantomData};
 use std::ops::Deref;
 
-pub mod bag;
+//pub mod bag;
 pub mod listen;
 pub mod union;
 pub mod shared;
@@ -36,17 +41,23 @@ pub mod lossy;
 pub mod watch;
 pub mod version;
 pub mod pmpsc;
-pub mod cancel;
-pub mod shutdown;
+//pub mod cancel;
+//pub mod shutdown;
 pub mod expect;
 pub mod any;
-pub mod dynbag;
+//pub mod dynbag;
 pub mod web;
 pub mod tree;
 pub mod itertools;
 pub mod mutrc;
 pub mod atomic_refcell;
 pub mod slice;
+pub mod time;
+pub mod weak_vec;
+pub mod take_cell;
+pub mod take_vec;
+pub mod fun;
+pub mod shared_cell;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,

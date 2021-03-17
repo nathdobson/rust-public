@@ -1,5 +1,4 @@
 use util::rect::Rect;
-use util::dynbag::Bag;
 use crate::screen::{Style, LineSetting, Screen};
 use crate::writer::TermWriter;
 use std::any::{Any, TypeId};
@@ -67,6 +66,10 @@ impl Gui {
         self.tree.mark_dirty(dirty);
     }
 
+    pub fn tree(&self) -> &Tree {
+        &self.tree
+    }
+
     pub fn set_enabled(&mut self, enabled: bool) {
         self.writer.set_enabled(enabled);
         self.mark_dirty(Dirty::Paint);
@@ -119,6 +122,7 @@ impl Gui {
 
     pub fn layout(&mut self) {
         self.root.write().layout(&Constraint { max_size: Some(self.size) });
+        self.tree.mark_dirty(Dirty::Paint);
     }
 
     pub fn handle(&mut self, event: &Event) {
@@ -126,7 +130,7 @@ impl Gui {
             Event::KeyEvent(e) => {
                 if *e == KeyEvent::typed('c').control() {
                     self.set_enabled(false);
-                    self.mark_dirty(Dirty::Close);
+                    self.tree.cancel().cancel();
                 } else {
                     let mut root = self.root.write();
                     root.handle(&InputEvent::KeyEvent(e.clone()));

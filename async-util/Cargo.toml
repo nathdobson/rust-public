@@ -17,12 +17,13 @@ ctrlc = "3.1.7"
 async-weighted-semaphore = "0.1.0"
 util = { path = "../util" }
 futures-util = "0.3.12"
-
+priority-queue= "1.0.5"
+lazy_static = "1.4.0"
+by_address = "1.0.4"
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.4"
 
 [dev-dependencies]
 rand = "0.8.3"
-
-
+rand_xorshift = "0.3.0"

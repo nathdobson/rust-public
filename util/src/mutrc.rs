@@ -15,9 +15,9 @@ pub struct MutRc<T: ?Sized>(Arc<AtomicRefCell<T>>);
 
 pub struct MutWeak<T: ?Sized>(Weak<AtomicRefCell<T>>);
 
-type ReadGuard<'a, T> = AtomicRef<'a, T>;
+pub type ReadGuard<'a, T> = AtomicRef<'a, T>;
 
-type WriteGuard<'a, T> = AtomicRefMut<'a, T>;
+pub type WriteGuard<'a, T> = AtomicRefMut<'a, T>;
 
 impl<T: ?Sized> MutRc<T> {
     pub fn new_cyclic(f: impl FnOnce(&MutWeak<T>) -> T) -> MutRc<T> where T: Sized {
