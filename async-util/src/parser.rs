@@ -74,7 +74,12 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
             let dest = SlicePair::from_deque_mut(&mut this.buf);
             let mut dest = dest.range(stored..min_size);
             match this.inner.as_mut().poll_read_vectored(cx, &mut dest.as_io_mut())? {
-                Poll::Ready(count) => { *this.back += count as u64; }
+                Poll::Ready(count) => {
+                    *this.back += count as u64;
+                    if count == 0 {
+                        return Poll::Ready(Ok(()));
+                    }
+                }
                 Poll::Pending => {
                     return Poll::Pending;
                 }
@@ -90,7 +95,9 @@ impl<R: AsyncRead + ?Sized> AsyncRead for Parser<R> {
             Poll::Pending => return Poll::Pending,
         }
         let this = self.project();
-        assert!(this.front < this.back);
+        if this.front == this.back {
+            return Poll::Ready(Ok(0));
+        }
         let consumed = ((*this.back - *this.front) as usize).min(buf.len());
         let start = (*this.front - *this.freed) as usize;
         let source = SlicePair::from_deque(&this.buf).range(start..start + consumed);
