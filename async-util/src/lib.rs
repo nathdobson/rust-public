@@ -8,7 +8,6 @@
 #![feature(once_cell)]
 #![feature(arbitrary_self_types)]
 #![allow(unused_imports)]
-#![feature(or_patterns)]
 #![feature(slice_ptr_len)]
 #![feature(box_syntax)]
 #![feature(arc_new_cyclic)]

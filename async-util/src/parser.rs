@@ -95,7 +95,9 @@ impl<R: AsyncRead + ?Sized> AsyncRead for Parser<R> {
             Poll::Pending => return Poll::Pending,
         }
         let this = self.project();
-        assert!(this.front <= this.back);
+        if this.front == this.back {
+            return Poll::Ready(Ok(0));
+        }
         let consumed = ((*this.back - *this.front) as usize).min(buf.len());
         let start = (*this.front - *this.freed) as usize;
         let source = SlicePair::from_deque(&this.buf).range(start..start + consumed);
