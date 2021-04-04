@@ -4,7 +4,6 @@
 #![feature(once_cell)]
 #![feature(arbitrary_self_types)]
 #![allow(unused_imports)]
-#![feature(or_patterns)]
 #![feature(slice_ptr_len)]
 
 pub mod bytes;
