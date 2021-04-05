@@ -2,22 +2,23 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::weak_vec::WeakVec;
 use std::ops::{Deref, DerefMut};
 use std::any::Any;
-use std::mem;
+use std::{mem, fmt};
+use std::fmt::{Debug, Formatter};
 
 pub struct Listenable<T> {
-    listeners: WeakVec<dyn Fn(&mut T)>,
+    listeners: WeakVec<dyn Sync + Send + Fn(&mut T)>,
     inner: T,
 }
 
 pub struct WriteGuard<'a, T>(&'a mut Listenable<T>);
 
 #[must_use]
-pub struct ListenGuard(Arc<dyn Any>);
+pub struct ListenGuard(Arc<dyn Any + Send + Sync>);
 
 impl<T> Listenable<T> {
     pub fn new(inner: T) -> Self { Listenable { listeners: WeakVec::new(), inner } }
     pub fn write(&mut self) -> WriteGuard<T> { WriteGuard(self) }
-    pub fn listen(&mut self, listener: impl Fn(&mut T) + 'static) -> ListenGuard {
+    pub fn listen(&mut self, listener: impl Sync + Send + Fn(&mut T) + 'static) -> ListenGuard {
         let listener = Arc::new(listener);
         self.listeners.push(Arc::downgrade(&listener) as _);
         ListenGuard(listener)
@@ -42,9 +43,15 @@ impl<'a, T> DerefMut for WriteGuard<'a, T> {
 
 impl<'a, T> Drop for WriteGuard<'a, T> {
     fn drop(&mut self) {
-        for x in self.0.listeners.drain() {
+        for x in self.0.listeners.iter() {
             x(&mut self.0.inner)
         }
+    }
+}
+
+impl<T: Debug> Debug for Listenable<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", &self.inner)
     }
 }
 
