@@ -1,0 +1,20 @@
+[package]
+name = "async-backtrace"
+version = "0.1.0"
+authors = ["Nathan Dobson <nadobson@mac.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pin-project = "1.0.6"
+tokio = { version = "1.4.0", features = ["full"] }
+lazy_static = "1.4.0"
+util = { path = "../util" }
+parking_lot = "0.11.1"
+backtrace = "0.3.56"
+futures-util = "0.3.13"
+termio = { path = "../termio" }
+itertools = "0.10.0"
+either = "1.6.1"
+hyper = { version = "0.14", features = ["full"] }
