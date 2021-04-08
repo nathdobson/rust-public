@@ -1,5 +1,5 @@
 use std::{mem, slice, fmt};
-use std::collections::hash_map::DefaultHasher;
+use std::collections::hash_map::{DefaultHasher, Iter};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt::{Write, Display, Formatter};
@@ -9,11 +9,11 @@ use std::pin::Pin;
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-use std::time::Duration;
-
-use backtrace::{Backtrace, BacktraceFrame, BacktraceSymbol, SymbolName};
-use futures_util::task::noop_waker;
-use itertools::Itertools;
+use std::time::{Duration, Instant};
+use crate::remangle::resolve_remangle;
+use backtrace::{Backtrace, BacktraceFrame, BacktraceSymbol, SymbolName, resolve};
+use futures_util::task::{noop_waker, noop_waker_ref};
+use itertools::{Itertools, ExactlyOneError};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
@@ -25,14 +25,16 @@ use util::weak_vec::WeakVec;
 use crate::remangle::remangle;
 use futures_util::future::FusedFuture;
 use futures_util::FutureExt;
+use util::shared::ObjectInner;
+use std::hint::black_box;
 
 lazy_static! {
     static ref TASKS: Mutex<WeakVec<Mutex<Task<dyn Send+FusedFuture<Output=()>>>>> = Mutex::new(WeakVec::new());
 }
 
 const INDENT_CONTINUE: &'static str /**/ = "┃   ";
-const INDENT_TEE: &'static str /*     */ = "┣━━━";
-const INDENT_END: &'static str /*     */ = "┗━━━";
+const INDENT_TEE: &'static str /*     */ = "┣━━ ";
+const INDENT_END: &'static str /*     */ = "┗━━ ";
 const INDENT_BLANK: &'static str /*   */ = "    ";
 
 struct Task<F: ?Sized + 'static + Send + FusedFuture<Output=()>> {
@@ -84,6 +86,7 @@ struct Node {
 
 #[derive(Debug)]
 pub struct Trace {
+    tasks: usize,
     timeouts: usize,
     ignore_prefix: usize,
     ignore_suffix: usize,
@@ -108,44 +111,22 @@ impl Node {
     }
     fn print(&self, indent: &mut String, output: &mut Formatter<'_>) -> fmt::Result {
         if self.count > 0 {
-            write!(output, "{}{} task(s)\n", indent, self.count);
+            write!(output, "{}{} pending\n", indent, self.count)?;
             //write!(output, "{}\n", indent);
         }
         let old_indent = indent.len();
         for (index, (addr, child)) in self.children.iter().enumerate() {
-            let mut symbols = vec![];
-            backtrace::resolve(*addr, |symbol| {
-                let mut line = String::new();
-                if let Some(name) = symbol.name() {
-                    write!(&mut line, "{}", remangle(&name.to_string()));
-                    if let Some(filename) = symbol.filename() {
-                        let filename =
-                            filename.to_str().unwrap()
-                                .split("src/").last().unwrap()
-                                .split("examples/").last().unwrap();
-                        if let Some(lineno) = symbol.lineno() {
-                            if let Some(colno) = symbol.colno() {
-                                write!(&mut line, " ({}:{}:{})", filename, lineno, colno);
-                            } else {
-                                write!(&mut line, " ({}:{})", filename, lineno);
-                            }
-                        } else {
-                            write!(&mut line, " ({})", filename);
-                        }
-                    }
-                }
-                symbols.push(line);
-            });
+            let symbols = resolve_remangle(*addr);
             for (depth, symbol) in symbols.iter().enumerate() {
                 let extend = depth == 0 && index != self.children.len() - 1;
                 let space = depth == 0 && self.children.len() > 1;
                 let old_indent = indent.len();
                 let mut extra_indent = "";
                 if extend {
-                    write!(output, "{}{}\n", INDENT_CONTINUE, indent);
+                    write!(output, "{}{}\n", indent, INDENT_CONTINUE)?;
                     extra_indent = INDENT_TEE;
                 } else if space {
-                    write!(output, "{}{}\n", INDENT_CONTINUE, indent);
+                    write!(output, "{}{}\n", indent, INDENT_CONTINUE)?;
                     extra_indent = INDENT_END;
                 }
                 write!(output, "{}{}{}\n", indent, extra_indent, symbol)?;
@@ -155,7 +136,7 @@ impl Node {
                     indent.push_str(INDENT_BLANK);
                 }
             }
-            child.print(indent, output);
+            child.print(indent, output)?;
             indent.truncate(old_indent);
         }
         indent.truncate(old_indent);
@@ -165,7 +146,7 @@ impl Node {
 
 
 impl<'a> TraceWaker<'a> {
-    fn clone_impl(&self) -> Waker {
+    fn trace(&self) {
         let backtrace = Backtrace::new_unresolved();
         let slice = backtrace.frames();
         let mut lock = self.trace.lock();
@@ -174,10 +155,20 @@ impl<'a> TraceWaker<'a> {
             lock.node.insert(slice.iter());
         }
         mem::drop(lock);
+    }
+    fn clone_impl(&self) -> Waker {
+        self.trace();
         self.internal.clone()
     }
     fn wake_by_ref_impl(&self) {
+        self.trace();
         self.internal.wake_by_ref();
+    }
+    fn new(internal: &'a Waker, trace: &'a Mutex<Trace>) -> Self {
+        TraceWaker { internal: &internal, trace: &trace }
+    }
+    unsafe fn as_waker(&self) -> Waker {
+        Waker::from_raw(RawWaker::new(self as *const TraceWaker as *const (), &TRACE_WAKER_VTABLE))
     }
 }
 
@@ -188,26 +179,86 @@ static TRACE_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
     |_| (),
 );
 
+#[inline(never)]
+fn poll_split_point(waker: &Waker) {
+    mem::drop(waker.clone());
+}
+
 impl Trace {
     #[inline(never)]
     pub fn new() -> Self {
         unsafe {
+            let start = Instant::now();
             let tasks: Vec<_> = TASKS.lock().iter().collect();
-            let trace = backtrace::Backtrace::new();
-            let split = trace.frames().iter().position(|frame| {
-                frame.symbols().iter().any(|symbol: &BacktraceSymbol| {
-                    symbol.name().iter().any(|name: &SymbolName|
-                        name.to_string().starts_with("async_backtrace::Trace::new")
-                    )
-                })
+            // let trace = backtrace::Backtrace::new();
+            // let split = trace.frames().iter().position(|frame| {
+            //     frame.symbols().iter().any(|symbol: &BacktraceSymbol| {
+            //         symbol.name().iter().any(|name: &SymbolName| {
+            //             let name = name.to_string();
+            //             name.starts_with("async_backtrace::Trace::new")
+            //                 || (
+            //                 name.starts_with("<async_backtrace[")
+            //                     && name.ends_with("]::capture::Trace>::new")
+            //             )
+            //         })
+            //     })
+            // });
+            let trace = Mutex::new(Trace {
+                tasks: tasks.len(),
+                timeouts: 0,
+                ignore_prefix: 0,
+                ignore_suffix: 0,
+                node: Node::new(),
             });
-            let ignore_prefix = split.unwrap_or(0);
-            let ignore_suffix = split.map_or(0, |n| trace.frames().len() - n);
-            let trace = Mutex::new(Trace { timeouts: 0, ignore_prefix, ignore_suffix, node: Node::new() });
+            let no_waker = TraceWaker::new(noop_waker_ref(), &trace);
+            let no_waker = no_waker.as_waker();
+            let poll_split_point_fn = black_box(poll_split_point as fn(&Waker));
+            let mut poll_split_point_symbol = None;
+            resolve((poll_split_point_fn as usize + 1) as *mut c_void, |symbol| {
+                if poll_split_point_symbol == None {
+                    poll_split_point_symbol =
+                        symbol.name()
+                            .and_then(|name| name.as_str())
+                            .map(|name| name.to_string());
+                }
+            });
+            poll_split_point_fn(&no_waker);
+            {
+                let mut lock = trace.lock();
+                if let Some(poll_split_point_symbol) = poll_split_point_symbol {
+                    let mut node = &lock.node;
+                    let mut index = 0;
+                    let mut suffix = None;
+                    loop {
+                        let mut children = node.children.iter();
+                        if let Some((addr, child)) = children.next() {
+                            resolve(*addr, |symbol| {
+                                if let Some(name) = symbol.name() {
+                                    if let Some(name) = name.as_str() {
+                                        if poll_split_point_symbol == name {
+                                            suffix = Some(index);
+                                        }
+                                    }
+                                }
+                            });
+                            index += 1;
+                            node = child;
+                        } else {
+                            break;
+                        }
+                        assert!(children.next().is_none());
+                    }
+                    if let Some(suffix) = suffix {
+                        lock.ignore_prefix = index - suffix - 1;
+                        lock.ignore_suffix = suffix;
+                    }
+                }
+                lock.node.children.clear();
+            }
             for task in tasks {
                 if let Some(mut lock) = task.try_lock_for(Duration::from_millis(100)) {
-                    let waker = TraceWaker { internal: &lock.waker, trace: &trace };
-                    let waker = Waker::from_raw(RawWaker::new(&waker as *const TraceWaker as *const (), &TRACE_WAKER_VTABLE));
+                    let waker = TraceWaker::new(&lock.waker, &trace);
+                    let waker = waker.as_waker();
                     let pin = Pin::new_unchecked(&mut lock.fut);
                     if !pin.is_terminated() {
                         pin.poll(&mut Context::from_waker(&waker)).is_ready();
@@ -223,6 +274,7 @@ impl Trace {
 
 impl Display for Trace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} spawned task(s):\n", self.tasks)?;
         if self.timeouts > 0 {
             write!(f, "Tracing timed out for {:?} tasks.", self.timeouts)?;
         }

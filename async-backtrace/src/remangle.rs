@@ -11,6 +11,7 @@ use either::Either;
 use either::Either::{Left, Right};
 use std::convert::TryFrom;
 use std::fmt::Write;
+use std::ffi::c_void;
 
 #[derive(Debug)]
 pub struct ParseError(&'static str);
@@ -196,6 +197,8 @@ impl<'a> PathSegment<'a> {
                 if let Some(closure_name) = name.strip_prefix("{closure#").and_then(|x| x.strip_suffix("}")) {
                     output.push_str("λ");
                     output.push_str(closure_name);
+                } else if *name == "{{closure}}" {
+                    output.push_str("λ");
                 } else {
                     output.push_str(name);
                 }
@@ -398,10 +401,37 @@ pub fn remangle(s: &str) -> String {
     if !had_version {
         parsed.remove_hash();
     }
-    parsed.translate_generator();
+    //parsed.translate_generator();
     output.push_str(&parsed.to_string());
 
     output
+}
+
+pub(crate) fn resolve_remangle(addr: *mut c_void) -> Vec<String> {
+    let mut symbols = vec![];
+    backtrace::resolve(addr, |symbol| {
+        let mut line = String::new();
+        if let Some(name) = symbol.name() {
+            write!(&mut line, "{}", remangle(&name.to_string())).unwrap();
+            if let Some(filename) = symbol.filename() {
+                let filename =
+                    filename.to_str().unwrap()
+                        .split("src/").last().unwrap()
+                        .split("examples/").last().unwrap();
+                if let Some(lineno) = symbol.lineno() {
+                    if let Some(colno) = symbol.colno() {
+                        write!(&mut line, " ({}:{}:{})", filename, lineno, colno).unwrap();
+                    } else {
+                        write!(&mut line, " ({}:{})", filename, lineno).unwrap();
+                    }
+                } else {
+                    write!(&mut line, " ({})", filename).unwrap();
+                }
+            }
+        }
+        symbols.push(line);
+    });
+    symbols
 }
 
 #[test]

@@ -18,3 +18,4 @@ termio = { path = "../termio" }
 itertools = "0.10.0"
 either = "1.6.1"
 hyper = { version = "0.14", features = ["full"] }
+tempfile = "3.2.0"
