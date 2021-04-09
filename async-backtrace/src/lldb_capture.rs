@@ -15,7 +15,7 @@ async fn tempfile() -> io::Result<File> {
     spawn_blocking(|| Ok(File::from_std(tempfile::tempfile()?))).await?
 }
 
-async fn run() -> io::Result<()> {
+pub async fn capture() -> io::Result<String> {
     let mut stdout = tempfile().await?;
     let mut stderr = tempfile().await?;
 
@@ -51,8 +51,7 @@ async fn run() -> io::Result<()> {
             write!(output, "lldb: {}", line).unwrap();
         }
     }
-    println!("output: \n{}", output);
-    Ok(())
+    Ok(output)
 }
 
 fn translate_line(line: &str, output: &mut String) -> Option<()> {
@@ -78,5 +77,5 @@ fn translate_line(line: &str, output: &mut String) -> Option<()> {
 
 #[tokio::test]
 async fn test_lldb() {
-    run().await.unwrap();
+    println!("{}", capture().await.unwrap());
 }

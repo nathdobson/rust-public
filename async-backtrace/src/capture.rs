@@ -22,7 +22,7 @@ use termio::color::Color;
 use termio::output::{Background, Foreground};
 use util::weak_vec::WeakVec;
 
-use crate::remangle::remangle;
+use crate::remangle;
 use futures_util::future::FusedFuture;
 use futures_util::FutureExt;
 use util::shared::ObjectInner;
@@ -190,19 +190,6 @@ impl Trace {
         unsafe {
             let start = Instant::now();
             let tasks: Vec<_> = TASKS.lock().iter().collect();
-            // let trace = backtrace::Backtrace::new();
-            // let split = trace.frames().iter().position(|frame| {
-            //     frame.symbols().iter().any(|symbol: &BacktraceSymbol| {
-            //         symbol.name().iter().any(|name: &SymbolName| {
-            //             let name = name.to_string();
-            //             name.starts_with("async_backtrace::Trace::new")
-            //                 || (
-            //                 name.starts_with("<async_backtrace[")
-            //                     && name.ends_with("]::capture::Trace>::new")
-            //             )
-            //         })
-            //     })
-            // });
             let trace = Mutex::new(Trace {
                 tasks: tasks.len(),
                 timeouts: 0,

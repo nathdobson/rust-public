@@ -5,7 +5,7 @@ use hyper::service::{make_service_fn, service_fn};
 use std::thread;
 use tokio::net::TcpListener;
 use backtrace::Backtrace;
-use crate::Trace;
+use crate::{Trace, lldb_capture};
 use hyper::http::Result;
 
 
@@ -17,7 +17,9 @@ async fn handler_stacks_async(_req: Request<Body>) -> Result<Response<Body>> {
 }
 
 async fn handler_stacks(_req: Request<Body>) -> Result<Response<Body>> {
-    todo!()
+    Response::builder()
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(lldb_capture::capture().await.unwrap().into())
 }
 
 async fn handler(req: Request<Body>) -> Result<Response<Body>> {
