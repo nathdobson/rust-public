@@ -6,12 +6,13 @@
 #![feature(iter_intersperse)]
 #![feature(never_type)]
 #![deny(unused_must_use)]
+#![feature(trait_alias)]
 
 mod remangle;
-mod capture;
+mod async_capture;
 mod server;
 mod lldb_capture;
 
-pub use capture::Trace;
-pub use capture::spawn;
+pub use async_capture::Trace;
+pub use async_capture::spawn;
 pub use server::run_debug_server;

@@ -7,10 +7,13 @@ use tokio::net::TcpListener;
 use backtrace::Backtrace;
 use crate::{Trace, lldb_capture};
 use hyper::http::Result;
-
+use std::time::Instant;
+use std::fmt::Write;
 
 async fn handler_stacks_async(_req: Request<Body>) -> Result<Response<Body>> {
-    let trace = Trace::new().to_string();
+    let start = Instant::now();
+    let mut trace = Trace::new().to_string();
+    writeln!(trace, "Async capture in {:?}", start.elapsed()).unwrap();
     Response::builder()
         .header("content-type", "text/plain; charset=utf-8")
         .body(trace.into())

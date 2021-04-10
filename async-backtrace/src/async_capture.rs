@@ -29,7 +29,7 @@ use util::shared::ObjectInner;
 use std::hint::black_box;
 
 lazy_static! {
-    static ref TASKS: Mutex<WeakVec<Mutex<Task<dyn Send+FusedFuture<Output=()>>>>> = Mutex::new(WeakVec::new());
+    static ref TASKS: Mutex<WeakVec<Mutex<Task>>> = Mutex::new(WeakVec::new());
 }
 
 const INDENT_CONTINUE: &'static str /**/ = "┃   ";
@@ -37,16 +37,18 @@ const INDENT_TEE: &'static str /*     */ = "┣━━ ";
 const INDENT_END: &'static str /*     */ = "┗━━ ";
 const INDENT_BLANK: &'static str /*   */ = "    ";
 
-struct Task<F: ?Sized + 'static + Send + FusedFuture<Output=()>> {
+pub trait TaskFuture = 'static + Send + FusedFuture<Output=()>;
+
+struct Task<F: ?Sized + TaskFuture = dyn TaskFuture> {
     waker: Waker,
     fut: F,
 }
 
-pub struct Tracer<F: 'static + Send + FusedFuture<Output=()>> {
+pub struct Tracer<F: TaskFuture> {
     task: Arc<Mutex<Task<F>>>,
 }
 
-impl<F: 'static + Send + FusedFuture<Output=()>> Tracer<F> {
+impl<F: TaskFuture> Tracer<F> {
     fn new(fut: F) -> Self {
         let task = Arc::new(Mutex::new(Task { waker: noop_waker(), fut }));
         TASKS.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task<dyn Send + FusedFuture<Output=()>>>>)));
@@ -54,7 +56,7 @@ impl<F: 'static + Send + FusedFuture<Output=()>> Tracer<F> {
     }
 }
 
-impl<F: 'static + Send + FusedFuture<Output=()>> Future for Tracer<F> {
+impl<F: TaskFuture> Future for Tracer<F> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -72,7 +74,7 @@ impl<F: 'static + Send + FusedFuture<Output=()>> Future for Tracer<F> {
 }
 
 
-impl<F: 'static + Send + FusedFuture<Output=()>> Unpin for Tracer<F> {}
+impl<F: TaskFuture> Unpin for Tracer<F> {}
 
 pub fn spawn<F: 'static + Send + Future<Output=()>>(x: F) -> JoinHandle<()> {
     tokio::spawn(Tracer::new(x.fuse()))
@@ -88,6 +90,7 @@ struct Node {
 pub struct Trace {
     tasks: usize,
     timeouts: usize,
+    traced_delimiter: bool,
     ignore_prefix: usize,
     ignore_suffix: usize,
     node: Node,
@@ -150,11 +153,34 @@ impl<'a> TraceWaker<'a> {
         let backtrace = Backtrace::new_unresolved();
         let slice = backtrace.frames();
         let mut lock = self.trace.lock();
-        if slice.len() >= lock.ignore_prefix + lock.ignore_suffix {
-            let slice = &slice[lock.ignore_prefix..slice.len() - lock.ignore_suffix];
-            lock.node.insert(slice.iter());
+        if !lock.traced_delimiter {
+            lock.traced_delimiter = true;
+            if let Some(delimiter_name) = &*DELIMITER_NAME {
+                let prefix = slice.iter().position(|symbol| {
+                    let mut found = false;
+                    resolve(symbol.symbol_address(), |symbol| {
+                        if let Some(name) = symbol.name() {
+                            if let Some(name) = name.as_str() {
+                                if delimiter_name == name {
+                                    found = true;
+                                }
+                            }
+                        }
+                    });
+                    found
+                });
+                if let Some(prefix) = prefix {
+                    lock.ignore_prefix = prefix;
+                    lock.ignore_suffix = slice.len() - prefix - 1;
+                }
+            }
+            lock.node.children.clear();
+        } else {
+            if slice.len() >= lock.ignore_prefix + lock.ignore_suffix {
+                let slice = &slice[lock.ignore_prefix..slice.len() - lock.ignore_suffix];
+                lock.node.insert(slice.iter());
+            }
         }
-        mem::drop(lock);
     }
     fn clone_impl(&self) -> Waker {
         self.trace();
@@ -180,8 +206,27 @@ static TRACE_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
 );
 
 #[inline(never)]
-fn poll_split_point(waker: &Waker) {
+fn delimiter(waker: &Waker) {
     mem::drop(waker.clone());
+}
+
+static DELIMITER_FN: fn(&Waker) = delimiter as fn(&Waker);
+
+fn resolve_delimiter_name() -> Option<String> {
+    let mut result = None;
+    resolve((DELIMITER_FN as usize + 1) as *mut c_void, |symbol| {
+        if result == None {
+            result =
+                symbol.name()
+                    .and_then(|name| name.as_str())
+                    .map(|name| name.to_string());
+        }
+    });
+    result
+}
+
+lazy_static! {
+    static ref DELIMITER_NAME: Option<String> = resolve_delimiter_name();
 }
 
 impl Trace {
@@ -193,55 +238,14 @@ impl Trace {
             let trace = Mutex::new(Trace {
                 tasks: tasks.len(),
                 timeouts: 0,
+                traced_delimiter: false,
                 ignore_prefix: 0,
                 ignore_suffix: 0,
                 node: Node::new(),
             });
             let no_waker = TraceWaker::new(noop_waker_ref(), &trace);
             let no_waker = no_waker.as_waker();
-            let poll_split_point_fn = black_box(poll_split_point as fn(&Waker));
-            let mut poll_split_point_symbol = None;
-            resolve((poll_split_point_fn as usize + 1) as *mut c_void, |symbol| {
-                if poll_split_point_symbol == None {
-                    poll_split_point_symbol =
-                        symbol.name()
-                            .and_then(|name| name.as_str())
-                            .map(|name| name.to_string());
-                }
-            });
-            poll_split_point_fn(&no_waker);
-            {
-                let mut lock = trace.lock();
-                if let Some(poll_split_point_symbol) = poll_split_point_symbol {
-                    let mut node = &lock.node;
-                    let mut index = 0;
-                    let mut suffix = None;
-                    loop {
-                        let mut children = node.children.iter();
-                        if let Some((addr, child)) = children.next() {
-                            resolve(*addr, |symbol| {
-                                if let Some(name) = symbol.name() {
-                                    if let Some(name) = name.as_str() {
-                                        if poll_split_point_symbol == name {
-                                            suffix = Some(index);
-                                        }
-                                    }
-                                }
-                            });
-                            index += 1;
-                            node = child;
-                        } else {
-                            break;
-                        }
-                        assert!(children.next().is_none());
-                    }
-                    if let Some(suffix) = suffix {
-                        lock.ignore_prefix = index - suffix - 1;
-                        lock.ignore_suffix = suffix;
-                    }
-                }
-                lock.node.children.clear();
-            }
+            delimiter(&no_waker);
             for task in tasks {
                 if let Some(mut lock) = task.try_lock_for(Duration::from_millis(100)) {
                     let waker = TraceWaker::new(&lock.waker, &trace);
@@ -261,9 +265,9 @@ impl Trace {
 
 impl Display for Trace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} spawned task(s):\n", self.tasks)?;
+        writeln!(f, "{:?} spawned task(s):", self.tasks)?;
         if self.timeouts > 0 {
-            write!(f, "Tracing timed out for {:?} tasks.", self.timeouts)?;
+            writeln!(f, "Tracing timed out for {:?} tasks.", self.timeouts)?;
         }
         self.node.print(&mut String::new(), f)?;
         Ok(())
@@ -285,7 +289,7 @@ mod test {
     use tokio::join;
     use tokio::time::sleep;
 
-    use crate::capture::{spawn, Trace};
+    use crate::async_capture::{spawn, Trace};
 
     #[inline(never)]
     async fn foo1() {
