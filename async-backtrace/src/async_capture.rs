@@ -28,15 +28,6 @@ use futures_util::FutureExt;
 use util::shared::ObjectInner;
 use std::hint::black_box;
 
-lazy_static! {
-    static ref TASKS: Mutex<WeakVec<Mutex<Task>>> = Mutex::new(WeakVec::new());
-}
-
-const INDENT_BLANK: &'static str /*   */ = "    ";
-const INDENT_END: &'static str /*     */ = "┏━━ ";
-const INDENT_CONTINUE: &'static str /**/ = "┃   ";
-const INDENT_TEE: &'static str /*     */ = "┣━━ ";
-
 pub trait TaskFuture = 'static + Send + FusedFuture<Output=()>;
 
 struct Task<F: ?Sized + TaskFuture = dyn TaskFuture> {
@@ -48,10 +39,45 @@ pub struct Tracer<F: TaskFuture> {
     task: Arc<Mutex<Task<F>>>,
 }
 
+#[derive(Debug)]
+struct Node {
+    children: HashMap<*mut c_void, Node>,
+    count: usize,
+}
+
+struct NodePrinter<W: Write> {
+    indent: String,
+    writer: W,
+}
+
+#[derive(Debug)]
+pub struct Trace {
+    tasks: usize,
+    timeouts: usize,
+    traced_delimiter: bool,
+    ignore_prefix: usize,
+    ignore_suffix: usize,
+    node: Node,
+}
+
+struct TraceWaker<'a> {
+    internal: &'a Waker,
+    trace: &'a Mutex<Trace>,
+}
+
+lazy_static! {
+    static ref TASKS: Mutex<WeakVec<Mutex<Task>>> = Mutex::new(WeakVec::new());
+}
+
+const INDENT_BLANK: &'static str /*   */ = "    ";
+const INDENT_END: &'static str /*     */ = "┏━━ ";
+const INDENT_CONTINUE: &'static str /**/ = "┃   ";
+const INDENT_TEE: &'static str /*     */ = "┣━━ ";
+
 impl<F: TaskFuture> Tracer<F> {
     fn new(fut: F) -> Self {
         let task = Arc::new(Mutex::new(Task { waker: noop_waker(), fut }));
-        TASKS.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task<dyn Send + FusedFuture<Output=()>>>>)));
+        TASKS.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task>>)));
         Tracer { task }
     }
 }
@@ -80,27 +106,6 @@ pub fn spawn<F: 'static + Send + Future<Output=()>>(x: F) -> JoinHandle<()> {
     tokio::spawn(Tracer::new(x.fuse()))
 }
 
-#[derive(Debug)]
-struct Node {
-    children: HashMap<*mut c_void, Node>,
-    count: usize,
-}
-
-#[derive(Debug)]
-pub struct Trace {
-    tasks: usize,
-    timeouts: usize,
-    traced_delimiter: bool,
-    ignore_prefix: usize,
-    ignore_suffix: usize,
-    node: Node,
-}
-
-struct TraceWaker<'a> {
-    internal: &'a Waker,
-    trace: &'a Mutex<Trace>,
-}
-
 impl Node {
     fn new() -> Self {
         Node { children: HashMap::new(), count: 0 }
@@ -112,46 +117,50 @@ impl Node {
             self.count += 1;
         }
     }
-    fn print(&self, indent: &mut String, output: &mut Formatter<'_>) -> fmt::Result {
-        if self.count > 0 {
-            write!(output, "{}{} pending\n", indent, self.count)?;
-            //write!(output, "{}\n", indent);
+}
+
+impl<W: Write> NodePrinter<W> {
+    fn new(writer: W) -> Self {
+        NodePrinter { indent: "".to_string(), writer }
+    }
+    fn print(&mut self, node: &Node) -> fmt::Result {
+        if node.count > 0 {
+            write!(self.writer, "{}{} pending\n", self.indent, node.count)?;
         }
-        let old_indent = indent.len();
-        for (index, (addr, child)) in self.children.iter().enumerate() {
+        let old_indent = self.indent.len();
+        for (index, (addr, child)) in node.children.iter().enumerate() {
             let symbols = resolve_remangle(*addr);
-            let extra = self.children.len() > 1;
+            let extra = node.children.len() > 1;
             if extra {
                 if index == 0 {
-                    indent.push_str(INDENT_BLANK);
+                    self.indent.push_str(INDENT_BLANK);
                 } else {
-                    indent.push_str(INDENT_CONTINUE);
+                    self.indent.push_str(INDENT_CONTINUE);
                 }
             }
-            child.print(indent, output)?;
+            self.print(child)?;
             for (depth, symbol) in symbols.iter().enumerate().rev() {
                 if extra && depth == 0 {
-                    indent.truncate(old_indent);
+                    self.indent.truncate(old_indent);
                     if index == 0 {
-                        indent.push_str(INDENT_END);
+                        self.indent.push_str(INDENT_END);
                     } else {
-                        indent.push_str(INDENT_TEE);
+                        self.indent.push_str(INDENT_TEE);
                     }
                 }
-                writeln!(output, "{}{}", indent, symbol)?;
+                writeln!(self.writer, "{}{}", self.indent, symbol)?;
                 if extra && depth == 0 {
-                    indent.truncate(old_indent);
-                    indent.push_str(INDENT_CONTINUE);
-                    writeln!(output, "{}", indent)?;
+                    self.indent.truncate(old_indent);
+                    self.indent.push_str(INDENT_CONTINUE);
+                    writeln!(self.writer, "{}", self.indent)?;
                 }
             }
-            indent.truncate(old_indent);
+            self.indent.truncate(old_indent);
         }
-        indent.truncate(old_indent);
+        self.indent.truncate(old_indent);
         Ok(())
     }
 }
-
 
 impl<'a> TraceWaker<'a> {
     fn trace(&self) {
@@ -275,7 +284,7 @@ impl Display for Trace {
             writeln!(f, "Tracing timed out for {:?} tasks.", self.timeouts)?;
         }
         writeln!(f)?;
-        self.node.print(&mut String::new(), f)?;
+        NodePrinter::new(f).print(&self.node)?;
         Ok(())
     }
 }
