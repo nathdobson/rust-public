@@ -32,10 +32,10 @@ lazy_static! {
     static ref TASKS: Mutex<WeakVec<Mutex<Task>>> = Mutex::new(WeakVec::new());
 }
 
+const INDENT_BLANK: &'static str /*   */ = "    ";
+const INDENT_END: &'static str /*     */ = "┏━━ ";
 const INDENT_CONTINUE: &'static str /**/ = "┃   ";
 const INDENT_TEE: &'static str /*     */ = "┣━━ ";
-const INDENT_END: &'static str /*     */ = "┗━━ ";
-const INDENT_BLANK: &'static str /*   */ = "    ";
 
 pub trait TaskFuture = 'static + Send + FusedFuture<Output=()>;
 
@@ -120,26 +120,31 @@ impl Node {
         let old_indent = indent.len();
         for (index, (addr, child)) in self.children.iter().enumerate() {
             let symbols = resolve_remangle(*addr);
-            for (depth, symbol) in symbols.iter().enumerate() {
-                let extend = depth == 0 && index != self.children.len() - 1;
-                let space = depth == 0 && self.children.len() > 1;
-                let old_indent = indent.len();
-                let mut extra_indent = "";
-                if extend {
-                    write!(output, "{}{}\n", indent, INDENT_CONTINUE)?;
-                    extra_indent = INDENT_TEE;
-                } else if space {
-                    write!(output, "{}{}\n", indent, INDENT_CONTINUE)?;
-                    extra_indent = INDENT_END;
-                }
-                write!(output, "{}{}{}\n", indent, extra_indent, symbol)?;
-                if extend {
-                    indent.push_str(INDENT_CONTINUE);
-                } else if space {
+            let extra = self.children.len() > 1;
+            if extra {
+                if index == 0 {
                     indent.push_str(INDENT_BLANK);
+                } else {
+                    indent.push_str(INDENT_CONTINUE);
                 }
             }
             child.print(indent, output)?;
+            for (depth, symbol) in symbols.iter().enumerate().rev() {
+                if extra && depth == 0 {
+                    indent.truncate(old_indent);
+                    if index == 0 {
+                        indent.push_str(INDENT_END);
+                    } else {
+                        indent.push_str(INDENT_TEE);
+                    }
+                }
+                writeln!(output, "{}{}", indent, symbol)?;
+                if extra && depth == 0 {
+                    indent.truncate(old_indent);
+                    indent.push_str(INDENT_CONTINUE);
+                    writeln!(output, "{}", indent)?;
+                }
+            }
             indent.truncate(old_indent);
         }
         indent.truncate(old_indent);
@@ -269,6 +274,7 @@ impl Display for Trace {
         if self.timeouts > 0 {
             writeln!(f, "Tracing timed out for {:?} tasks.", self.timeouts)?;
         }
+        writeln!(f)?;
         self.node.print(&mut String::new(), f)?;
         Ok(())
     }
