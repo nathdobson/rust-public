@@ -35,7 +35,7 @@ fn for_generic<T: Debug>(x: T) {
 
 #[tokio::main]
 async fn main() {
-    run_debug_server(9999);
+    run_debug_server("127.0.0.1:9999".to_string());
     spawn(foo());
     spawn(bar1());
     spawn_blocking(baz);

@@ -9,6 +9,7 @@ use crate::{Trace, lldb_capture};
 use hyper::http::Result;
 use std::time::Instant;
 use std::fmt::Write;
+use std::str::FromStr;
 
 async fn handler_stacks_async(_req: Request<Body>) -> Result<Response<Body>> {
     let start = Instant::now();
@@ -39,7 +40,7 @@ fn not_found() -> Result<Response<Body>> {
         .body((b"Not found" as &[u8]).into())
 }
 
-pub fn run_debug_server(port: u16) {
+pub fn run_debug_server(addr: String) {
     // pre-load symbol tables.
     thread::Builder::new().name("debug-server-heater".to_string()).spawn(|| { Backtrace::new(); }).unwrap();
     thread::Builder::new().name("debug-server".to_string()).spawn(move || {
@@ -49,13 +50,13 @@ pub fn run_debug_server(port: u16) {
             .enable_io()
             .build().unwrap()
             .block_on(async {
-                run_debug_server_async(port).await;
+                run_debug_server_async(addr).await;
             });
     }).unwrap();
 }
 
-pub async fn run_debug_server_async(port: u16) {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+pub async fn run_debug_server_async(addr: String) {
+    let addr = SocketAddr::from_str(&addr).unwrap();
     let make_svc = make_service_fn(|_conn| async {
         Ok::<_, Infallible>(service_fn(handler))
     });
