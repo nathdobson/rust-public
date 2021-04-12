@@ -266,7 +266,8 @@ impl TableBorder {
                     up: self.verticals.get((col, row - 1)).cloned().unwrap_or(Stroke::Blank),
                     down: self.verticals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
                 };
-                canvas.set((x, y), &format!("{}", cross));
+                let formatted = format!("{}", cross);
+                canvas.set((x, y), &formatted);
             }
         }
         for (row, y) in self.ys.iter().cloned().enumerate() {

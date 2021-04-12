@@ -2,14 +2,17 @@ use std::sync::Arc;
 use crate::waker::AtomicWaker;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::atomic::Ordering::Relaxed;
-use futures_util::stream::Stream;
 use std::task::{Context, Poll};
 use std::pin::Pin;
 use std::sync::mpsc::RecvError;
 use std::cmp::Ordering;
-use futures::executor::{ThreadPool, block_on};
-use futures::task::SpawnExt;
-use async_std::stream::StreamExt;
+use tokio_stream::wrappers::{UnboundedReceiverStream, ReceiverStream};
+use tokio_stream::StreamExt;
+use tokio_stream::Stream;
+use std::ops::Add;
+use tokio::sync::Barrier;
+use crate::futureext::FutureExt;
+use tokio::task::yield_now;
 
 const STATE_CLEAN: usize = 0;
 const STATE_DIRTY: usize = 1;
@@ -84,19 +87,34 @@ pub fn channel() -> (Sender, Receiver) {
     (Sender(inner.clone()), Receiver(inner))
 }
 
-#[test]
-fn test() {
-    let pool = ThreadPool::new().unwrap();
+#[tokio::test]
+async fn test_simple() {
+    let (sender, mut receiver) = channel();
+    receiver.next().ready().unwrap_none();
+    sender.mark();
+    receiver.next().ready().unwrap();
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_multithread() {
     let (sender, receiver) = channel();
-    let h1 = pool.spawn_with_handle(async move {
+    let barrier1 = Arc::new(Barrier::new(2));
+    let barrier2 = barrier1.clone();
+    let h1 = tokio::spawn(async move {
+        barrier1.wait().await;
         for x in 0..100000 {
+            if x % 1000 == 0 {
+                yield_now().await;
+            }
             sender.mark();
         }
-    }).unwrap();
-    let h2 = pool.spawn_with_handle(async move {
-        receiver.count().await
-    }).unwrap();
-    block_on(h1);
-    assert!(block_on(h2) > 1000);
+    });
+    let h2 = tokio::spawn(async move {
+        barrier2.wait().await;
+        receiver.map(|x| 1).fold(0usize, usize::add).await
+    });
+    h1.await.unwrap();
+    let count = h2.await.unwrap();
+    dbg!(count);
+    assert!(count > 10);
 }

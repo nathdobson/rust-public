@@ -3,21 +3,18 @@ use std::collections::BTreeSet;
 use std::io::{Error, ErrorKind};
 use std::mem::MaybeUninit;
 use std::ops::BitOr;
-use async_std::io::Read;
-use async_std::io::BufReader;
+use std::pin::Pin;
+use std::time::Instant;
 
-use byteorder::ReadBytesExt;
 use itertools::Itertools;
-use futures::io::AsyncRead;
-use futures::io::AsyncReadExt;
+use pin_project::pin_project;
+
+use async_util::parser::Parser;
 
 use crate::Direction;
 use crate::tokenizer::Tokenizer;
-use std::time::Instant;
-use std::pin::Pin;
-use pin_project::pin_project;
-use futures::{AsyncBufRead, AsyncBufReadExt};
-use async_util::parser::Parser;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Mouse {
@@ -146,7 +143,7 @@ impl KeyEvent {
 }
 
 #[pin_project]
-pub struct EventReader<R: Read> {
+pub struct EventReader<R: AsyncRead> {
     #[pin]
     inner: Parser<R>,
 }
@@ -155,7 +152,7 @@ fn known(modifier: Modifier, key: Key) -> EventResult {
     Ok(Event::KeyEvent(KeyEvent { modifier, key }))
 }
 
-impl<R: Read> EventReader<R> {
+impl<R: AsyncRead> EventReader<R> {
     pub fn new(inner: R) -> EventReader<R> {
         EventReader {
             inner: Parser::new(inner)

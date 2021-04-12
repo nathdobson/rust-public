@@ -1,12 +1,15 @@
-use futures::{AsyncRead, AsyncReadExt, FutureExt};
 use std::io::Write;
-use futures::task::{Context, Poll};
 use pin_project::__private::Pin;
-use std::{io};
+use std::{io, array};
 use std::collections::{VecDeque};
 use pin_project::pin_project;
 use util::slice::SlicePair;
-use futures::future::poll_fn;
+use tokio::io::{AsyncRead, ReadBuf};
+use std::task::{Poll, Context};
+use std::future::poll_fn;
+use tokio::task::yield_now;
+use tokio::io::AsyncReadExt;
+use crate::futureext::FutureExt;
 
 #[pin_project]
 pub struct Parser<R: AsyncRead + ?Sized> {
@@ -68,20 +71,24 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
             this.buf.resize(min_size, 0);
         }
         loop {
-            if (*this.back - *this.front) as usize >= lookahead {
-                return Poll::Ready(Ok(()));
-            }
             let dest = SlicePair::from_deque_mut(&mut this.buf);
-            let mut dest = dest.range(stored..min_size);
-            match this.inner.as_mut().poll_read_vectored(cx, &mut dest.as_io_mut())? {
-                Poll::Ready(count) => {
-                    *this.back += count as u64;
-                    if count == 0 {
-                        return Poll::Ready(Ok(()));
-                    }
+            let dest = dest.range(stored..min_size);
+            for dest in array::IntoIter::new([dest.0, dest.1]) {
+                if (*this.back - *this.front) as usize >= lookahead {
+                    return Poll::Ready(Ok(()));
                 }
-                Poll::Pending => {
-                    return Poll::Pending;
+                let mut dest = ReadBuf::new(dest);
+                match this.inner.as_mut().poll_read(cx, &mut dest)? {
+                    Poll::Ready(()) => {
+                        let count = dest.filled().len();
+                        *this.back += count as u64;
+                        if count == 0 {
+                            return Poll::Ready(Ok(()));
+                        }
+                    }
+                    Poll::Pending => {
+                        return Poll::Pending;
+                    }
                 }
             }
         }
@@ -89,21 +96,22 @@ impl<R: AsyncRead + ?Sized> Parser<R> {
 }
 
 impl<R: AsyncRead + ?Sized> AsyncRead for Parser<R> {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf) -> Poll<io::Result<()>> {
         match self.as_mut().poll_lookahead(cx, 1)? {
             Poll::Ready(_) => {}
             Poll::Pending => return Poll::Pending,
         }
         let this = self.project();
         if this.front == this.back {
-            return Poll::Ready(Ok(0));
+            return Poll::Ready(Ok(()));
         }
-        let consumed = ((*this.back - *this.front) as usize).min(buf.len());
+        let consumed = ((*this.back - *this.front) as usize).min(buf.remaining());
         let start = (*this.front - *this.freed) as usize;
         let source = SlicePair::from_deque(&this.buf).range(start..start + consumed);
-        (&mut buf[..consumed]).write_vectored(&mut source.as_io()).unwrap();
+        buf.put_slice(source.0);
+        buf.put_slice(source.1);
         *this.front += consumed as u64;
-        Poll::Ready(Ok(consumed))
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -125,28 +133,26 @@ fn test_slice_pair() {
 #[test]
 fn test_parser() {
     use crate::pipe::unbounded::pipe;
-    use futures::task::SpawnExt;
-    use futures::executor::LocalPool;
 
     let (mut write, read) = pipe();
-    let mut pool = LocalPool::new();
-    let spawner = pool.spawner();
-
-    let joiner = spawner.spawn_with_handle(async {
+    let joiner = async {
+        println!("Starting");
         let mut parser = Box::pin(Parser::new(read));
         let mut parser = parser.as_mut();
         let mut buf = [0u8; 2];
+        println!("A");
         assert_eq!(2, parser.as_mut().read(&mut buf).await.unwrap());
         assert_eq!(buf, [1, 2]);
         parser.as_mut().free(1);
+        println!("B");
         assert_eq!(1, parser.as_mut().read(&mut buf).await.unwrap());
         assert_eq!(buf[..1], [3]);
         parser.as_mut().seek_back(1);
+        println!("C");
         assert_eq!(2, parser.as_mut().read(&mut buf).await.unwrap());
         assert_eq!(buf, [2, 3]);
-    }).unwrap();
-    pool.run_until_stalled();
+        println!("Ending");
+    };
     write.write(&[1, 2, 3]).unwrap();
-    pool.run_until_stalled();
-    let () = joiner.now_or_never().unwrap();
+    joiner.ready().unwrap();
 }

@@ -1,14 +1,10 @@
-use async_std::{io};
-use std::mem;
-use futures::io::AsyncBufRead;
-use futures::io::AsyncRead;
-use futures::task::{Context, Poll};
-use async_std::pin::Pin;
-use futures::AsyncReadExt;
-use pin_project::pin_project;
 use std::io::Write;
-use futures::AsyncBufReadExt;
-use futures::FutureExt;
+use std::{mem, io};
+use std::pin::Pin;
+
+use pin_project::pin_project;
+use std::task::{Poll, Context};
+use tokio::io::AsyncRead;
 
 #[pin_project]
 pub struct Tokenizer<R: AsyncRead> {
@@ -32,26 +28,26 @@ impl<R: AsyncRead> Tokenizer<R> {
     }
 }
 
-impl<R: AsyncRead> AsyncRead for Tokenizer<R> {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        match self.as_mut().project().inner.poll_read(cx, buf)? {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(length) => {
-                self.as_mut().project().log.write_all(&buf[..length]).unwrap();
-                Poll::Ready(Ok(length))
-            }
-        }
-    }
-}
+// impl<R: AsyncRead> AsyncRead for Tokenizer<R> {
+//     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+//         match self.as_mut().project().inner.poll_read(cx, buf)? {
+//             Poll::Pending => Poll::Pending,
+//             Poll::Ready(length) => {
+//                 self.as_mut().project().log.write_all(&buf[..length]).unwrap();
+//                 Poll::Ready(Ok(length))
+//             }
+//         }
+//     }
+// }
 
-impl<R: AsyncBufRead> AsyncBufRead for Tokenizer<R> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
-        self.project().inner.poll_fill_buf(cx)
-    }
-
-    fn consume(self: Pin<&mut Self>, amt: usize) {
-        let mut this = self.project();
-        this.log.write(&this.inner.fill_buf().now_or_never().unwrap().unwrap()[..amt]).unwrap();
-        this.inner.consume(amt);
-    }
-}
+// impl<R: AsyncBufRead> AsyncBufRead for Tokenizer<R> {
+//     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+//         self.project().inner.poll_fill_buf(cx)
+//     }
+//
+//     fn consume(self: Pin<&mut Self>, amt: usize) {
+//         let mut this = self.project();
+//         this.log.write(&this.inner.fill_buf().now_or_never().unwrap().unwrap()[..amt]).unwrap();
+//         this.inner.consume(amt);
+//     }
+// }

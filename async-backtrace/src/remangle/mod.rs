@@ -9,8 +9,6 @@ use std::{fmt, mem, iter, array};
 use std::hash::{Hash, Hasher};
 use itertools::Itertools;
 
-use termio::color::Color;
-use termio::output::{Background, Foreground};
 use either::Either;
 use either::Either::{Left, Right};
 use std::convert::TryFrom;

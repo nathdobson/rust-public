@@ -14,7 +14,8 @@
 #![feature(never_type)]
 #![feature(raw_ref_op)]
 #![feature(async_stream)]
-
+#![feature(future_poll_fn)]
+#![deny(unused_must_use)]
 #![allow(unused_imports, unused_variables, dead_code, unreachable_code, incomplete_features)]
 
 use std::iter::FromIterator;

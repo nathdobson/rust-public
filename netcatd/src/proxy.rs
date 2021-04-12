@@ -1,23 +1,16 @@
-use std::{error, mem, thread, fmt};
-use async_std::io;
-use async_std::io::{ErrorKind, Write, Read};
-use async_std::net::{Shutdown, TcpListener, TcpStream, IpAddr};
+use std::{error, fmt, mem, thread};
+use std::borrow::Cow;
+use std::error::Error;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::Mutex;
-
 use termio::input::{Event, EventReader};
 use util::shared::{Object, Shared};
 use util::socket::{set_linger, set_reuse_port};
-use async_std::net::Ipv4Addr;
-use async_std::net::Ipv6Addr;
-use std::error::Error;
-use std::borrow::Cow;
-use std::fmt::Display;
-use async_util::bytes::LE;
-use async_util::bytes::ReadIntExt;
-use async_util::bytes::WriteIntExt;
-use futures::AsyncWriteExt;
-use futures::AsyncReadExt;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use tokio::net::TcpStream;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 
 const SOCKS5: u8 = 5;
 const SOCKS4: u8 = 4;
@@ -40,7 +33,7 @@ pub enum Host {
 }
 
 impl Host {
-    async fn encode(&self, mut stream: &TcpStream) -> Result<(), Box<dyn Error>> {
+    async fn encode(&self, stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
         match self {
             Host::Dns(b) => {
                 stream.write_all(&[HOST_DNS, b.len() as u8]).await?;
@@ -57,7 +50,7 @@ impl Host {
         }
         Ok(())
     }
-    async fn decode(mut stream: &TcpStream) -> Result<Self, Box<dyn Error>> {
+    async fn decode(stream: &mut TcpStream) -> Result<Self, Box<dyn Error>> {
         let addr_type = stream.read_u8().await?;
         match addr_type {
             HOST_4 => {
@@ -88,7 +81,7 @@ impl Host {
     }
 }
 
-pub async fn run_proxy_client(mut stream: &TcpStream, host: Host, port: u16) -> Result<(Host, u16), Box<dyn Error>> {
+pub async fn run_proxy_client(stream: &mut TcpStream, host: Host, port: u16) -> Result<(Host, u16), Box<dyn Error>> {
     stream.write_all(&[SOCKS5, 1, AUTH_NONE]).await?;
     let version = stream.read_u8().await?;
     if version != SOCKS5 {
@@ -100,7 +93,7 @@ pub async fn run_proxy_client(mut stream: &TcpStream, host: Host, port: u16) -> 
     }
     stream.write_all(&[SOCKS5, CONNECT, RESERVED]).await?;
     host.encode(stream).await?;
-    stream.write_be::<u16>(port).await?;
+    stream.write_u16(port).await?;
     if stream.read_u8().await? != SOCKS5 {
         Err("Bad version")?;
     }
@@ -111,11 +104,11 @@ pub async fn run_proxy_client(mut stream: &TcpStream, host: Host, port: u16) -> 
         Err("Reserved != 0")?;
     }
     let host = Host::decode(stream).await?;
-    let port = stream.read_u16_be().await?;
+    let port = stream.read_u16().await?;
     Ok((host, port))
 }
 
-pub async fn run_proxy_server(mut stream: &TcpStream) -> Result<(Host, u16), Box<dyn Error>> {
+pub async fn run_proxy_server(mut stream: &mut TcpStream) -> Result<(Host, u16), Box<dyn Error>> {
     let stream = &mut stream;
     let version = stream.read_u8().await?;
     match version {
@@ -145,7 +138,7 @@ pub async fn run_proxy_server(mut stream: &TcpStream) -> Result<(Host, u16), Box
         Err("Unknown reserved")?;
     }
     let host = Host::decode(stream).await?;
-    let port = stream.read_u16_be().await?;
+    let port = stream.read_u16().await?;
     stream.write_all(&[SOCKS5, SUCCESS, RESERVED]).await?;
     Host::V4(Ipv4Addr::new(4, 8, 15, 16)).encode(stream).await?;
     stream.write_all(&[23, 42]).await?;

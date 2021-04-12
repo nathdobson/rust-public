@@ -1,39 +1,36 @@
-use util::{pmpsc, lossy};
-use std::sync::{Arc};
 //use util::any::Upcast;
-use std::{thread, mem, sync};
-use std::time::{Duration, Instant};
-use std::sync::mpsc::RecvError;
-use std::fmt::{Debug};
-use std::fmt::Formatter;
-use std::fmt;
-use crate::gui::tree::Tree;
-use util::atomic_refcell::AtomicRefCell;
-use crate::gui::gui::Gui;
-use std::str;
-use std::thread::JoinHandle;
-use crate::input::EventReader;
+use std::{mem, sync, thread};
 use std::cell::RefCell;
-use libc::close;
-use util::mutrc::MutRc;
 use std::collections::VecDeque;
+use std::fmt::Debug;
+use std::fmt;
+use std::fmt::Formatter;
 use std::future::Future;
-use async_std::io::Read;
 use std::io;
-use futures::{pin_mut, StreamExt};
-use futures::task::SpawnExt;
-use async_std::task;
-use std::task::{Context, Poll};
-use crate::gui::div::{DivRc, Div, DivImpl};
-use futures::channel::mpsc::UnboundedSender;
-use futures::channel::mpsc;
-use futures::stream::FusedStream;
-use futures::future::poll_fn;
-use futures::stream::Stream;
 use std::pin::Pin;
-use futures::FutureExt;
+use std::str;
+use std::sync::Arc;
+use std::sync::mpsc::RecvError;
+use std::task::{Context, Poll};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+use tokio::pin;
+use libc::close;
+use std::future::poll_fn;
+
 use async_util::priority::{priority_join2, PriorityPool};
-use async_util::{Executor, priority};
+use async_util::priority;
+use util::{lossy, pmpsc};
+use util::atomic_refcell::AtomicRefCell;
+use util::mutrc::MutRc;
+
+use crate::gui::div::{Div, DivImpl, DivRc};
+use crate::gui::gui::Gui;
+use crate::gui::tree::Tree;
+use crate::input::EventReader;
+use tokio::time::sleep;
+use tokio_stream::Stream;
+use tokio::io::AsyncRead;
 
 #[must_use]
 pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
@@ -81,7 +78,7 @@ impl GuiEvent {
 
 pub fn priority_consume<S: Stream>(x: S, mut f: impl FnMut(S::Item)) -> impl Future<Output=()> {
     async move {
-        pin_mut!(x);
+        pin!(x);
         poll_fn(|cx| {
             match x.as_mut().poll_next(cx) {
                 Poll::Ready(Some(x)) => {
@@ -108,9 +105,9 @@ pub fn event_loop() -> (EventSender, impl Future<Output=()>) {
 pub async fn read_loop(
     event_sender: EventSender,
     gui: MutRc<Gui>,
-    read: impl 'static + Send + Read) -> io::Result<!> {
+    read: impl 'static + Send + AsyncRead) -> io::Result<!> {
     let reader = EventReader::new(read);
-    pin_mut!(reader);
+    pin!(reader);
     loop {
         let next = reader.as_mut().read().await?;
         let gui = gui.clone();
@@ -133,7 +130,7 @@ impl EventSender {
     }
     pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) {
         self.0.spawner.spawn(GuiPriority::Simulate, async move {
-            task::sleep(delay).await;
+            sleep(delay).await;
             event.run();
         });
     }

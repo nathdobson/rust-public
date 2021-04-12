@@ -1,20 +1,21 @@
-use util::mutrc::{MutRc, WriteGuard, ReadGuard};
-use util::dirty::Dirty;
-use crate::dirty::Sender;
 use std::future::Future;
-use crate::{dirty, priority};
-use futures::StreamExt;
-use std::task::{Poll, Context};
-use crate::waker::AtomicWaker;
-use std::sync::Arc;
-use futures::future::poll_fn;
-use util::time::SerialInstant;
-use crate::timer::poll_elapse;
-use std::time::{Duration, Instant};
-use futures::executor::{LocalPool, block_on};
-use futures::task::SpawnExt;
+use std::future::poll_fn;
 use std::mem;
-use async_std::task;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+
+use tokio::task::yield_now;
+use tokio::time::sleep;
+
+use util::dirty::Dirty;
+use util::mutrc::{MutRc, ReadGuard, WriteGuard};
+use util::time::SerialInstant;
+
+use crate::{dirty, priority};
+use crate::dirty::Sender;
+use crate::timer::poll_elapse;
+use crate::waker::AtomicWaker;
 
 pub struct MutFuture<T: 'static> {
     inner: MutRc<T>,
@@ -51,8 +52,8 @@ impl<T: 'static> Drop for MutFuture<T> {
     }
 }
 
-#[test]
-fn test() {
+#[tokio::test]
+async fn test() {
     #[derive(Debug)]
     struct State {
         count: usize,
@@ -79,16 +80,16 @@ fn test() {
     let epsilon = Duration::from_millis(10);
     spawner.spawn(1, async move {
         state.write().next = Some(SerialInstant::now() + delta * 2);
-        task::yield_now().await;
+        yield_now().await;
         assert!(state.read().next.is_some());
         state.write().next = Some(SerialInstant::now() + delta);
-        task::yield_now().await;
+        yield_now().await;
         assert!(state.read().next.is_some());
-        task::sleep(delta + epsilon).await;
+        sleep(delta + epsilon).await;
         assert!(state.read().next.is_none());
         assert_eq!(state.read().count, 1);
         mem::drop(state);
     });
     mem::drop(spawner);
-    block_on(runner);
+    runner.await;
 }

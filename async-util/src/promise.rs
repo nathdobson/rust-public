@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::RecvError;
 use std::future::Future;
 use std::mem;
+use crate::futureext::FutureExt;
 
 #[derive(Debug)]
 pub struct Promise<T = ()>(Arc<Inner<T>>);
@@ -100,33 +101,28 @@ impl<T> Clone for Receiver<T> {
 
 #[cfg(test)]
 mod test {
-    use futures::executor::block_on;
     use crate::promise::Promise;
-    use futures::FutureExt;
     use std::mem;
     use std::sync::mpsc::RecvError;
+    use crate::futureext::FutureExt;
 
-    #[test]
-    fn test_success() {
-        block_on(async {
-            let promise = Promise::<usize>::new();
-            #[allow(unused_must_use)]
-                { promise.receiver().clone(); }
-            assert_eq!(None, promise.recv().now_or_never());
-            assert_eq!(Ok(()), promise.complete(1));
-            assert_eq!(Err(2), promise.complete(2));
-            assert_eq!(Some(Ok(&1)), promise.recv().now_or_never());
-        })
+    #[tokio::test]
+    async fn test_success() {
+        let promise = Promise::<usize>::new();
+        #[allow(unused_must_use)]
+            { promise.receiver().clone(); }
+        promise.recv().ready().unwrap_none();
+        assert_eq!(Ok(()), promise.complete(1));
+        assert_eq!(Err(2), promise.complete(2));
+        assert_eq!(Ok(&1), promise.recv().ready().unwrap());
     }
 
     #[test]
     fn test_failure() {
-        block_on(async {
-            let promise = Promise::<usize>::new();
-            let receiver = promise.clone().receiver();
-            assert_eq!(None, receiver.recv().now_or_never());
-            mem::drop(promise);
-            assert_eq!(Some(Err(RecvError)), receiver.recv().now_or_never());
-        })
+        let promise = Promise::<usize>::new();
+        let receiver = promise.clone().receiver();
+        receiver.recv().ready().unwrap_none();
+        mem::drop(promise);
+        assert_eq!(Err(RecvError), receiver.recv().ready().unwrap());
     }
 }

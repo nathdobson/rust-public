@@ -12,21 +12,19 @@ use std::{mem, thread, process};
 use util::grid::Grid;
 use termio::gui::label::Label;
 use termio::string::{StyleFormatExt, StyleString};
-use util::any::{Upcast, AnyExt};
+use util::any::{Upcast};
 use std::any::Any;
 use std::ops::Deref;
 use termio::screen::Style;
 use termio::color::Color;
-use timer::Timer;
 use std::time::{Instant, Duration};
-use chrono;
 use std::time;
-use termio::gui::tree::{Tree};
+use termio::gui::tree::{Tree, Dirty};
 use termio::gui::layout::{Constraint, Layout};
 use util::lossy;
 use std::str;
-use termio::gui::event::{Priority, GuiEvent, SharedGuiEvent};
-use termio::gui::event;
+use termio::gui::event::{GuiEvent, SharedGuiEvent};
+use termio::gui::{event, run_local};
 use termio::gui::div::{Div, DivImpl, DivRc, DivWeak};
 use util::atomic_refcell::AtomicRefCell;
 use util::mutrc::MutRc;
@@ -48,12 +46,11 @@ impl Example {
         result
     }
     fn animate(self: &mut Div<Self>) {
-        self.mark_dirty();
+        self.mark_dirty(Dirty::Paint);
         self.event_sender()
             .run_with_delay(
                 Duration::from_millis(100),
                 self.new_event(|this| this.animate()))
-            .ignore();
     }
     fn new_gui(tree: Tree) -> MutRc<Gui> {
         let mut gui = Gui::new(tree.clone(), Example::new(tree));
@@ -89,6 +86,7 @@ impl DivImpl for Example {
     }
 }
 
-fn main() {
-    event::run_local(|tree| Example::new_gui(tree));
+#[tokio::main]
+async fn main() {
+    run_local(|tree| Example::new_gui(tree)).await;
 }

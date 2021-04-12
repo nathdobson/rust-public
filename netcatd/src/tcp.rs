@@ -1,44 +1,38 @@
 use std::{error, io, mem, thread};
-use async_std::io::{ErrorKind, Write, Read};
-use async_std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::{Arc};
+use std::any::Any;
+use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
+use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
+use std::str;
+use std::sync::Arc;
+use std::time::Duration;
 
+use by_address::ByAddress;
+use chrono::format::Item::Error;
+use async_util::coop::{Cancel, Canceled};
+use async_util::priority::PriorityPool;
+use async_util::promise::Promise;
+use termio::gui::event::{EventSender, GuiEvent, GuiPriority, read_loop, SharedGuiEvent};
+use termio::gui::event;
+use termio::gui::gui::Gui;
+use termio::gui::tree::{Dirty, Tree};
 use termio::input::{Event, EventReader};
+use termio::screen::Screen;
+use util::{expect, lossy, Name};
+use util::dirty::dirty_loop;
+use util::io::{pipeline, SafeWrite};
+use util::mutrc::MutRc;
 use util::shared::{Object, Shared};
 use util::socket::{set_linger, set_reuse_port};
-use util::io::{SafeWrite, pipeline};
-use async_std::net::Ipv4Addr;
-use async_std::net::Ipv6Addr;
-use crate::{proxy};
-use util::{Name, lossy, expect};
-use std::collections::{HashMap, HashSet};
-use util::dirty::dirty_loop;
-use termio::screen::Screen;
-use crate::proxy::Host;
-use std::time::Duration;
-use chrono::format::Item::Error;
-use std::collections::hash_map::Entry;
-use std::str;
-use termio::gui::gui::Gui;
-use termio::gui::event::{EventSender, GuiEvent, SharedGuiEvent, read_loop, GuiPriority};
-use termio::gui::event;
-use std::any::Any;
-use std::fmt::Debug;
-use termio::gui::tree::{Tree, Dirty};
-use util::mutrc::MutRc;
-use std::pin::Pin;
-use by_address::ByAddress;
-use async_util::{Executor};
-use futures::join;
-use async_util::cancel::{Cancel, Canceled};
-use futures::task::{SpawnExt, Spawn};
-use futures::channel::oneshot;
-use futures::executor::ThreadPool;
-use async_util::promise::Promise;
-use async_util::priority::PriorityPool;
-use std::future::Future;
+use tokio::join;
 
-type StreamRc = Shared<TcpStream>;
+use crate::proxy;
+use crate::proxy::Host;
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
+use std::io::ErrorKind;
 
 pub trait Model: 'static + Send + Sync + Debug {
     fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
@@ -52,12 +46,12 @@ pub struct NetcatState {
 
 #[derive(Debug)]
 struct Peer {
-    stream: StreamRc,
+    peer_cancel: Cancel,
     terminated: Promise<!>,
 }
 
 pub struct NetcatServerBuilder {
-    pub cancel: Cancel,
+    pub server_cancel: Cancel,
     pub event_sender: EventSender,
 }
 
@@ -66,38 +60,45 @@ pub struct NetcatServer {
     event_sender: EventSender,
     state: MutRc<NetcatState>,
     model: MutRc<dyn Model>,
-    cancel: Cancel,
+    server_cancel: Cancel,
 }
 
 impl NetcatServerBuilder {
     pub fn new() -> (Self, impl Future<Output=()>) {
-        let cancel = Cancel::new();
+        let server_cancel = Cancel::new();
         let (event_sender, event_joiner) =
             event::event_loop();
         (NetcatServerBuilder {
-            cancel,
+            server_cancel,
             event_sender,
         }, event_joiner)
     }
 
-    pub async fn build(self, address: &str, model: MutRc<dyn Model>)
-                       -> io::Result<Arc<NetcatServer>> {
+    async fn build_inner(self, address: &str, model: MutRc<dyn Model>)
+                         -> io::Result<Arc<NetcatServer>> {
         NetcatServer::new(
             address,
             self.event_sender,
             model,
-            self.cancel,
+            self.server_cancel,
         ).await
     }
 
-    pub async fn run(self, address: &str, model: MutRc<dyn Model>) -> io::Result<()> {
-        let server = self.build(address, model).await?;
+    async fn run(self, address: &str, model: MutRc<dyn Model>) -> io::Result<()> {
+        let server = self.build_inner(address, model).await?;
         server.listen().await?;
         Ok(())
     }
 
-    pub async fn run_main(self, address: &str, model: MutRc<dyn Model>) -> ! {
-        self.cancel.clone().run_main(Duration::from_secs(5), self.run(address, model)).await
+    async fn run_main(self, address: &str, model: MutRc<dyn Model>) -> ! {
+        self.server_cancel.clone().run_main(Duration::from_secs(5), self.run(address, model)).await
+    }
+
+    pub fn build_main(self, address: &str, model: MutRc<dyn Model>) {
+        let address = address.to_string();
+        self.event_sender.clone().spawner().spawn(GuiPriority::Read, async move {
+            self.run_main(&address, model).await
+        })
     }
 }
 
@@ -106,7 +107,7 @@ impl NetcatServer {
         address: &str,
         event_sender: EventSender,
         model: MutRc<dyn Model>,
-        cancel: Cancel) -> io::Result<Arc<Self>> {
+        server_cancel: Cancel) -> io::Result<Arc<Self>> {
         let state = MutRc::new(NetcatState {
             peers: HashMap::new(),
         });
@@ -115,69 +116,72 @@ impl NetcatServer {
             event_sender,
             state,
             model,
-            cancel,
+            server_cancel,
         });
         Ok(result)
     }
     async fn handle_stream(self: &Arc<Self>,
-                           mut stream: StreamRc)
+                           mut stream: TcpStream)
                            -> Result<(), Box<dyn error::Error>> {
-        let user_cancel = Cancel::new();
+        let peer_cancel = Cancel::new();
         let (host, _) = proxy::run_proxy_server(&mut stream).await?;
+        let (read_stream, mut write_stream) = stream.into_split();
         let username = Arc::new(host.to_string()?);
         let (tree, paint, layout) =
-            Tree::new(user_cancel.clone(), self.event_sender.clone());
-        user_cancel.attach(&self.cancel,
-                           &self.event_sender.spawner().at_priority(GuiPriority::Action));
-
+            Tree::new(peer_cancel.clone(), self.event_sender.clone());
+        peer_cancel.attach(&self.server_cancel);
         loop {
             let terminated: Promise<!> = match self.state.borrow_mut().peers.entry(username.clone()) {
                 Entry::Occupied(peer) => {
-                    peer.get().stream.shutdown(Shutdown::Read).ok();
+                    eprintln!("Peer {:?} reconnecting", username);
+                    peer.get().peer_cancel.cancel();
                     peer.get().terminated.clone()
                 }
                 Entry::Vacant(x) => {
+                    eprintln!("Peer {:?} connected", username);
                     x.insert(Peer {
-                        stream: stream.clone(),
+                        peer_cancel: peer_cancel.clone(),
                         terminated: Promise::new(),
                     });
                     break;
                 }
             };
             terminated.join().await;
+            eprintln!("Peer {:?} reconnected", username);
         }
         let gui = self.model.borrow_mut().add_peer(&username, tree.clone());
 
         let ll = layout.layout_loop(gui.clone());
         let wl = {
             let gui = gui.clone();
-            let stream = stream.clone();
+            let peer_cancel = peer_cancel.clone();
+            let username = username.clone();
             async move {
-                if let Err(e) = paint.render_loop(gui, Pin::new(&mut &*stream)).await {
-                    eprintln!("Send failure {}", e);
+                if let Err(e) = paint.render_loop(gui, Pin::new(&mut write_stream)).await {
+                    eprintln!("Peer {:?} responses error: {}", username, e);
                 }
-                stream.shutdown(Shutdown::Both).ok();
+                peer_cancel.cancel();
             }
         };
         let rl = {
-            let cancel = self.cancel.clone();
+            let peer_cancel = peer_cancel.clone();
             let event_sender = self.event_sender.clone();
             let username = username.clone();
             async move {
-                match cancel.checked(read_loop(
+                match peer_cancel.checked(read_loop(
                     event_sender,
                     gui.clone(),
-                    stream.clone())).await {
+                    read_stream)).await {
                     Ok(Ok(x)) => match x {}
                     Ok(Err(error)) => {
                         if error.kind() == ErrorKind::UnexpectedEof {
-                            eprintln!("Peer {:?} shutdown", username);
+                            eprintln!("Peer {:?} requests EOF", username);
                         } else {
-                            eprintln!("Peer {:?} failed: {}", username, error);
+                            eprintln!("Peer {:?} requests error: {}", username, error);
                         }
                     }
                     Err(_canceled) => {
-                        eprintln!("Canceled peer receive {:?}", username);
+                        eprintln!("Peer {:?} requests canceled", username);
                     }
                 }
                 gui.borrow_mut().set_enabled(false);
@@ -187,6 +191,7 @@ impl NetcatServer {
         join!(self.event_sender.spawner().spawn_with_handle(GuiPriority::Read, rl),
               self.event_sender.spawner().spawn_with_handle(GuiPriority::Layout, ll),
               self.event_sender.spawner().spawn_with_handle(GuiPriority::Paint, wl));
+        eprintln!("Peer {:?} removed", username);
         self.state.borrow_mut().peers.remove(&username).unwrap();
         self.model.borrow_mut().remove_peer(&username);
         Ok(())
@@ -196,13 +201,13 @@ impl NetcatServer {
         let bundle = Promise::new();
         loop {
             let stream =
-                match self.cancel.checked(self.listener.accept()).await {
+                match self.server_cancel.checked(self.listener.accept()).await {
                     Err(Canceled) => break,
-                    Ok(stream_result) => Shared::new(stream_result?.0),
+                    Ok(stream_result) => stream_result?.0,
                 };
             let self2 = self.clone();
             self.event_sender.spawner().spawn(GuiPriority::Read, bundle.outlive(async move {
-                if let Err(e) = self2.handle_stream(stream.clone()).await {
+                if let Err(e) = self2.handle_stream(stream).await {
                     if let Some(io) = e.downcast_ref::<io::Error>() {
                         match io.kind() {
                             ErrorKind::UnexpectedEof => {}
@@ -215,9 +220,9 @@ impl NetcatServer {
                 }
             }));
         }
-        eprintln!("NetcatServer waiting for servlets");
+        eprintln!("Server canceling all peers");
         bundle.join().await;
-        eprintln!("NetcatServer done waiting for servlets");
+        eprintln!("Server canceled all peers");
         Ok(())
     }
 }

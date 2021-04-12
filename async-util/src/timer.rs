@@ -4,12 +4,11 @@ use std::sync::{Arc, Mutex, Condvar};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::thread;
-use futures::executor::block_on;
 use std::time::{Duration, Instant};
 use crate::waker::HashWaker;
 use lazy_static::lazy_static;
 use priority_queue::PriorityQueue;
-use async_std::future::poll_fn;
+use std::future::poll_fn;
 
 struct State {
     queue: PriorityQueue<HashWaker, SerialInstant>,
@@ -58,8 +57,8 @@ pub fn poll_elapse(cx: &mut Context, instant: SerialInstant) -> Poll<()> {
     }
 }
 
-#[test]
-fn test() {
+#[tokio::test]
+async fn test() {
     let start = SerialInstant::now();
     let t1 = start + Duration::from_millis(100);
     let t2 = start + Duration::from_millis(200);
@@ -69,23 +68,21 @@ fn test() {
             poll_elapse(cx, t1).is_ready();
         },
         box |cx| {
-            assert!((SerialInstant::now() - t1).as_millis() < 5);
+            assert!((SerialInstant::now() - t1).as_millis() < 50);
             poll_elapse(cx, t2).is_ready();
         },
         box |cx| {
-            assert!((SerialInstant::now() - t2).as_millis() < 5);
+            assert!((SerialInstant::now() - t2).as_millis() < 50);
             cx.waker().wake_by_ref()
         }
     ];
     let mut actions = actions.into_iter();
-    block_on(async {
-        poll_fn(|cx| {
-            if let Some(action) = actions.next() {
-                action(cx);
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        }).await;
-    });
+    poll_fn(|cx| {
+        if let Some(action) = actions.next() {
+            action(cx);
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
+    }).await;
 }

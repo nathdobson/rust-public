@@ -19,7 +19,9 @@ futures = "0.3.12"
 serde = "^1.0.123"
 lazy_static = "1.4.0"
 ondrop = "0.1.0"
+libc = "^0.2.0"
 
+#
 [dev-dependencies]
 crossbeam = "0.7.3"
 serde_json = "^1.0.62"

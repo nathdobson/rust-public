@@ -1,22 +1,25 @@
-use crate::gui::gui::{Gui};
-use std::{thread, mem, fmt, io};
-use std::fmt::{Formatter, Debug};
-use std::time::{Duration, Instant};
-use util::pmpsc;
-use std::sync::mpsc::RecvError;
+use std::{fmt, io, mem, thread};
 use std::any::Any;
-use util::atomic_refcell::AtomicRefCell;
-//use util::any::Upcast;
-use crate::gui::event::{GuiEvent, EventSender};
-use util::mutrc::MutRc;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use futures::{AsyncWrite, AsyncWriteExt, StreamExt};
 use std::str;
-use async_std::sync::{Mutex, Condvar};
+use std::sync::Arc;
+use std::sync::mpsc::RecvError;
+use std::time::{Duration, Instant};
+
+use async_util::coop::Cancel;
 use async_util::dirty;
-use async_util::cancel::Cancel;
+use util::atomic_refcell::AtomicRefCell;
+use util::mutrc::MutRc;
+use util::pmpsc;
+
+use crate::gui::event::{EventSender, GuiEvent};
+use crate::gui::gui::Gui;
+use std::io::Write;
+use tokio::io::AsyncWrite;
+use tokio_stream::StreamExt;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub enum Dirty {
@@ -59,48 +62,6 @@ impl Tree {
     pub fn cancel(&self) -> &Cancel {
         &self.0.cancel
     }
-    //
-    // pub async fn render_loop(
-    //     self,
-    //     mut gui: MutRc<Gui>,
-    //     mut write: Pin<&mut (impl Send + AsyncWrite)>,
-    // ) -> io::Result<()> {
-    //     let mut dirty = self.0.dirty.clone();
-    //     let when_dirty = self.0.when_dirty.downgrade();
-    //     mem::drop(self);
-    //     let mut buffer = vec![];
-    //     let mut lock = mutex.lock().await;
-    //     loop {
-    //         let mut close = false;
-    //         {
-    //             if dirty.write().remove(&Dirty::Layout) {
-    //                 dirty.write().insert(Dirty::Paint);
-    //                 gui.write().layout();
-    //             }
-    //             if dirty.write().remove(&Dirty::Paint) {
-    //                 gui.write().paint_buffer(&mut buffer);
-    //             }
-    //             if dirty.write().remove(&Dirty::Close) {
-    //                 close = true;
-    //             }
-    //         }
-    //         if !buffer.is_empty() {
-    //             mem::drop(lock);
-    //             write.write_all(&buffer).await?;
-    //             buffer.clear();
-    //             write.flush().await?;
-    //             lock = mutex.lock().await;
-    //         }
-    //         if close {
-    //             break;
-    //         }
-    //         match when_dirty.wait(lock).await {
-    //             Ok(l) => { lock = l; }
-    //             Err(e) => break,
-    //         }
-    //     }
-    //     Ok(())
-    // }
 }
 
 impl LayoutReceiver {
@@ -127,6 +88,7 @@ impl PaintReceiver {
             }
             if let Ok(Some(_)) = self.1.checked(self.0.next()).await {} else { break; }
         }
+        gui.write().paint_buffer(&mut buffer);
         if !buffer.is_empty() {
             write.write_all(&buffer).await?;
             buffer.clear();

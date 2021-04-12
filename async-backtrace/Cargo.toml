@@ -8,15 +8,14 @@ edition = "2018"
 
 [dependencies]
 pin-project = "1.0.6"
-tokio = { version = "1.4.0", features = ["full"] }
+tokio = { version = "1.4.0", features = ["process", "io-util", "io-std", "rt", "fs", "net", ] }
 lazy_static = "1.4.0"
 util = { path = "../util" }
 parking_lot = "0.11.1"
 backtrace = "0.3.56"
-futures-util = "0.3.13"
-termio = { path = "../termio" }
 itertools = "0.10.0"
 either = "1.6.1"
-hyper = { version = "0.14", features = ["full"] }
+hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 tempfile = "3.2.0"
 lookahead = "0.1.0"
+async-util = { path = "../async-util" }

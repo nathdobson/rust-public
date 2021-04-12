@@ -17,7 +17,6 @@ use std::ops::Deref;
 use termio::screen::{Style, Rune};
 use termio::color::Color;
 use std::time::Instant;
-use chrono;
 use std::time;
 use termio::gui::tree::{Tree};
 use termio::gui::layout::{Constraint, Layout};
@@ -28,7 +27,6 @@ use termio::gui::event;
 use termio::gui::div::{Div, DivImpl, DivRc, DivWeak};
 use util::atomic_refcell::AtomicRefCell;
 use util::mutrc::MutRc;
-use futures::executor::block_on;
 use termio::gui::run_local;
 use termio::gui::checkbox::CheckBox;
 use termio::gui::field::Field;
@@ -175,6 +173,7 @@ impl DivImpl for Example {
     }
 }
 
-fn main() {
-    run_local(|tree| Example::new_gui(tree));
+#[tokio::main]
+async fn main() {
+    run_local(|tree| Example::new_gui(tree)).await;
 }

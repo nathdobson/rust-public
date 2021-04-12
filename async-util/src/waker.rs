@@ -1,19 +1,35 @@
 use std::task::{Waker, RawWakerVTable, RawWaker};
+use tokio::pin;
 
 #[cfg(loom)]
 pub(crate) use loom::sync::atomic::AtomicUsize;
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::AtomicUsize;
 
-
 #[cfg(loom)]
 pub(crate) use loom::sync::atomic::AtomicPtr;
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::AtomicPtr;
 
+const fn noop_raw_waker() -> RawWaker {
+    const RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+        |_| noop_raw_waker(), |_| (), |_| (), |_| ());
+    RawWaker::new(null(), &RAW_WAKER_VTABLE)
+}
+
+pub fn noop_waker() -> Waker { unsafe { Waker::from_raw(noop_raw_waker()) } }
+
+pub fn noop_waker_ref() -> &'static Waker {
+    #[repr(transparent)]
+    struct SyncRawWaker(RawWaker);
+    unsafe impl Sync for SyncRawWaker {}
+    static NOOP_WAKER: SyncRawWaker = SyncRawWaker(noop_raw_waker());
+    unsafe { mem::transmute::<&SyncRawWaker, &Waker>(&NOOP_WAKER) }
+}
+
 use std::sync::atomic::Ordering::*;
 use std::{mem, cmp};
-use std::ptr::null_mut;
+use std::ptr::{null_mut, null};
 use std::sync::atomic::Ordering;
 use std::mem::size_of;
 use std::hash::{Hash, Hasher};
@@ -58,22 +74,6 @@ impl Hash for HashWaker {
         self.key().hash(state);
     }
 }
-
-// trait Value {
-//     type V;
-//     fn value(self) -> V;
-// }
-//
-// impl<T> Value for Result<T, T> {
-//     type V = T;
-//
-//     fn value(self) -> T {
-//         match self {
-//             Ok(x) => x,
-//             Err(x) => x,
-//         }
-//     }
-// }
 
 unsafe fn from_waker(waker: Waker) -> (*mut (), *mut RawWakerVTable) {
     mem::transmute(waker)
@@ -225,10 +225,11 @@ impl AtomicWaker {
 
 #[cfg(test)]
 pub mod test {
-    use std::task::{RawWakerVTable, Waker, RawWaker, Context, Poll};
+    use std::task::{RawWakerVTable, Waker, RawWaker, Context, Poll, Wake};
     use std::sync::atomic::Ordering::{Relaxed, SeqCst};
     use crate::waker::AtomicWaker;
     use std::mem;
+    use tokio::pin;
 
     #[cfg(loom)]
     pub(crate) use loom::sync::atomic::AtomicUsize;
@@ -236,11 +237,8 @@ pub mod test {
     pub(crate) use std::sync::atomic::AtomicUsize;
     use std::future::Future;
     use std::sync::atomic::AtomicBool;
-    use futures::task::ArcWake;
     use std::sync::Arc;
     use std::cmp::Ordering;
-    use futures::pin_mut;
-    use futures::task::waker;
 
     pub struct TestWaker {
         refs: AtomicUsize,
@@ -297,24 +295,26 @@ pub mod test {
         }
     }
 
-    pub fn run_local_test<F: Future>(fut: F) -> F::Output {
-        struct Woken(AtomicBool);
-        impl ArcWake for Woken {
-            fn wake_by_ref(arc_self: &Arc<Self>) {
-                arc_self.0.store(true, SeqCst);
-            }
-        }
-        let woken = Arc::new(Woken(AtomicBool::new(true)));
-        let waker = waker(woken.clone());
-        let mut cx = Context::from_waker(&waker);
-        pin_mut!(fut);
-        while woken.0.swap(false, SeqCst) {
-            if let Poll::Ready(result) = fut.as_mut().poll(&mut cx) {
-                return result;
-            }
-        }
-        panic!("Deadlock")
-    }
+    // pub fn run_local_test<F: Future>(fut: F) -> F::Output {
+    //     struct Woken(AtomicBool);
+    //     impl Wake for Woken {
+    //         fn wake(self: Arc<Self>) {
+    //             self.0.store(true, SeqCst);
+    //         }
+    //     }
+    //     let woken = Arc::new(Woken(AtomicBool::new(true)));
+    //     let waker = woken.clone().into();
+    //     let mut cx = Context::from_waker(&waker);
+    //     pin!(fut);
+    //     while woken.0.swap(false, SeqCst) {
+    //         if let Poll::Ready(result) = fut.as_mut().poll(&mut cx) {
+    //             return result;
+    //         }
+    //     }
+    //     panic!("Deadlock")
+    // }
+
+
 
     #[test]
     fn test() {

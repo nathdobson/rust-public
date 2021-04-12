@@ -8,35 +8,34 @@ use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::ptr::null_mut;
 use std::sync::Arc;
-use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker, Wake};
 use std::time::{Duration, Instant};
 use crate::remangle::resolve_remangle;
 use backtrace::{Backtrace, BacktraceFrame, BacktraceSymbol, SymbolName, resolve};
-use futures_util::task::{noop_waker, noop_waker_ref};
 use itertools::{Itertools, ExactlyOneError};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 
-use termio::color::Color;
-use termio::output::{Background, Foreground};
 use util::weak_vec::WeakVec;
 
 use crate::remangle;
-use futures_util::future::FusedFuture;
-use futures_util::FutureExt;
 use util::shared::ObjectInner;
 use std::hint::black_box;
+use async_util::waker::{noop_waker, noop_waker_ref};
+use async_util::fused::Fused;
+use async_util::futureext::FutureExt;
 
-pub trait TaskFuture = 'static + Send + FusedFuture<Output=()>;
+pub trait TaskFuture = 'static + Send + Future<Output=()>;
 
 struct Task<F: ?Sized + TaskFuture = dyn TaskFuture> {
     waker: Waker,
+    done: bool,
     fut: F,
 }
 
 pub struct Tracer<F: TaskFuture> {
-    task: Arc<Mutex<Task<F>>>,
+    task: Arc<Mutex<Task<Fused<F>>>>,
 }
 
 #[derive(Debug)]
@@ -76,7 +75,7 @@ const INDENT_TEE: &'static str /*     */ = "┣━━ ";
 
 impl<F: TaskFuture> Tracer<F> {
     fn new(fut: F) -> Self {
-        let task = Arc::new(Mutex::new(Task { waker: noop_waker(), fut }));
+        let task = Arc::new(Mutex::new(Task { waker: noop_waker(), done: false, fut: fut.fuse() }));
         TASKS.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task>>)));
         Tracer { task }
     }
@@ -90,11 +89,15 @@ impl<F: TaskFuture> Future for Tracer<F> {
             let this = self.get_unchecked_mut();
             let mut lock = this.task.lock();
             lock.waker = cx.waker().clone();
-            let pin = Pin::new_unchecked(&mut lock.fut);
-            if pin.is_terminated() {
+            if lock.done {
                 return Poll::Ready(());
             }
-            pin.poll(cx)
+            let pin = Pin::new_unchecked(&mut lock.fut);
+            let result = pin.poll(cx);
+            if result.is_ready() {
+                lock.done = true;
+            }
+            result
         }
     }
 }
@@ -103,7 +106,7 @@ impl<F: TaskFuture> Future for Tracer<F> {
 impl<F: TaskFuture> Unpin for Tracer<F> {}
 
 pub fn spawn<F: 'static + Send + Future<Output=()>>(x: F) -> JoinHandle<()> {
-    tokio::spawn(Tracer::new(x.fuse()))
+    tokio::spawn(Tracer::new(x))
 }
 
 impl Node {
@@ -264,10 +267,9 @@ impl Trace {
                 if let Some(mut lock) = task.try_lock_for(Duration::from_millis(100)) {
                     let waker = TraceWaker::new(&lock.waker, &trace);
                     let waker = waker.as_waker();
+
                     let pin = Pin::new_unchecked(&mut lock.fut);
-                    if !pin.is_terminated() {
-                        pin.poll(&mut Context::from_waker(&waker)).is_ready();
-                    }
+                    pin.poll(&mut Context::from_waker(&waker)).is_ready();
                 } else {
                     trace.lock().timeouts += 1;
                 }
@@ -357,5 +359,4 @@ mod test {
         sleep(Duration::from_millis(100)).await;
         println!("{}", Trace::new());
     }
-
 }
