@@ -26,6 +26,7 @@ use util::grid::Grid;
 use util::mutrc::MutRc;
 use termio::gui::table::{Table, TableDiv};
 use termio::line::Stroke;
+use async_backtrace::traced_main;
 
 #[derive(Debug)]
 pub struct DemoModel {}
@@ -93,8 +94,7 @@ impl Model for DemoModel {
         MutRc::new(Gui::new(tree.clone(), Root::new(tree)))
     }
 
-    fn remove_peer(&mut self, username: &Name) {
-    }
+    fn remove_peer(&mut self, username: &Name) {}
 }
 
 impl DivImpl for Root {
@@ -105,11 +105,12 @@ impl DivImpl for Root {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let (builder, runner) = NetcatServerBuilder::new();
-    let model =
-        MutRc::new(DemoModel::new());
-    builder.build_main("0.0.0.0:8000", model);
-    runner.await;
+fn main() {
+    traced_main("127.0.0.1:9999".to_string(), async move {
+        let (builder, runner) = NetcatServerBuilder::new();
+        let model =
+            MutRc::new(DemoModel::new());
+        builder.build_main("0.0.0.0:8000", model);
+        runner.await;
+    });
 }

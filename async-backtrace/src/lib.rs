@@ -7,12 +7,21 @@
 #![feature(never_type)]
 #![deny(unused_must_use)]
 #![feature(trait_alias)]
+#![feature(once_cell)]
+#![feature(min_type_alias_impl_trait)]
+#![feature(generic_associated_types)]
+#![allow(incomplete_features)]
 
 mod remangle;
-mod async_capture;
+mod trace;
 mod server;
 mod lldb_capture;
+mod spawn;
+mod trace_group;
 
-pub use async_capture::Trace;
-pub use async_capture::spawn;
-pub use server::run_debug_server;
+pub use trace::Trace;
+pub use trace_group::TraceGroup;
+pub use server::traced_server;
+pub use server::traced_main;
+pub use spawn::spawn;
+pub use spawn::TracedPriorityPool;

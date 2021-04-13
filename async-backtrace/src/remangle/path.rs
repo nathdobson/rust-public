@@ -15,21 +15,28 @@ pub static EXAMPLES: &[&str] =
         "<fn() as core[75ee33869dcd9a7b]::ops::function::FnOnce<()>>::call_once",
         "example[8e385caf73139a18]::for_generic::<[u8; 10: usize]>",
         "example[8e385caf73139a18]::for_generic::<fn(usize) -> usize>",
+        "core::ops::function::FnOnce::call_once{{vtable.shim}}::hf54ddc002259dae6",
+        "tokio::sync::task::atomic_waker::AtomicWaker::do_register::{{closure}}::h9d574f6952b7301f",
     ];
 
 pub struct Path<'a> {
     pub segments: Vec<PathSegment<'a>>,
 }
 
+pub enum PathBraces<'a> {
+    UnknownVTable,
+    UnknownClosure,
+    VTable { vtable: &'a str },
+    Closure { closure: &'a str },
+}
+
 pub enum PathSegment<'a> {
-    Ident { name: &'a str, version: Option<&'a str>, turbofish: bool, tys: Vec<Path<'a>> },
+    Ident { name: &'a str, version: Option<&'a str>, braces: Option<PathBraces<'a>>, turbofish: bool, tys: Vec<Path<'a>> },
     ImplFor { trait_for: Path<'a>, for_ty: Path<'a> },
     Ty { ty: Path<'a> },
     As { ty: Path<'a>, as_trait: Path<'a> },
     Pointy { raw: bool, mutable: bool, ty: Path<'a> },
     Tuple { tys: Vec<Path<'a>> },
-    VTable { vtable: &'a str },
-    Closure { closure: &'a str },
     FnPtr { tys: Vec<Path<'a>>, output: Option<Path<'a>> },
     Array { ty: Path<'a>, length: Option<&'a str>, length_ty: Option<Path<'a>> },
 }
@@ -78,6 +85,47 @@ impl<'a> Debug for Path<'a> {
     }
 }
 
+impl<'a> Debug for PathBraces<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PathBraces::VTable { vtable } => {
+                let mut list = f.debug_list();
+                list.entry(&"{");
+                list.entry(&"shim:vtable#");
+                list.entry(vtable);
+                list.entry(&"}");
+                list.finish()
+            }
+            PathBraces::Closure { closure } => {
+                let mut list = f.debug_list();
+                list.entry(&"{");
+                list.entry(&"closure#");
+                list.entry(closure);
+                list.entry(&"}");
+                list.finish()
+            }
+            PathBraces::UnknownVTable => {
+                let mut list = f.debug_list();
+                list.entry(&"{");
+                list.entry(&"{");
+                list.entry(&"vtable.shim");
+                list.entry(&"}");
+                list.entry(&"}");
+                list.finish()
+            }
+            PathBraces::UnknownClosure => {
+                let mut list = f.debug_list();
+                list.entry(&"{");
+                list.entry(&"{");
+                list.entry(&"closure");
+                list.entry(&"}");
+                list.entry(&"}");
+                list.finish()
+            }
+        }
+    }
+}
+
 impl<'a> Debug for PathSegment<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -106,7 +154,7 @@ impl<'a> Debug for PathSegment<'a> {
                     .entry(&">")
                     .finish()
             }
-            PathSegment::Ident { name, version, turbofish, tys } => {
+            PathSegment::Ident { name, version, braces, turbofish, tys } => {
                 let mut list = f.debug_list();
                 list.entry(name);
                 if let Some(version) = version {
@@ -144,22 +192,7 @@ impl<'a> Debug for PathSegment<'a> {
                 list.entry(&")");
                 list.finish()
             }
-            PathSegment::VTable { vtable } => {
-                let mut list = f.debug_list();
-                list.entry(&"{");
-                list.entry(&"shim:vtable#");
-                list.entry(vtable);
-                list.entry(&"}");
-                list.finish()
-            }
-            PathSegment::Closure { closure } => {
-                let mut list = f.debug_list();
-                list.entry(&"{");
-                list.entry(&"closure#");
-                list.entry(closure);
-                list.entry(&"}");
-                list.finish()
-            }
+
             PathSegment::FnPtr { tys, output } => {
                 let mut list = f.debug_list();
                 list.entry(&"fn");

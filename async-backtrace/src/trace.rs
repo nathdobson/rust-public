@@ -1,4 +1,4 @@
-use std::{mem, slice, fmt};
+use std::{mem, slice, fmt, thread};
 use std::collections::hash_map::{DefaultHasher, Iter};
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -16,7 +16,7 @@ use itertools::{Itertools, ExactlyOneError};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
-
+use std::lazy::OnceCell;
 use util::weak_vec::WeakVec;
 
 use crate::remangle;
@@ -25,18 +25,8 @@ use std::hint::black_box;
 use async_util::waker::{noop_waker, noop_waker_ref};
 use async_util::fused::Fused;
 use async_util::futureext::FutureExt;
+use std::marker::PhantomData;
 
-pub trait TaskFuture = 'static + Send + Future<Output=()>;
-
-struct Task<F: ?Sized + TaskFuture = dyn TaskFuture> {
-    waker: Waker,
-    done: bool,
-    fut: F,
-}
-
-pub struct Tracer<F: TaskFuture> {
-    task: Arc<Mutex<Task<Fused<F>>>>,
-}
 
 #[derive(Debug)]
 struct Node {
@@ -50,22 +40,23 @@ struct NodePrinter<W: Write> {
 }
 
 #[derive(Debug)]
-pub struct Trace {
-    tasks: usize,
-    timeouts: usize,
+pub struct TraceInner {
     traced_delimiter: bool,
     ignore_prefix: usize,
     ignore_suffix: usize,
     node: Node,
 }
 
-struct TraceWaker<'a> {
+pub struct Trace(Mutex<TraceInner>);
+
+pub struct TraceWakerInner<'a> {
     internal: &'a Waker,
-    trace: &'a Mutex<Trace>,
+    trace: &'a Trace,
 }
 
-lazy_static! {
-    static ref TASKS: Mutex<WeakVec<Mutex<Task>>> = Mutex::new(WeakVec::new());
+pub struct TraceWaker<'a> {
+    waker: Waker,
+    phantom: PhantomData<&'a TraceWakerInner<'a>>,
 }
 
 const INDENT_BLANK: &'static str /*   */ = "    ";
@@ -73,40 +64,37 @@ const INDENT_END: &'static str /*     */ = "┏━━ ";
 const INDENT_CONTINUE: &'static str /**/ = "┃   ";
 const INDENT_TEE: &'static str /*     */ = "┣━━ ";
 
-impl<F: TaskFuture> Tracer<F> {
-    fn new(fut: F) -> Self {
-        let task = Arc::new(Mutex::new(Task { waker: noop_waker(), done: false, fut: fut.fuse() }));
-        TASKS.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task>>)));
-        Tracer { task }
+impl Trace {
+    pub fn new() -> Trace {
+        Trace(Mutex::new(TraceInner {
+            traced_delimiter: false,
+            ignore_prefix: 0,
+            ignore_suffix: 0,
+            node: Node::new(),
+        }))
+    }
+    pub fn with_internal<'a>(&'a self, internal: &'a Waker) -> TraceWakerInner<'a> {
+        TraceWakerInner { internal, trace: self }
     }
 }
 
-impl<F: TaskFuture> Future for Tracer<F> {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+impl<'a> TraceWakerInner<'a> {
+    pub fn as_waker(&'a self) -> TraceWaker<'a> {
         unsafe {
-            let this = self.get_unchecked_mut();
-            let mut lock = this.task.lock();
-            lock.waker = cx.waker().clone();
-            if lock.done {
-                return Poll::Ready(());
+            TraceWaker {
+                waker: Waker::from_raw(
+                    RawWaker::new(self as *const TraceWakerInner as *const (),
+                                  &TRACE_WAKER_VTABLE)),
+                phantom: PhantomData,
             }
-            let pin = Pin::new_unchecked(&mut lock.fut);
-            let result = pin.poll(cx);
-            if result.is_ready() {
-                lock.done = true;
-            }
-            result
         }
     }
 }
 
-
-impl<F: TaskFuture> Unpin for Tracer<F> {}
-
-pub fn spawn<F: 'static + Send + Future<Output=()>>(x: F) -> JoinHandle<()> {
-    tokio::spawn(Tracer::new(x))
+impl<'a> TraceWaker<'a> {
+    pub fn as_context(&'a self) -> Context<'a> {
+        Context::from_waker(&self.waker)
+    }
 }
 
 impl Node {
@@ -165,11 +153,11 @@ impl<W: Write> NodePrinter<W> {
     }
 }
 
-impl<'a> TraceWaker<'a> {
+impl<'a> TraceWakerInner<'a> {
     fn trace(&self) {
         let backtrace = Backtrace::new_unresolved();
         let slice = backtrace.frames();
-        let mut lock = self.trace.lock();
+        let mut lock = self.trace.0.lock();
         if !lock.traced_delimiter {
             lock.traced_delimiter = true;
             if let Some(delimiter_name) = &*DELIMITER_NAME {
@@ -207,27 +195,21 @@ impl<'a> TraceWaker<'a> {
         self.trace();
         self.internal.wake_by_ref();
     }
-    fn new(internal: &'a Waker, trace: &'a Mutex<Trace>) -> Self {
-        TraceWaker { internal: &internal, trace: &trace }
-    }
-    unsafe fn as_waker(&self) -> Waker {
-        Waker::from_raw(RawWaker::new(self as *const TraceWaker as *const (), &TRACE_WAKER_VTABLE))
-    }
 }
 
 static TRACE_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-    |x| unsafe { mem::transmute((*(x as *const TraceWaker)).clone_impl()) },
+    |x| unsafe { mem::transmute((*(x as *const TraceWakerInner)).clone_impl()) },
     |_| panic!(),
-    |x| unsafe { (*(x as *const TraceWaker)).wake_by_ref_impl() },
+    |x| unsafe { (*(x as *const TraceWakerInner)).wake_by_ref_impl() },
     |_| (),
 );
 
 #[inline(never)]
-fn delimiter(waker: &Waker) {
-    mem::drop(waker.clone());
+pub fn delimiter(cx: &mut Context) {
+    mem::drop(cx.waker().clone());
 }
 
-static DELIMITER_FN: fn(&Waker) = delimiter as fn(&Waker);
+static DELIMITER_FN: fn(&mut Context) = delimiter as fn(&mut Context);
 
 fn resolve_delimiter_name() -> Option<String> {
     let mut result = None;
@@ -246,47 +228,9 @@ lazy_static! {
     static ref DELIMITER_NAME: Option<String> = resolve_delimiter_name();
 }
 
-impl Trace {
-    #[inline(never)]
-    pub fn new() -> Self {
-        unsafe {
-            let start = Instant::now();
-            let tasks: Vec<_> = TASKS.lock().iter().collect();
-            let trace = Mutex::new(Trace {
-                tasks: tasks.len(),
-                timeouts: 0,
-                traced_delimiter: false,
-                ignore_prefix: 0,
-                ignore_suffix: 0,
-                node: Node::new(),
-            });
-            let no_waker = TraceWaker::new(noop_waker_ref(), &trace);
-            let no_waker = no_waker.as_waker();
-            delimiter(&no_waker);
-            for task in tasks {
-                if let Some(mut lock) = task.try_lock_for(Duration::from_millis(100)) {
-                    let waker = TraceWaker::new(&lock.waker, &trace);
-                    let waker = waker.as_waker();
-
-                    let pin = Pin::new_unchecked(&mut lock.fut);
-                    pin.poll(&mut Context::from_waker(&waker)).is_ready();
-                } else {
-                    trace.lock().timeouts += 1;
-                }
-            }
-            trace.into_inner()
-        }
-    }
-}
-
 impl Display for Trace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{:?} spawned task(s):", self.tasks)?;
-        if self.timeouts > 0 {
-            writeln!(f, "Tracing timed out for {:?} tasks.", self.timeouts)?;
-        }
-        writeln!(f)?;
-        NodePrinter::new(f).print(&self.node)?;
+        NodePrinter::new(f).print(&self.0.lock().node)?;
         Ok(())
     }
 }
@@ -305,8 +249,8 @@ mod test {
     use pin_project::pin_project;
     use tokio::join;
     use tokio::time::sleep;
-
-    use crate::async_capture::{spawn, Trace};
+    use crate::trace::TraceGroup;
+    use crate::{spawn, TraceGroup};
 
     #[inline(never)]
     async fn foo1() {
@@ -350,13 +294,15 @@ mod test {
         thread::sleep(Duration::from_millis(1000));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_basic() {
-        spawn(async move {
-            join!(foo4(), bar(), sleep(Duration::from_millis(1000)));
+        let group = TraceGroup::new();
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().on_thread_start(group.on_thread_start()).build().unwrap().block_on(async {
+            spawn(async move {
+                join!(foo4(), bar(), sleep(Duration::from_millis(1000)));
+            });
+            spawn(baz());
+            sleep(Duration::from_millis(100)).await;
+            println!("{}", group.capture());
         });
-        spawn(baz());
-        sleep(Duration::from_millis(100)).await;
-        println!("{}", Trace::new());
     }
 }

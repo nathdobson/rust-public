@@ -12,7 +12,6 @@ use std::time::Duration;
 use by_address::ByAddress;
 use chrono::format::Item::Error;
 use async_util::coop::{Cancel, Canceled};
-use async_util::priority::PriorityPool;
 use async_util::promise::Promise;
 use termio::gui::event::{EventSender, GuiEvent, GuiPriority, read_loop, SharedGuiEvent};
 use termio::gui::event;
@@ -33,6 +32,7 @@ use crate::proxy::Host;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use std::io::ErrorKind;
+use async_util::spawn::Spawn;
 
 pub trait Model: 'static + Send + Sync + Debug {
     fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
@@ -96,7 +96,7 @@ impl NetcatServerBuilder {
 
     pub fn build_main(self, address: &str, model: MutRc<dyn Model>) {
         let address = address.to_string();
-        self.event_sender.clone().spawner().spawn(GuiPriority::Read, async move {
+        self.event_sender.clone().spawner().with_priority(GuiPriority::Read).spawn(async move {
             self.run_main(&address, model).await
         })
     }
@@ -188,9 +188,9 @@ impl NetcatServer {
                 gui.borrow_mut().tree().cancel().cancel();
             }
         };
-        join!(self.event_sender.spawner().spawn_with_handle(GuiPriority::Read, rl),
-              self.event_sender.spawner().spawn_with_handle(GuiPriority::Layout, ll),
-              self.event_sender.spawner().spawn_with_handle(GuiPriority::Paint, wl));
+        join!(self.event_sender.spawner().with_priority(GuiPriority::Read).spawn_with_handle(rl),
+              self.event_sender.spawner().with_priority(GuiPriority::Layout).spawn_with_handle(ll),
+              self.event_sender.spawner().with_priority(GuiPriority::Paint).spawn_with_handle(wl));
         eprintln!("Peer {:?} removed", username);
         self.state.borrow_mut().peers.remove(&username).unwrap();
         self.model.borrow_mut().remove_peer(&username);
@@ -206,7 +206,7 @@ impl NetcatServer {
                     Ok(stream_result) => stream_result?.0,
                 };
             let self2 = self.clone();
-            self.event_sender.spawner().spawn(GuiPriority::Read, bundle.outlive(async move {
+            self.event_sender.spawner().with_priority(GuiPriority::Read).spawn(bundle.outlive(async move {
                 if let Err(e) = self2.handle_stream(stream).await {
                     if let Some(io) = e.downcast_ref::<io::Error>() {
                         match io.kind() {

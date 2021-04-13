@@ -1,5 +1,4 @@
-use async_backtrace::{run_debug_server};
-use async_backtrace::spawn;
+use async_backtrace::{traced_main, spawn};
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio::join;
@@ -33,16 +32,16 @@ fn for_generic<T: Debug>(x: T) {
     println!("{:?}", x);
 }
 
-#[tokio::main]
-async fn main() {
-    run_debug_server("127.0.0.1:9999".to_string());
-    spawn(foo());
-    spawn(bar1());
-    spawn_blocking(baz);
-    spawn_blocking(|| for_generic([10u8; 10]));
-    spawn_blocking(|| for_generic({
-        fn identity(x: usize) -> usize {x}
-        identity as fn(usize) -> usize
-    }));
-    let () = sleepy().await;
+fn main() {
+    traced_main("127.0.0.1:9999".to_string(), async move {
+        spawn(foo());
+        spawn(bar1());
+        spawn_blocking(baz);
+        spawn_blocking(|| for_generic([10u8; 10]));
+        spawn_blocking(|| for_generic({
+            fn identity(x: usize) -> usize { x }
+            identity as fn(usize) -> usize
+        }));
+        let () = sleepy().await;
+    })
 }

@@ -52,7 +52,7 @@ pub struct PriorityPool<P: Priority> {
     next_id: Arc<AtomicUsize>,
 }
 
-struct PrioritySpawn<P: Priority> {
+pub struct PrioritySpawn<P: Priority> {
     pool: PriorityPool<P>,
     priority: P,
 }
@@ -137,20 +137,20 @@ impl<P: Priority> Future for PriorityRunner<P> {
 }
 
 impl<P: Priority> PriorityPool<P> {
-    pub fn spawn(&self, priority: P, fut: impl Future<Output=()> + Send + 'static) {
+    fn spawn(&self, priority: P, fut: impl Future<Output=()> + Send + 'static) {
         self.sender.send((
             priority,
             self.next_id.fetch_add(1, Relaxed),
             Box::pin(fut))).ok();
     }
-    pub fn spawn_with_handle<T: Send + 'static>(&self, priority: P, fut: impl Future<Output=T> + Send + 'static) -> RemoteJoinHandle<T> {
+    fn spawn_with_handle<T: Send + 'static>(&self, priority: P, fut: impl Future<Output=T> + Send + 'static) -> RemoteJoinHandle<T> {
         let (fut, handle) = remote(fut);
         self.spawn(priority, fut);
         handle
     }
-    // pub fn at_priority(&self, priority: P) -> Executor {
-    //     Arc::new(PrioritySpawn { pool: self.clone(), priority })
-    // }
+    pub fn with_priority(&self, priority: P) -> PrioritySpawn<P> {
+        PrioritySpawn { pool: self.clone(), priority }
+    }
 }
 
 impl<P: Priority> Spawn for PrioritySpawn<P> {

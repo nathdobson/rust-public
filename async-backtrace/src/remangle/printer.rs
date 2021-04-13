@@ -1,4 +1,4 @@
-use crate::remangle::path::{PathSegment, Path};
+use crate::remangle::path::{PathSegment, Path, PathBraces};
 use std::fmt::{Write, Arguments, write};
 use std::fmt;
 
@@ -21,14 +21,50 @@ impl<W: Write> Printer<W> {
     pub fn new(quiet: usize, output: W) -> Self {
         Printer { quiet, output }
     }
+    pub fn print_braces(&mut self, braces: &PathBraces) -> fmt::Result {
+        match braces {
+            PathBraces::VTable { vtable } => {
+                if self.quiet < QUIET_SHORTEN_ANON {
+                    write!(self, "{{shim:vtable#{}}}", vtable)?;
+                } else {
+                    write!(self, "𝓿{}", vtable)?;
+                }
+            }
+            PathBraces::Closure { closure } => {
+                if self.quiet < QUIET_SHORTEN_ANON {
+                    write!(self, "{{closure#{}}}", closure)?;
+                } else {
+                    write!(self, "λ{}", closure)?;
+                }
+            }
+            PathBraces::UnknownVTable => {
+                if self.quiet < QUIET_SHORTEN_ANON {
+                    write!(self, "{{{{shim.vtable}}}}")?;
+                } else {
+                    write!(self, "𝓿")?;
+                }
+            }
+            PathBraces::UnknownClosure => {
+                if self.quiet < QUIET_SHORTEN_ANON {
+                    write!(self, "{{{{closure}}}}")?;
+                } else {
+                    write!(self, "λ")?;
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn print_segment(&mut self, segment: &PathSegment) -> fmt::Result {
         match segment {
-            PathSegment::Ident { name, version, turbofish, tys } => {
+            PathSegment::Ident { name, version, braces, turbofish, tys } => {
                 write!(self, "{}", name)?;
                 if self.quiet < QUIET_REMOVE_VERSION {
                     if let Some(version) = version {
                         write!(self, "[{}]", version)?;
                     }
+                }
+                if let Some(braces) = braces {
+                    self.print_braces(braces)?;
                 }
                 if !tys.is_empty() {
                     if *turbofish {
@@ -92,20 +128,6 @@ impl<W: Write> Printer<W> {
                 }
                 write!(self, ")")?;
             }
-            PathSegment::VTable { vtable } => {
-                if self.quiet < QUIET_SHORTEN_ANON {
-                    write!(self, "{{shim:vtable#{}}}", vtable)?;
-                } else {
-                    write!(self, "𝓿{}", vtable)?;
-                }
-            }
-            PathSegment::Closure { closure } => {
-                if self.quiet < QUIET_SHORTEN_ANON {
-                    write!(self, "{{closure#{}}}", closure)?;
-                } else {
-                    write!(self, "λ{}", closure)?;
-                }
-            }
             PathSegment::FnPtr { tys, output } => {
                 write!(self, "fn(")?;
                 for ty in Iterator::intersperse(tys.iter().map(Some), None) {
@@ -142,12 +164,13 @@ impl<W: Write> Printer<W> {
             for (index, segment) in path.segments.iter().enumerate() {
                 match segment {
                     PathSegment::Ident { name, .. } => {
-                        start = Some(index);
-                        if name.chars().next().unwrap().is_ascii_uppercase() {
-                            break;
+                        if let Some(c1) = name.chars().next() {
+                            start = Some(index);
+                            if c1.is_ascii_uppercase() {
+                                break;
+                            }
                         }
                     }
-                    PathSegment::Closure { .. } | PathSegment::VTable { .. } => {}
                     _ => {
                         start = Some(index);
                         break;
@@ -162,7 +185,7 @@ impl<W: Write> Printer<W> {
         let mut end = path.segments.len();
         if self.quiet >= QUIET_REMOVE_VERSION {
             match path.segments.last() {
-                Some(PathSegment::Ident { name, version, turbofish, tys })
+                Some(PathSegment::Ident { name, version, braces, turbofish, tys })
                 => {
                     if let Some(name) = name.strip_prefix("h") {
                         if name.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) && version.is_none() && !*turbofish && tys.is_empty() {

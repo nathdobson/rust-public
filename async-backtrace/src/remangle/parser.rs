@@ -3,7 +3,7 @@ use lookahead::Lookahead;
 use lookahead::lookahead;
 use std::fmt::{Debug, Formatter};
 use std::fmt;
-use crate::remangle::path::{PathSegment, Path};
+use crate::remangle::path::{PathSegment, Path, PathBraces};
 
 pub struct Parser<'a> {
     pub lexer: Lookahead<Lexer<'a>>,
@@ -45,6 +45,52 @@ impl<'a> Parser<'a> {
                 Some(ident)
             }
             Token::Oper(_) => None,
+        }
+    }
+    fn parse_braces<'b>(&'b mut self) -> ParseResult<Option<PathBraces<'a>>> where 'a: 'b {
+        if self.read(&["{"]) {
+            if self.read(&["{"]) {
+                let ident = self.read_ident().ok_or(ParseError("expected shim or closure, found oper"))?;
+                let result;
+                if ident == "vtable.shim" {
+                    result = Some(PathBraces::UnknownVTable);
+                } else if ident == "closure" {
+                    result = Some(PathBraces::UnknownClosure);
+                } else {
+                    return Err(ParseError("expected 'vtable.shim' or 'closure'"));
+                }
+                if !self.read(&["}"]) {
+                    return Err(ParseError("expected '}'"));
+                }
+                if !self.read(&["}"]) {
+                    return Err(ParseError("expected '}'"));
+                }
+                return Ok(result);
+            } else if let Some(prefix) = self.read_ident() {
+                let result;
+                if prefix == "shim.vtable" {
+                    result = Some(PathBraces::VTable { vtable: "" });
+                } else if prefix == "shim" {
+                    if !self.read(&[":"]) {
+                        return Err(ParseError("expected ':'"));
+                    }
+                    let vtable = self.read_ident().ok_or(ParseError("expected vtable"))?;
+                    let vtable = vtable.strip_prefix("vtable#").ok_or(ParseError("expected vtable..."))?;
+                    result = Some(PathBraces::VTable { vtable });
+                } else if let Some(closure) = prefix.strip_prefix("closure#") {
+                    result = Some(PathBraces::Closure { closure });
+                } else {
+                    return Err(ParseError("expected shim or closure"))?;
+                }
+                if !self.read(&["}"]) {
+                    return Err(ParseError("expected '}'"));
+                }
+                return Ok(result);
+            } else {
+                return Err(ParseError("expected shim or closure"));
+            }
+        } else {
+            Ok(None)
         }
     }
     fn parse_segment<'b>(&'b mut self) -> ParseResult<Option<PathSegment<'a>>> where 'a: 'b {
@@ -105,25 +151,14 @@ impl<'a> Parser<'a> {
                 output = Some(self.parse_path()?);
             }
             return Ok(Some(PathSegment::FnPtr { tys, output }));
-        } else if self.read(&["{"]) {
-            let prefix = self.read_ident().ok_or(ParseError("expected shim or closure"))?;
-            let result;
-            if prefix == "shim" {
-                if !self.read(&[":"]) {
-                    return Err(ParseError("expected ':'"));
-                }
-                let vtable = self.read_ident().ok_or(ParseError("expected vtable"))?;
-                let vtable = vtable.strip_prefix("vtable#").ok_or(ParseError("expected vtable..."))?;
-                result = Some(PathSegment::VTable { vtable });
-            } else if let Some(closure) = prefix.strip_prefix("closure#") {
-                result = Some(PathSegment::Closure { closure });
-            } else {
-                return Err(ParseError("expected shim or closure"))?;
-            }
-            if !self.read(&["}"]) {
-                return Err(ParseError("expected '}'"));
-            }
-            return Ok(result);
+        } else if let Some(braces) = self.parse_braces()? {
+            return Ok(Some(PathSegment::Ident {
+                name: "",
+                version: None,
+                braces: Some(braces),
+                turbofish: false,
+                tys: vec![],
+            }));
         } else if self.read(&["&", "mut"]) {
             return Ok(Some(PathSegment::Pointy { raw: false, mutable: true, ty: self.parse_path()? }));
         } else if self.read(&["&"]) {
@@ -163,6 +198,7 @@ impl<'a> Parser<'a> {
                 version = Some(self.read_ident().ok_or(ParseError("expected version in brackets"))?);
                 if !self.read(&["]"]) { return Err(ParseError("expected ']' after version")); };
             }
+            let braces = self.parse_braces()?;
             let mut turbofish = false;
             let mut tardyfish = false;
             if !self.can_read(&["::", "<", "impl"]) {
@@ -184,7 +220,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            return Ok(Some(PathSegment::Ident { name, version, turbofish, tys }));
+            return Ok(Some(PathSegment::Ident { name, version, braces, turbofish, tys }));
         } else {
             return Err(ParseError("No valid segment prefix"));
         }

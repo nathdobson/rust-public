@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 use tokio::pin;
 use libc::close;
 use std::future::poll_fn;
+use async_backtrace::TracedPriorityPool;
+use async_util::spawn::Spawn;
 
 use async_util::priority::{priority_join2, PriorityPool};
 use async_util::priority;
@@ -48,7 +50,7 @@ pub enum GuiPriority {
 }
 
 struct EventSenderInner {
-    spawner: PriorityPool<GuiPriority>,
+    spawner: TracedPriorityPool<GuiPriority>,
 }
 
 #[derive(Clone, Debug)]
@@ -96,6 +98,7 @@ pub fn priority_consume<S: Stream>(x: S, mut f: impl FnMut(S::Item)) -> impl Fut
 
 pub fn event_loop() -> (EventSender, impl Future<Output=()>) {
     let (spawner, runner) = priority::channel();
+    let spawner = TracedPriorityPool::new(spawner);
     (
         EventSender(Arc::new(EventSenderInner { spawner })),
         runner
@@ -120,16 +123,16 @@ pub async fn read_loop(
 
 impl EventSender {
     pub fn run_now(&self, event: GuiEvent) {
-        self.0.spawner.spawn(GuiPriority::Action, async { event.run() });
+        self.0.spawner.with_priority(GuiPriority::Action).spawn(async { event.run() });
     }
     pub fn run_later(&self, event: GuiEvent) {
-        self.0.spawner.spawn(GuiPriority::Simulate, async { event.run() });
+        self.0.spawner.with_priority(GuiPriority::Simulate).spawn(async { event.run() });
     }
-    pub fn spawner(&self) -> &PriorityPool<GuiPriority> {
+    pub fn spawner(&self) -> &TracedPriorityPool<GuiPriority> {
         &self.0.spawner
     }
     pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) {
-        self.0.spawner.spawn(GuiPriority::Simulate, async move {
+        self.0.spawner.with_priority(GuiPriority::Simulate).spawn(async move {
             sleep(delay).await;
             event.run();
         });
@@ -143,7 +146,7 @@ impl EventSender {
     pub fn spawn_poll_div<T: DivImpl, F>(&self, mut poll: F, div: DivRc<T>)
         where F: FnMut(&mut Div<T>, &mut Context) -> Poll<()> + Send + 'static {
         let div = div.downgrade();
-        self.0.spawner.spawn(GuiPriority::Simulate, async move {
+        self.0.spawner.with_priority(GuiPriority::Simulate).spawn(async move {
             poll_fn(|cx| {
                 if let Some(mut div) = div.upgrade() {
                     poll(&mut *div.write(), cx)
