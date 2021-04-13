@@ -29,6 +29,7 @@ use async_util::fused::Fused;
 use async_util::futureext::FutureExt;
 use std::marker::PhantomData;
 use std::future::poll_fn;
+use std::cmp::Reverse;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 enum NodeKey {
@@ -41,6 +42,7 @@ struct Node {
     children: HashMap<NodeKey, Node>,
     count: usize,
     messages: Vec<String>,
+    recursive_size: usize,
 }
 
 struct NodePrinter<W: Write> {
@@ -139,7 +141,7 @@ impl<'a> TraceWaker<'a> {
 
 impl Node {
     fn new() -> Self {
-        Node { children: HashMap::new(), count: 0, messages: vec![] }
+        Node { children: HashMap::new(), count: 0, messages: vec![], recursive_size: 0 }
     }
     fn insert(&mut self, mut frames: slice::Iter<BacktraceFrame>) -> &mut Node {
         if let Some(next) = frames.next_back() {
@@ -147,6 +149,14 @@ impl Node {
         } else {
             self
         }
+    }
+    fn compute_recursive_size(&mut self) {
+        let mut total = 0;
+        for child in self.children.values_mut() {
+            child.compute_recursive_size();
+            total += child.recursive_size + 1
+        }
+        self.recursive_size = total;
     }
 }
 
@@ -156,7 +166,9 @@ impl<W: Write> NodePrinter<W> {
     }
     fn print(&mut self, node: &Node) -> fmt::Result {
         let old_indent = self.indent.len();
-        for (index, (addr, child)) in node.children.iter().enumerate() {
+        let mut children: Vec<_> = node.children.iter().collect();
+        children.sort_by_key(|(key, child)| (Reverse(child.recursive_size), *key));
+        for (index, (addr, child)) in children.iter().enumerate() {
             let temp;
             let symbols = match addr {
                 NodeKey::Address(addr) => resolve_remangle(*addr),
@@ -285,10 +297,12 @@ lazy_static! {
 
 impl Display for Trace {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.lock().node.compute_recursive_size();
         NodePrinter::new(f).print(&self.0.lock().node)?;
         Ok(())
     }
 }
+
 
 #[cfg(test)]
 mod test {
