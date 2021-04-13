@@ -18,6 +18,8 @@ use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use std::lazy::OnceCell;
 use util::weak_vec::WeakVec;
+use tokio::pin;
+
 
 use crate::remangle;
 use util::shared::ObjectInner;
@@ -26,12 +28,14 @@ use async_util::waker::{noop_waker, noop_waker_ref};
 use async_util::fused::Fused;
 use async_util::futureext::FutureExt;
 use std::marker::PhantomData;
+use std::future::poll_fn;
 
 
 #[derive(Debug)]
 struct Node {
     children: HashMap<*mut c_void, Node>,
     count: usize,
+    messages: Vec<String>,
 }
 
 struct NodePrinter<W: Write> {
@@ -89,6 +93,26 @@ impl<'a> TraceWakerInner<'a> {
             }
         }
     }
+    pub fn from_waker(waker: &'a Waker) -> Option<&'a TraceWakerInner<'a>> {
+        unsafe {
+            let (data, vtable): (*const (), &'static RawWakerVTable) = mem::transmute_copy(waker);
+            if vtable as *const RawWakerVTable == &TRACE_WAKER_VTABLE {
+                return Some(&*(data as *const TraceWakerInner));
+            } else {
+                None
+            }
+        }
+    }
+}
+
+async fn trace_custom<F: Future>(message: &str, fut: F) -> F::Output {
+    pin!(fut);
+    poll_fn(|cx| {
+        if let Some(trace_waker_inner) = TraceWakerInner::from_waker(cx.waker()) {
+            trace_waker_inner.trace(Some(message));
+        }
+        fut.as_mut().poll(cx)
+    }).await
 }
 
 impl<'a> TraceWaker<'a> {
@@ -99,13 +123,16 @@ impl<'a> TraceWaker<'a> {
 
 impl Node {
     fn new() -> Self {
-        Node { children: HashMap::new(), count: 0 }
+        Node { children: HashMap::new(), count: 0, messages: vec![] }
     }
-    fn insert(&mut self, mut frames: slice::Iter<BacktraceFrame>) {
+    fn insert(&mut self, mut frames: slice::Iter<BacktraceFrame>, message: Option<&str>) {
         if let Some(next) = frames.next_back() {
-            self.children.entry(next.ip()).or_insert(Node::new()).insert(frames);
+            self.children.entry(next.ip()).or_insert(Node::new()).insert(frames, message);
         } else {
             self.count += 1;
+            if let Some(message) = message {
+                self.messages.push(message.to_string())
+            }
         }
     }
 }
@@ -116,7 +143,10 @@ impl<W: Write> NodePrinter<W> {
     }
     fn print(&mut self, node: &Node) -> fmt::Result {
         if node.count > 0 {
-            write!(self.writer, "{}{} pending\n", self.indent, node.count)?;
+            writeln!(self.writer, "{}{} pending", self.indent, node.count)?;
+        }
+        for message in node.messages.iter() {
+            writeln!(self.writer, "{}{}", self.indent, message)?;
         }
         let old_indent = self.indent.len();
         for (index, (addr, child)) in node.children.iter().enumerate() {
@@ -154,7 +184,7 @@ impl<W: Write> NodePrinter<W> {
 }
 
 impl<'a> TraceWakerInner<'a> {
-    fn trace(&self) {
+    fn trace(&self, message: Option<&str>) {
         let backtrace = Backtrace::new_unresolved();
         let slice = backtrace.frames();
         let mut lock = self.trace.0.lock();
@@ -183,16 +213,16 @@ impl<'a> TraceWakerInner<'a> {
         } else {
             if slice.len() >= lock.ignore_prefix + lock.ignore_suffix {
                 let slice = &slice[lock.ignore_prefix..slice.len() - lock.ignore_suffix];
-                lock.node.insert(slice.iter());
+                lock.node.insert(slice.iter(), message);
             }
         }
     }
     fn clone_impl(&self) -> Waker {
-        self.trace();
+        self.trace(None);
         self.internal.clone()
     }
     fn wake_by_ref_impl(&self) {
-        self.trace();
+        self.trace(None);
         self.internal.wake_by_ref();
     }
 }

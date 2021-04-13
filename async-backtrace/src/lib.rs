@@ -11,6 +11,7 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(generic_associated_types)]
 #![allow(incomplete_features)]
+#![feature(future_poll_fn)]
 
 mod remangle;
 mod trace;
