@@ -33,6 +33,7 @@ use termio::gui::field::Field;
 use termio::gui::table::{Table, TableDiv};
 use termio::line::Stroke;
 use termio::canvas::Canvas;
+use async_backtrace::traced_main;
 
 #[derive(Debug)]
 struct Example {
@@ -76,7 +77,7 @@ impl Example {
                         e.model.push("y".to_style_string());
                         e.labels[0].write().sync_log(&e.model);
                     }));
-            let field: DivRc<Field> = Field::new(tree.clone(),"text".to_string());
+            let field: DivRc<Field> = Field::new(tree.clone(), "text".to_string());
             let grid = Grid::new((2, 4), |x, y| {
                 match (x, y) {
                     (0, 0) => TableDiv {
@@ -166,14 +167,16 @@ impl DivImpl for Example {
         if *event == InputEvent::KeyEvent(KeyEvent::typed('c').control()) {
             eprintln!("Quitting");
             std::process::exit(0);
-        }else{
+        } else if let InputEvent::KeyEvent(_) = event {
             self.field.write().handle(event);
+            return true;
         }
         false
     }
 }
 
-#[tokio::main]
-async fn main() {
-    run_local(|tree| Example::new_gui(tree)).await;
+fn main() {
+    traced_main("127.0.0.1:9998".to_string(), async move {
+        run_local(|tree| Example::new_gui(tree)).await;
+    });
 }
