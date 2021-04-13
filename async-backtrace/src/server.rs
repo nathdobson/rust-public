@@ -105,7 +105,9 @@ pub fn traced_main<F: 'static + Send + Future<Output: 'static + Send>>(addr: Str
         .on_thread_start(group.on_thread_start())
         .build()
         .unwrap();
+    let guard = rt.enter();
     let (remote, handle) = fut.into_remote();
-    rt.spawn(group.push(remote));
+    let traced = group.push(remote);
+    rt.spawn(traced);
     rt.block_on(handle)
 }

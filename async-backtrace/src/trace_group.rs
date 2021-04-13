@@ -18,7 +18,6 @@ pub trait TaskFuture = 'static + Send + Future<Output=()>;
 
 struct Task<F: ?Sized + TaskFuture = dyn TaskFuture> {
     waker: Waker,
-    done: bool,
     fut: F,
 }
 
@@ -36,22 +35,20 @@ pub struct TraceGroup(Arc<Mutex<WeakVec<Mutex<Task>>>>);
 impl TraceGroup {
     pub fn new() -> Self { TraceGroup(Arc::new(Mutex::new(WeakVec::new()))) }
     pub fn push<F: TaskFuture>(&self, fut: F) -> TraceFut<F> {
-        let task = Arc::new(Mutex::new(Task { waker: noop_waker(), done: false, fut: fut.fuse() }));
+        let task = Arc::new(Mutex::new(Task { waker: noop_waker(), fut: fut.fuse() }));
         self.0.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task>>)));
         TraceFut { task }
     }
     pub fn on_thread_start(&self) -> impl Fn() + Send + Sync + 'static {
         let this = self.clone();
-        move || {
-            println!("Initializing on {:?}", thread::current().id());
-            let this = this.clone();
-            CURRENT_TRACE_GROUP.with(move |current_trace_group| {
-                current_trace_group.set(this).ok().unwrap()
-            })
-        }
+        move || this.clone().set_current()
+    }
+    pub fn set_current(self) {
+        CURRENT_TRACE_GROUP.with(move |current_trace_group| {
+            current_trace_group.set(self).ok().unwrap()
+        });
     }
     pub fn current() -> Self {
-        println!("Getting on {:?}", thread::current().id());
         CURRENT_TRACE_GROUP.with(|current_trace_group| current_trace_group.get().unwrap().clone())
     }
 }
@@ -66,15 +63,7 @@ impl<F: TaskFuture> Future for TraceFut<F> {
             let this = self.get_unchecked_mut();
             let mut lock = this.task.lock();
             lock.waker = cx.waker().clone();
-            if lock.done {
-                return Poll::Ready(());
-            }
-            let pin = Pin::new_unchecked(&mut lock.fut);
-            let result = pin.poll(cx);
-            if result.is_ready() {
-                lock.done = true;
-            }
-            result
+            Pin::new_unchecked(&mut lock.fut).poll(cx)
         }
     }
 }

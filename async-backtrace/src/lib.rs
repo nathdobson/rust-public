@@ -19,6 +19,7 @@ mod server;
 mod lldb_capture;
 mod spawn;
 mod trace_group;
+mod format;
 
 pub use trace::Trace;
 pub use trace_group::TraceGroup;
@@ -26,3 +27,5 @@ pub use server::traced_server;
 pub use server::traced_main;
 pub use spawn::spawn;
 pub use spawn::TracedPriorityPool;
+pub use trace::trace_annotate;
+pub use format::SyncDisplay;

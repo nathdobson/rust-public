@@ -2,7 +2,7 @@ use std::{error, io, mem, thread};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::str;
@@ -33,6 +33,7 @@ use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use std::io::ErrorKind;
 use async_util::spawn::Spawn;
+use async_backtrace::trace_annotate;
 
 pub trait Model: 'static + Send + Sync + Debug {
     fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
@@ -151,46 +152,79 @@ impl NetcatServer {
         }
         let gui = self.model.borrow_mut().add_peer(&username, tree.clone());
 
-        let ll = layout.layout_loop(gui.clone());
+        let layout_annot = {
+            let username = username.clone();
+            move |f: &mut Formatter| write!(f, "User {} layout loop", username)
+        };
+        let write_annot = {
+            let username = username.clone();
+            move |f: &mut Formatter| write!(f, "User {} send loop", username)
+        };
+        let read_annot = {
+            let username = username.clone();
+            move |f: &mut Formatter| write!(f, "User {} receive loop", username)
+        };
+
+        let ll = {
+            let gui = gui.clone();
+            async move {
+                trace_annotate(&layout_annot, layout.layout_loop(gui)).await
+            }
+        };
         let wl = {
             let gui = gui.clone();
             let peer_cancel = peer_cancel.clone();
             let username = username.clone();
             async move {
-                if let Err(e) = paint.render_loop(gui, Pin::new(&mut write_stream)).await {
-                    eprintln!("Peer {:?} responses error: {}", username, e);
-                }
-                peer_cancel.cancel();
+                trace_annotate(&write_annot, async move {
+                    if let Err(e) = paint.render_loop(gui, Pin::new(&mut write_stream)).await {
+                        eprintln!("Peer {:?} responses error: {}", username, e);
+                    }
+                    peer_cancel.cancel();
+                }).await
             }
         };
         let rl = {
             let peer_cancel = peer_cancel.clone();
             let event_sender = self.event_sender.clone();
             let username = username.clone();
+
             async move {
-                match peer_cancel.checked(read_loop(
-                    event_sender,
-                    gui.clone(),
-                    read_stream)).await {
-                    Ok(Ok(x)) => match x {}
-                    Ok(Err(error)) => {
-                        if error.kind() == ErrorKind::UnexpectedEof {
-                            eprintln!("Peer {:?} requests EOF", username);
-                        } else {
-                            eprintln!("Peer {:?} requests error: {}", username, error);
+                trace_annotate(&read_annot, async move {
+                    match peer_cancel.checked(read_loop(
+                        event_sender,
+                        gui.clone(),
+                        read_stream)).await {
+                        Ok(Ok(x)) => match x {}
+                        Ok(Err(error)) => {
+                            if error.kind() == ErrorKind::UnexpectedEof {
+                                eprintln!("Peer {:?} requests EOF", username);
+                            } else {
+                                eprintln!("Peer {:?} requests error: {}", username, error);
+                            }
+                        }
+                        Err(_canceled) => {
+                            eprintln!("Peer {:?} requests canceled", username);
                         }
                     }
-                    Err(_canceled) => {
-                        eprintln!("Peer {:?} requests canceled", username);
-                    }
-                }
-                gui.borrow_mut().set_enabled(false);
-                gui.borrow_mut().tree().cancel().cancel();
+                    gui.borrow_mut().set_enabled(false);
+                    gui.borrow_mut().tree().cancel().cancel();
+                }).await;
             }
         };
-        join!(self.event_sender.spawner().with_priority(GuiPriority::Read).spawn_with_handle(rl),
-              self.event_sender.spawner().with_priority(GuiPriority::Layout).spawn_with_handle(ll),
-              self.event_sender.spawner().with_priority(GuiPriority::Paint).spawn_with_handle(wl));
+        trace_annotate(
+            &{
+                let username = username.clone();
+                move |f| write!(f, "User {}", username)
+            },
+            async move {
+                join!(
+                    self.event_sender.spawner().with_priority(GuiPriority::Read).spawn_with_handle(rl),
+                    self.event_sender.spawner().with_priority(GuiPriority::Layout).spawn_with_handle(ll),
+                    self.event_sender.spawner().with_priority(GuiPriority::Paint).spawn_with_handle(wl)
+                )
+            }
+        ).await;
         eprintln!("Peer {:?} removed", username);
         self.state.borrow_mut().peers.remove(&username).unwrap();
         self.model.borrow_mut().remove_peer(&username);
@@ -200,24 +234,26 @@ impl NetcatServer {
     pub async fn listen(self: &Arc<Self>) -> io::Result<()> {
         let bundle = Promise::new();
         loop {
-            let stream =
+            let (stream, addr) =
                 match self.server_cancel.checked(self.listener.accept()).await {
                     Err(Canceled) => break,
-                    Ok(stream_result) => stream_result?.0,
+                    Ok(stream_result) => stream_result?,
                 };
             let self2 = self.clone();
             self.event_sender.spawner().with_priority(GuiPriority::Read).spawn(bundle.outlive(async move {
-                if let Err(e) = self2.handle_stream(stream).await {
-                    if let Some(io) = e.downcast_ref::<io::Error>() {
-                        match io.kind() {
-                            ErrorKind::UnexpectedEof => {}
-                            ErrorKind::Interrupted => { eprintln!("Cancelled") }
-                            _ => eprintln!("IO error: {:?}", e),
+                trace_annotate(&|f| write!(f, "Peer {}", addr), async move {
+                    if let Err(e) = self2.handle_stream(stream).await {
+                        if let Some(io) = e.downcast_ref::<io::Error>() {
+                            match io.kind() {
+                                ErrorKind::UnexpectedEof => {}
+                                ErrorKind::Interrupted => { eprintln!("Cancelled") }
+                                _ => eprintln!("IO error: {:?}", e),
+                            }
+                        } else {
+                            eprintln!("Comm error: {:?}", e);
                         }
-                    } else {
-                        eprintln!("Comm error: {:?}", e);
                     }
-                }
+                }).await
             }));
         }
         eprintln!("Server canceling all peers");

@@ -2,7 +2,7 @@ use std::{mem, slice, fmt, thread};
 use std::collections::hash_map::{DefaultHasher, Iter};
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::fmt::{Write, Display, Formatter};
+use std::fmt::{Write, Display, Formatter, Arguments};
 use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
@@ -21,7 +21,7 @@ use util::weak_vec::WeakVec;
 use tokio::pin;
 
 
-use crate::remangle;
+use crate::{remangle, SyncDisplay};
 use util::shared::ObjectInner;
 use std::hint::black_box;
 use async_util::waker::{noop_waker, noop_waker_ref};
@@ -30,10 +30,15 @@ use async_util::futureext::FutureExt;
 use std::marker::PhantomData;
 use std::future::poll_fn;
 
+#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
+enum NodeKey {
+    Address(*mut c_void),
+    Annotation(String),
+}
 
 #[derive(Debug)]
 struct Node {
-    children: HashMap<*mut c_void, Node>,
+    children: HashMap<NodeKey, Node>,
     count: usize,
     messages: Vec<String>,
 }
@@ -105,11 +110,22 @@ impl<'a> TraceWakerInner<'a> {
     }
 }
 
-async fn trace_custom<F: Future>(message: &str, fut: F) -> F::Output {
+pub async fn trace_annotate<F: Future>(message: &dyn SyncDisplay, fut: F) -> F::Output {
     pin!(fut);
     poll_fn(|cx| {
         if let Some(trace_waker_inner) = TraceWakerInner::from_waker(cx.waker()) {
-            trace_waker_inner.trace(Some(message));
+            if let Some(node) = trace_waker_inner.trace.0.lock().trace() {
+                let node =
+                    node.children
+                        .entry(NodeKey::Annotation(format!("● {}", message)))
+                        .or_insert(Node::new());
+                let subtrace = Trace::new();
+                delimiter(&mut subtrace.with_internal(noop_waker_ref()).as_waker().as_context());
+                mem::swap(node, &mut subtrace.0.lock().node);
+                let result = fut.as_mut().poll(&mut subtrace.with_internal(trace_waker_inner.internal).as_waker().as_context());
+                mem::swap(node, &mut subtrace.0.lock().node);
+                return result;
+            }
         }
         fut.as_mut().poll(cx)
     }).await
@@ -125,14 +141,11 @@ impl Node {
     fn new() -> Self {
         Node { children: HashMap::new(), count: 0, messages: vec![] }
     }
-    fn insert(&mut self, mut frames: slice::Iter<BacktraceFrame>, message: Option<&str>) {
+    fn insert(&mut self, mut frames: slice::Iter<BacktraceFrame>) -> &mut Node {
         if let Some(next) = frames.next_back() {
-            self.children.entry(next.ip()).or_insert(Node::new()).insert(frames, message);
+            self.children.entry(NodeKey::Address(next.ip())).or_insert(Node::new()).insert(frames)
         } else {
-            self.count += 1;
-            if let Some(message) = message {
-                self.messages.push(message.to_string())
-            }
+            self
         }
     }
 }
@@ -142,15 +155,16 @@ impl<W: Write> NodePrinter<W> {
         NodePrinter { indent: "".to_string(), writer }
     }
     fn print(&mut self, node: &Node) -> fmt::Result {
-        if node.count > 0 {
-            writeln!(self.writer, "{}{} pending", self.indent, node.count)?;
-        }
-        for message in node.messages.iter() {
-            writeln!(self.writer, "{}{}", self.indent, message)?;
-        }
         let old_indent = self.indent.len();
         for (index, (addr, child)) in node.children.iter().enumerate() {
-            let symbols = resolve_remangle(*addr);
+            let temp;
+            let symbols = match addr {
+                NodeKey::Address(addr) => resolve_remangle(*addr),
+                NodeKey::Annotation(annotation) => {
+                    temp = [annotation.as_str()];
+                    &temp
+                }
+            };
             let extra = node.children.len() > 1;
             if extra {
                 if index == 0 {
@@ -179,17 +193,22 @@ impl<W: Write> NodePrinter<W> {
             self.indent.truncate(old_indent);
         }
         self.indent.truncate(old_indent);
+        if node.count > 0 {
+            writeln!(self.writer, "{}{} pending", self.indent, node.count)?;
+        }
+        for message in node.messages.iter() {
+            writeln!(self.writer, "{}● {}", self.indent, message)?;
+        }
         Ok(())
     }
 }
 
-impl<'a> TraceWakerInner<'a> {
-    fn trace(&self, message: Option<&str>) {
+impl TraceInner {
+    fn trace(&mut self) -> Option<&mut Node> {
         let backtrace = Backtrace::new_unresolved();
         let slice = backtrace.frames();
-        let mut lock = self.trace.0.lock();
-        if !lock.traced_delimiter {
-            lock.traced_delimiter = true;
+        if !self.traced_delimiter {
+            self.traced_delimiter = true;
             if let Some(delimiter_name) = &*DELIMITER_NAME {
                 let prefix = slice.iter().position(|symbol| {
                     let mut found = false;
@@ -205,24 +224,30 @@ impl<'a> TraceWakerInner<'a> {
                     found
                 });
                 if let Some(prefix) = prefix {
-                    lock.ignore_prefix = prefix;
-                    lock.ignore_suffix = slice.len() - prefix - 1;
+                    self.ignore_prefix = prefix;
+                    self.ignore_suffix = slice.len() - prefix - 1;
                 }
             }
-            lock.node.children.clear();
+            self.node.children.clear();
+            None
         } else {
-            if slice.len() >= lock.ignore_prefix + lock.ignore_suffix {
-                let slice = &slice[lock.ignore_prefix..slice.len() - lock.ignore_suffix];
-                lock.node.insert(slice.iter(), message);
+            if slice.len() >= self.ignore_prefix + self.ignore_suffix {
+                let slice = &slice[self.ignore_prefix..slice.len() - self.ignore_suffix];
+                Some(self.node.insert(slice.iter()))
+            } else {
+                None
             }
         }
     }
+}
+
+impl<'a> TraceWakerInner<'a> {
     fn clone_impl(&self) -> Waker {
-        self.trace(None);
+        self.trace.0.lock().trace().map(|x| x.count += 1);
         self.internal.clone()
     }
     fn wake_by_ref_impl(&self) {
-        self.trace(None);
+        self.trace.0.lock().trace().map(|x| x.count += 1);
         self.internal.wake_by_ref();
     }
 }
@@ -279,18 +304,19 @@ mod test {
     use pin_project::pin_project;
     use tokio::join;
     use tokio::time::sleep;
-    use crate::trace::TraceGroup;
     use crate::{spawn, TraceGroup};
+    use async_util::futureext::FutureExt;
+    use crate::trace::trace_annotate;
 
     #[inline(never)]
-    async fn foo1() {
-        sleep(Duration::from_millis(1000)).await;
+    async fn foo1(msg: &str) {
+        trace_annotate(&|f| write!(f, "foo1 {}", msg), sleep(Duration::from_millis(1000))).await;
     }
 
     #[inline(never)]
     async fn foo2<T: Debug>(x: T) {
-        foo1().await;
-        foo1().await;
+        trace_annotate(&|f| write!(f, "foo2 custom message"), foo1("x")).await;
+        foo1("y").await;
         println!("{:?}", x);
     }
 
@@ -321,18 +347,29 @@ mod test {
 
     #[inline(never)]
     async fn baz() {
-        thread::sleep(Duration::from_millis(1000));
+        trace_annotate(&|f| write!(f, "baz custom message"), async {
+            thread::sleep(Duration::from_millis(1000))
+        }).await;
     }
 
-    async fn test_basic() {
+    #[test]
+    fn test_basic() {
         let group = TraceGroup::new();
-        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().on_thread_start(group.on_thread_start()).build().unwrap().block_on(async {
-            spawn(async move {
-                join!(foo4(), bar(), sleep(Duration::from_millis(1000)));
-            });
-            spawn(baz());
-            sleep(Duration::from_millis(100)).await;
-            println!("{}", group.capture());
-        });
+        let fut = {
+            let group = group.clone();
+            async move {
+                spawn(async move {
+                    join!(foo4(), bar(), sleep(Duration::from_millis(1000)));
+                });
+                spawn(foo1("a"));
+                spawn(foo1("b"));
+                spawn(baz());
+                sleep(Duration::from_millis(100)).await;
+                println!("{}", group.capture());
+            }
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().on_thread_start(group.on_thread_start()).build().unwrap();
+        group.set_current();
+        rt.block_on(fut)
     }
 }

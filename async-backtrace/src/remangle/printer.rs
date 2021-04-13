@@ -1,4 +1,4 @@
-use crate::remangle::path::{PathSegment, Path, PathBraces};
+use crate::remangle::path::{PathSegment, Path, PathBraces, PathArg};
 use std::fmt::{Write, Arguments, write};
 use std::fmt;
 
@@ -54,6 +54,14 @@ impl<W: Write> Printer<W> {
         }
         Ok(())
     }
+    pub fn print_arg(&mut self, arg: &PathArg) -> fmt::Result {
+        if let Some(name) = &arg.name {
+            self.print(name)?;
+            write!(self, " = ")?;
+        }
+        self.print(&arg.value)?;
+        Ok(())
+    }
     pub fn print_segment(&mut self, segment: &PathSegment) -> fmt::Result {
         match segment {
             PathSegment::Ident { name, version, braces, turbofish, tys } => {
@@ -74,7 +82,7 @@ impl<W: Write> Printer<W> {
                     if self.quiet < QUIET_REMOVE_PARAMETERS {
                         for ty in Iterator::intersperse(tys.iter().map(Some), None) {
                             if let Some(ty) = ty {
-                                self.print(ty)?;
+                                self.print_arg(ty)?;
                             } else {
                                 write!(self, ", ")?;
                             }
@@ -154,6 +162,16 @@ impl<W: Write> Printer<W> {
                     }
                 }
                 write!(self, "]")?;
+            }
+            PathSegment::Dyn { tys } => {
+                write!(self, "dyn ")?;
+                for ty in Iterator::intersperse(tys.iter().map(Some), None) {
+                    if let Some(ty) = ty {
+                        self.print(ty)?;
+                    } else {
+                        write!(self, " + ")?;
+                    }
+                }
             }
         }
         Ok(())

@@ -17,6 +17,7 @@ pub static EXAMPLES: &[&str] =
         "example[8e385caf73139a18]::for_generic::<fn(usize) -> usize>",
         "core::ops::function::FnOnce::call_once{{vtable.shim}}::hf54ddc002259dae6",
         "tokio::sync::task::atomic_waker::AtomicWaker::do_register::{{closure}}::h9d574f6952b7301f",
+        "<tokio[383dbff61d8f733]::sync::mpsc::unbounded::UnboundedReceiver<(termio[f632125f1fa2cf73]::gui::event::GuiPriority, usize, core[75ee33869dcd9a7b]::pin::Pin<alloc[4702a719b00980e2]::boxed::Box<dyn core[75ee33869dcd9a7b]::future::future::Future<Output = ()> + core[75ee33869dcd9a7b]::marker::Send>>)>>::poll_recv",
     ];
 
 pub struct Path<'a> {
@@ -30,8 +31,13 @@ pub enum PathBraces<'a> {
     Closure { closure: &'a str },
 }
 
+pub struct PathArg<'a> {
+    pub name: Option<Path<'a>>,
+    pub value: Path<'a>,
+}
+
 pub enum PathSegment<'a> {
-    Ident { name: &'a str, version: Option<&'a str>, braces: Option<PathBraces<'a>>, turbofish: bool, tys: Vec<Path<'a>> },
+    Ident { name: &'a str, version: Option<&'a str>, braces: Option<PathBraces<'a>>, turbofish: bool, tys: Vec<PathArg<'a>> },
     ImplFor { trait_for: Path<'a>, for_ty: Path<'a> },
     Ty { ty: Path<'a> },
     As { ty: Path<'a>, as_trait: Path<'a> },
@@ -39,6 +45,7 @@ pub enum PathSegment<'a> {
     Tuple { tys: Vec<Path<'a>> },
     FnPtr { tys: Vec<Path<'a>>, output: Option<Path<'a>> },
     Array { ty: Path<'a>, length: Option<&'a str>, length_ty: Option<Path<'a>> },
+    Dyn { tys: Vec<Path<'a>> },
 }
 
 impl<'a> Path<'a> {
@@ -123,6 +130,18 @@ impl<'a> Debug for PathBraces<'a> {
                 list.finish()
             }
         }
+    }
+}
+
+impl<'a> Debug for PathArg<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        if let Some(name) = &self.name {
+            list.entry(name);
+            list.entry(&"=");
+        }
+        list.entry(&self.value);
+        list.finish()
     }
 }
 
@@ -214,6 +233,12 @@ impl<'a> Debug for PathSegment<'a> {
                 list.entry(&":");
                 list.entry(length_ty);
                 list.entry(&"]");
+                list.finish()
+            }
+            PathSegment::Dyn { tys } => {
+                let mut list = f.debug_list();
+                list.entry(&"dyn");
+                list.entries(Iterator::intersperse(tys.iter().map(|x| x as &dyn Debug), &","));
                 list.finish()
             }
         }

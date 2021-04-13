@@ -5,13 +5,14 @@ use pin_project::pin_project;
 
 #[pin_project]
 pub struct Fused<F: Future<Output=()>> {
+    done: bool,
     #[pin]
-    inner: Option<F>,
+    inner: F,
 }
 
 impl<F: Future<Output=()>> Fused<F> {
     pub fn new(fut: F) -> Self where F: Sized {
-        Fused { inner: Some(fut) }
+        Fused { done: false, inner: fut }
     }
 }
 
@@ -19,13 +20,17 @@ impl<F: Future<Output=()>> Future for Fused<F> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(inner) = self.project().inner.as_pin_mut() {
-            match inner.poll(cx) {
-                Poll::Ready(output) => Poll::Ready(()),
+        let project = self.project();
+        if *project.done {
+            Poll::Ready(())
+        } else {
+            match project.inner.poll(cx) {
+                Poll::Ready(output) => {
+                    *project.done = true;
+                    Poll::Ready(())
+                }
                 Poll::Pending => Poll::Pending,
             }
-        } else {
-            Poll::Ready(())
         }
     }
 }

@@ -16,7 +16,7 @@ use std::fmt::Write;
 use std::ffi::c_void;
 use crate::remangle::parser::{ParseError, ParseResult};
 use std::collections::HashMap;
-use crate::remangle::printer::{MAX_QUIET, QUIET_REMOVE_VERSION};
+use crate::remangle::printer::{MAX_QUIET, QUIET_REMOVE_VERSION, QUIET_SHORTEN_ANON};
 use crate::remangle::printer::Printer;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
@@ -25,7 +25,7 @@ use crate::remangle::path::Path;
 
 pub fn remangle(input: &str) -> String {
     match Path::parse(input) {
-        Ok(path) => path.path_to_string(QUIET_REMOVE_VERSION, 100),
+        Ok(path) => path.path_to_string(QUIET_SHORTEN_ANON, 100),
         Err(_) => format!("[unparsed]::{}", input)
     }
 }

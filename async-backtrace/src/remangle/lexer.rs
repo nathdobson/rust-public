@@ -22,6 +22,7 @@ impl<'a> Token<'a> {
             || input == "mut"
             || input == "const"
             || input == "fn"
+            || input == "dyn"
         {
             Token::Oper(input)
         } else {
@@ -38,7 +39,7 @@ impl<'a> Iterator for Lexer<'a> {
             self.input = input;
         }
 
-        let position = self.input.find(&['<', '>', ':', '[', ']', '(', ')', '{', '}', ' ', ',', '&', '*', '-', ';'] as &[char]);
+        let position = self.input.find(&['<', '>', ':', '[', ']', '(', ')', '{', '}', ' ', ',', '&', '*', '-', ';', '+', '='] as &[char]);
         if let Some(position) = position {
             if position == 0 {
                 if let Some(input) = self.input.strip_prefix("::") {

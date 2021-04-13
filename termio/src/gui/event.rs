@@ -95,7 +95,6 @@ pub fn priority_consume<S: Stream>(x: S, mut f: impl FnMut(S::Item)) -> impl Fut
     }
 }
 
-
 pub fn event_loop() -> (EventSender, impl Future<Output=()>) {
     let (spawner, runner) = priority::channel();
     let spawner = TracedPriorityPool::new(spawner);

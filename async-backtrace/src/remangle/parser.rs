@@ -3,7 +3,7 @@ use lookahead::Lookahead;
 use lookahead::lookahead;
 use std::fmt::{Debug, Formatter};
 use std::fmt;
-use crate::remangle::path::{PathSegment, Path, PathBraces};
+use crate::remangle::path::{PathSegment, Path, PathBraces, PathArg};
 
 pub struct Parser<'a> {
     pub lexer: Lookahead<Lexer<'a>>,
@@ -102,6 +102,8 @@ impl<'a> Parser<'a> {
             || self.can_read(&[","])
             || self.can_read(&["for"])
             || self.can_read(&[";"])
+            || self.can_read(&["+"])
+            || self.can_read(&["="])
         {
             return Ok(None);
         }
@@ -191,6 +193,17 @@ impl<'a> Parser<'a> {
             } else {
                 return Ok(Some(PathSegment::Ty { ty }));
             }
+        } else if self.read(&["dyn"]) {
+            let mut tys = vec![];
+            loop {
+                tys.push(self.parse_path()?);
+                if self.read(&["+"]) {
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            return Ok(Some(PathSegment::Dyn { tys }));
         } else if let Some(name) = self.read_ident() {
             let mut tys = vec![];
             let mut version = None;
@@ -209,13 +222,19 @@ impl<'a> Parser<'a> {
                 }
                 if turbofish || tardyfish {
                     loop {
-                        tys.push(self.parse_path()?);
+                        let p1 = self.parse_path()?;
+                        if self.read(&["="]) {
+                            let p2 = self.parse_path()?;
+                            tys.push(PathArg { name: Some(p1), value: p2 });
+                        } else {
+                            tys.push(PathArg { name: None, value: p1 });
+                        }
                         if self.read(&[","]) {
                             continue;
                         } else if self.read(&[">"]) {
                             break;
                         } else {
-                            return Err(ParseError("params ending incorrect"));
+                            return Err(ParseError("expecting ',' or '>'"));
                         }
                     }
                 }
