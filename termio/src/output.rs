@@ -76,6 +76,7 @@ pub fn MoveWindow(x: usize, y: usize) -> impl Display { concat!("\x1B[3;", x, ";
 
 pub fn ResizeWindow(w: usize, h: usize) -> impl Display { concat!( "\x1B[4;", h, ";", w, "t") }
 
+
 pub fn Foreground(color: Color) -> impl Display {
     AsDisplay(move |f| {
         match color.into_u8() {
@@ -96,7 +97,6 @@ pub fn Background(color: Color) -> impl Display {
 
 pub const VideoPush: &'static str = "\x1b[#{";
 pub const VideoPop: &'static str = "\x1b[#}";
-pub const VideoNormal: &'static str = "\x1b[0m";
 
 pub const DoubleHeightTop: &'static str = "\x1B#3";
 pub const DoubleHeightBottom: &'static str = "\x1B#4";
@@ -109,6 +109,7 @@ pub const DeleteLineAll: &'static str = "\x1b[2K";
 pub fn DeleteChars(x: usize) -> impl Display { OneParameter("\x1b[", x, "X") }
 
 pub const NoFormat: &'static str = "\x1b[0m";
+pub const Bold: &'static str = "\x1b[1m";
 
 pub const CursorHide: &'static str = "\x1B[?25l";
 pub const CursorShow: &'static str = "\x1B[?25h";
@@ -134,7 +135,7 @@ pub const SendSecondaryDeviceAttributes: &'static str = "\x1B[>c";
 pub const ReportWindowPosition: &'static str = "\x1B[13t";
 pub const ReportWindowSize: &'static str = "\x1B[14t";
 pub const ReportTextAreaSize: &'static str = "\x1B[18t";
-pub const ReportCursorPosition:&'static str = "\x1B[6n";
+pub const ReportCursorPosition: &'static str = "\x1B[6n";
 pub const ScreenSize: &'static str = "\x1B[19t";
 pub const RaiseWindow: &'static str = "\x1B[5t";
 pub const LowerWindow: &'static str = "\x1B[6t";

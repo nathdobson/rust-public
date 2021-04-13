@@ -14,6 +14,7 @@ pub struct __UseDefaultDefaultToBuildStyleOption {}
 pub struct StyleOption {
     pub foreground: Option<Color>,
     pub background: Option<Color>,
+    pub bold: Option<bool>,
     #[doc(hidden)]
     #[serde(skip)]
     pub __use_default_default_to_build_style_option__: __UseDefaultDefaultToBuildStyleOption,
@@ -42,6 +43,7 @@ impl StyleOption {
         StyleOption {
             foreground: self.foreground.or(other.foreground),
             background: self.background.or(other.background),
+            bold: self.bold.or(other.bold),
             __use_default_default_to_build_style_option__: __UseDefaultDefaultToBuildStyleOption {},
         }
     }
@@ -49,6 +51,7 @@ impl StyleOption {
         Style {
             foreground: self.foreground.unwrap_or(other.foreground),
             background: self.background.unwrap_or(other.background),
+            bold: self.bold.unwrap_or(other.bold),
             __use_default_default_to_build_style__: Default::default(),
         }
     }
@@ -94,6 +97,7 @@ impl Default for StyleOption {
         StyleOption {
             foreground: None,
             background: None,
+            bold: None,
             __use_default_default_to_build_style_option__: __UseDefaultDefaultToBuildStyleOption {},
         }
     }

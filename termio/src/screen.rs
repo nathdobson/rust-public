@@ -37,6 +37,7 @@ pub struct __UseDefaultDefaultToBuildStyle;
 pub struct Style {
     pub background: Color,
     pub foreground: Color,
+    pub bold: bool,
     #[doc(hidden)]
     pub __use_default_default_to_build_style__: __UseDefaultDefaultToBuildStyle,
 }
@@ -79,7 +80,6 @@ impl Style {
         Style::default()
     }
 }
-
 
 
 impl Screen {

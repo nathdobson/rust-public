@@ -149,6 +149,14 @@ impl TermWriter {
         }
     }
     pub fn set_style(&mut self, style: &Style) {
+        if !style.bold && self.style.bold {
+            self.style = Style::default();
+            swrite!(self.inner, "{}", NoFormat);
+        }
+        if style.bold && !self.style.bold {
+            self.style.bold = style.bold;
+            swrite!(self.inner, "{}", Bold);
+        }
         if style.foreground != self.style.foreground {
             swrite!(self.inner, "{}", Foreground(style.foreground));
             self.style.foreground = style.foreground;
