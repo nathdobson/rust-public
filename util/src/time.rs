@@ -34,7 +34,7 @@ pub fn serial_scope() -> impl Drop {
 
 impl Serialize for SerialInstant {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        let origin = ORIGIN.with(|origin| origin.get().unwrap());
+        let origin = ORIGIN.with(|origin| origin.get().expect("Time origin must be defined"));
         let diff;
         if self.0 < origin {
             diff = -((origin - self.0).as_nanos() as i128);
