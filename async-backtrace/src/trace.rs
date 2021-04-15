@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use crate::remangle::resolve_remangle;
 use backtrace::{Backtrace, BacktraceFrame, BacktraceSymbol, SymbolName, resolve};
 use itertools::{Itertools, ExactlyOneError};
-use lazy_static::lazy_static;
+use lazy_static::{lazy_static, initialize};
 use parking_lot::Mutex;
 use tokio::task::JoinHandle;
-use std::lazy::OnceCell;
+use std::lazy::{OnceCell, SyncOnceCell};
 use util::weak_vec::WeakVec;
 use tokio::pin;
 
@@ -33,7 +33,7 @@ use std::cmp::Reverse;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 enum NodeKey {
-    Address(*mut c_void),
+    Address(usize),
     Annotation(String),
 }
 
@@ -52,17 +52,34 @@ struct NodePrinter<W: Write> {
 
 #[derive(Debug)]
 pub struct TraceInner {
-    traced_delimiter: bool,
-    ignore_prefix: usize,
-    ignore_suffix: usize,
     node: Node,
 }
 
-pub struct Trace(Mutex<TraceInner>);
+#[derive(Clone)]
+pub struct Trace(Arc<Mutex<TraceInner>>);
 
-pub struct TraceWakerInner<'a> {
-    internal: &'a Waker,
-    trace: &'a Trace,
+pub enum Path<'a> {
+    ConsAnnot {
+        head: &'a dyn SyncDisplay,
+        tail: &'a Path<'a>,
+    },
+    ConsStack {
+        head: &'a [BacktraceFrame],
+        tail: &'a Path<'a>,
+    },
+    Nil,
+}
+
+pub enum TraceWakerInner<'a> {
+    Trace {
+        internal: &'a Waker,
+        trace: &'a Trace,
+        path: Path<'a>,
+        path_frames: usize,
+    },
+    Calibrate {
+        result: &'a SyncOnceCell<Backtrace>,
+    },
 }
 
 pub struct TraceWaker<'a> {
@@ -77,15 +94,19 @@ const INDENT_TEE: &'static str /*     */ = "┣━━ ";
 
 impl Trace {
     pub fn new() -> Trace {
-        Trace(Mutex::new(TraceInner {
-            traced_delimiter: false,
-            ignore_prefix: 0,
-            ignore_suffix: 0,
+        initialize(&BACKTRACE_PREFIX);
+        initialize(&WAKE_PREFIX);
+        Trace(Arc::new(Mutex::new(TraceInner {
             node: Node::new(),
-        }))
+        })))
     }
     pub fn with_internal<'a>(&'a self, internal: &'a Waker) -> TraceWakerInner<'a> {
-        TraceWakerInner { internal, trace: self }
+        TraceWakerInner::Trace {
+            internal,
+            trace: self,
+            path: Path::Nil,
+            path_frames: 0,
+        }
     }
 }
 
@@ -115,21 +136,21 @@ impl<'a> TraceWakerInner<'a> {
 pub async fn trace_annotate<F: Future>(message: &dyn SyncDisplay, fut: F) -> F::Output {
     pin!(fut);
     poll_fn(|cx| {
-        if let Some(trace_waker_inner) = TraceWakerInner::from_waker(cx.waker()) {
-            if let Some(node) = trace_waker_inner.trace.0.lock().trace() {
-                let node =
-                    node.children
-                        .entry(NodeKey::Annotation(format!("● {}", message)))
-                        .or_insert(Node::new());
-                let subtrace = Trace::new();
-                delimiter(&mut subtrace.with_internal(noop_waker_ref()).as_waker().as_context());
-                mem::swap(node, &mut subtrace.0.lock().node);
-                let result = fut.as_mut().poll(&mut subtrace.with_internal(trace_waker_inner.internal).as_waker().as_context());
-                mem::swap(node, &mut subtrace.0.lock().node);
-                return result;
-            }
+        if let Some(TraceWakerInner::Trace { internal, trace, path, path_frames }) = TraceWakerInner::from_waker(cx.waker()) {
+            let backtrace = Backtrace::new_unresolved();
+            let end = backtrace.frames().len();
+            let end = end.min(end - path_frames + OFF_BY_ONE);
+            let tail = Path::ConsStack { head: &backtrace.frames()[*BACKTRACE_PREFIX - OFF_BY_ONE..end], tail: &path };
+            let inner = TraceWakerInner::Trace {
+                internal: internal,
+                trace: *trace,
+                path: Path::ConsAnnot { head: &message, tail: &tail },
+                path_frames: backtrace.frames().len() - *BACKTRACE_PREFIX,
+            };
+            fut.as_mut().poll(&mut inner.as_waker().as_context())
+        } else {
+            fut.as_mut().poll(cx)
         }
-        fut.as_mut().poll(cx)
     }).await
 }
 
@@ -143,11 +164,25 @@ impl Node {
     fn new() -> Self {
         Node { children: HashMap::new(), count: 0, messages: vec![], recursive_size: 0 }
     }
-    fn insert(&mut self, mut frames: slice::Iter<BacktraceFrame>) -> &mut Node {
+    fn insert_frames<'a, 'b>(&'a mut self, mut frames: slice::Iter<'b, BacktraceFrame>) -> &'a mut Node {
         if let Some(next) = frames.next_back() {
-            self.children.entry(NodeKey::Address(next.ip())).or_insert(Node::new()).insert(frames)
+            self.children.entry(NodeKey::Address(next.ip() as usize)).or_insert(Node::new()).insert_frames(frames)
         } else {
             self
+        }
+    }
+    fn insert<'a, 'b>(&'a mut self, path: &'b Path<'b>) -> &'a mut Node {
+        match path {
+            Path::ConsAnnot { head, tail } => {
+                let head = format!("● {}", head.to_string());
+                self.insert(tail).children.entry(NodeKey::Annotation(head)).or_insert(Node::new())
+            }
+            Path::ConsStack { head, tail } => {
+                self.insert(tail).insert_frames(head.iter())
+            }
+            Path::Nil => {
+                self
+            }
         }
     }
     fn compute_recursive_size(&mut self) {
@@ -171,7 +206,7 @@ impl<W: Write> NodePrinter<W> {
         for (index, (addr, child)) in children.iter().enumerate() {
             let temp;
             let symbols = match addr {
-                NodeKey::Address(addr) => resolve_remangle(*addr),
+                NodeKey::Address(addr) => resolve_remangle(*addr as *mut c_void),
                 NodeKey::Annotation(annotation) => {
                     temp = [annotation.as_str()];
                     &temp
@@ -215,52 +250,32 @@ impl<W: Write> NodePrinter<W> {
     }
 }
 
-impl TraceInner {
-    fn trace(&mut self) -> Option<&mut Node> {
+impl<'a> TraceWakerInner<'a> {
+    fn trace(&self) -> &Waker {
         let backtrace = Backtrace::new_unresolved();
-        let slice = backtrace.frames();
-        if !self.traced_delimiter {
-            self.traced_delimiter = true;
-            if let Some(delimiter_name) = &*DELIMITER_NAME {
-                let prefix = slice.iter().position(|symbol| {
-                    let mut found = false;
-                    resolve(symbol.symbol_address(), |symbol| {
-                        if let Some(name) = symbol.name() {
-                            if let Some(name) = name.as_str() {
-                                if delimiter_name == name {
-                                    found = true;
-                                }
-                            }
-                        }
-                    });
-                    found
-                });
-                if let Some(prefix) = prefix {
-                    self.ignore_prefix = prefix;
-                    self.ignore_suffix = slice.len() - prefix - 1;
-                }
+        match self {
+            TraceWakerInner::Trace { internal, trace, path, path_frames } => {
+                let mut lock = trace.0.lock();
+                let suffix = backtrace.frames().len();
+                let suffix = suffix.min(suffix - path_frames + OFF_BY_ONE);
+                let path = Path::ConsStack {
+                    head: &backtrace.frames()[*WAKE_PREFIX - OFF_BY_ONE..suffix],
+                    tail: path,
+                };
+                lock.node.insert(&path).count += 1;
+                internal
             }
-            self.node.children.clear();
-            None
-        } else {
-            if slice.len() >= self.ignore_prefix + self.ignore_suffix {
-                let slice = &slice[self.ignore_prefix..slice.len() - self.ignore_suffix];
-                Some(self.node.insert(slice.iter()))
-            } else {
-                None
+            TraceWakerInner::Calibrate { result } => {
+                result.set(backtrace).unwrap();
+                noop_waker_ref()
             }
         }
     }
-}
-
-impl<'a> TraceWakerInner<'a> {
     fn clone_impl(&self) -> Waker {
-        self.trace.0.lock().trace().map(|x| x.count += 1);
-        self.internal.clone()
+        self.trace().clone()
     }
     fn wake_by_ref_impl(&self) {
-        self.trace.0.lock().trace().map(|x| x.count += 1);
-        self.internal.wake_by_ref();
+        self.trace().wake_by_ref();
     }
 }
 
@@ -278,9 +293,9 @@ pub fn delimiter(cx: &mut Context) {
 
 static DELIMITER_FN: fn(&mut Context) = delimiter as fn(&mut Context);
 
-fn resolve_delimiter_name() -> Option<String> {
+fn resolve_fn_name(f: usize) -> Option<String> {
     let mut result = None;
-    resolve((DELIMITER_FN as usize + 1) as *mut c_void, |symbol| {
+    resolve((f + 1) as *mut c_void, |symbol| {
         if result == None {
             result =
                 symbol.name()
@@ -291,8 +306,42 @@ fn resolve_delimiter_name() -> Option<String> {
     result
 }
 
+fn common_prefix(a: &Backtrace, b: &Backtrace) -> usize {
+    a.frames().iter()
+        .zip(b.frames().iter())
+        .take_while(|(f1, f2)| f1.ip() == f2.ip())
+        .count()
+}
+
+#[inline(never)]
+fn resolve_backtrace_prefix() -> usize {
+    #[inline(never)]
+    fn resolve_backtrace_prefix_inner() -> Backtrace {
+        Backtrace::new_unresolved()
+    }
+    let outer = Backtrace::new_unresolved();
+    let inner = resolve_backtrace_prefix_inner();
+    common_prefix(&outer, &inner) + 1
+}
+
+fn resolve_wake_prefix() -> usize {
+    fn resolve_wake_prefix_inner() -> Backtrace {
+        let bt2 = SyncOnceCell::new();
+        let inner = TraceWakerInner::Calibrate { result: &bt2 };
+        inner.as_waker().as_context().waker().wake_by_ref();
+        bt2.into_inner().unwrap()
+    }
+    let bt1 = SyncOnceCell::new();
+    let inner = TraceWakerInner::Calibrate { result: &bt1 };
+    inner.as_waker().as_context().waker().wake_by_ref();
+    let bt2 = resolve_wake_prefix_inner();
+    common_prefix(&bt1.into_inner().unwrap(), &bt2)
+}
+
+const OFF_BY_ONE: usize = 0;
 lazy_static! {
-    static ref DELIMITER_NAME: Option<String> = resolve_delimiter_name();
+    static ref BACKTRACE_PREFIX: usize = resolve_backtrace_prefix() ;
+    static ref WAKE_PREFIX: usize = resolve_wake_prefix();
 }
 
 impl Display for Trace {
@@ -366,6 +415,27 @@ mod test {
         }).await;
     }
 
+    #[inline(never)]
+    async fn tree3() {
+        sleep(Duration::from_millis(1000)).await;
+    }
+
+    #[inline(never)]
+    async fn tree2() {
+        join!(
+            trace_annotate(&|f| write!(f, "tree2.a"), tree3()),
+            trace_annotate(&|f| write!(f, "tree2.b"), tree3())
+        );
+    }
+
+    #[inline(never)]
+    async fn tree1() {
+        join!(
+            trace_annotate(&|f| write!(f, "tree1.a"), tree2()),
+            trace_annotate(&|f| write!(f, "tree1.b"), tree2())
+        );
+    }
+
     #[test]
     fn test_basic() {
         let group = TraceGroup::new();
@@ -378,8 +448,9 @@ mod test {
                 spawn(foo1("a"));
                 spawn(foo1("b"));
                 spawn(baz());
+                spawn(tree1());
                 sleep(Duration::from_millis(100)).await;
-                println!("{}", group.capture());
+                println!("{}", group.capture().await);
             }
         };
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().on_thread_start(group.on_thread_start()).build().unwrap();

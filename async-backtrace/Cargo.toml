@@ -19,3 +19,4 @@ hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 tempfile = "3.2.0"
 lookahead = "0.1.0"
 async-util = { path = "../async-util" }
+tokio-stream = { version = "0.1.5", features = ["sync"] }

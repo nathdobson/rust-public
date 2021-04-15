@@ -47,7 +47,11 @@ impl<T> Promise<T> {
 }
 
 impl Promise<!> {
-    pub async fn recv_none(&self) { self.recv().await.err(); }
+    pub async fn recv_none(self) {
+        let receiver=self.receiver();
+        mem::drop(self);
+        receiver.recv().await.err();
+    }
     pub fn outlive<F: Future>(&self, f: F) -> impl Future<Output=F::Output> {
         let this = self.clone();
         async move {

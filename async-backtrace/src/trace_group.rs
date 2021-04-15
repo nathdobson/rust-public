@@ -5,7 +5,7 @@ use async_util::waker::{noop_waker_ref, noop_waker};
 use parking_lot::Mutex;
 use crate::Trace;
 use std::time::{Instant, Duration};
-use std::thread;
+use std::{thread, mem};
 use util::weak_vec::WeakVec;
 use async_util::futureext::FutureExt;
 use async_util::fused::Fused;
@@ -13,16 +13,21 @@ use std::lazy::OnceCell;
 use backtrace::trace;
 use crate::trace::delimiter;
 use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc};
+use pin_project::pin_project;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::Stream;
+use async_util::promise::Promise;
+use async_util::promise;
+use tokio::time::timeout;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
-pub trait TaskFuture = 'static + Send + Future<Output=()>;
-
-struct Task<F: ?Sized + TaskFuture = dyn TaskFuture> {
-    waker: Waker,
-    fut: F,
-}
-
-pub struct TraceFut<F: TaskFuture> {
-    task: Arc<Mutex<Task<Fused<F>>>>,
+#[pin_project]
+pub struct TraceFut<F: Future<Output=()>> {
+    sender: Arc<mpsc::Sender<TraceRequest>>,
+    receiver: mpsc::Receiver<TraceRequest>,
+    #[pin]
+    inner: F,
 }
 
 thread_local! {
@@ -30,14 +35,23 @@ thread_local! {
 }
 
 #[derive(Clone)]
-pub struct TraceGroup(Arc<Mutex<WeakVec<Mutex<Task>>>>);
+struct TraceRequest {
+    trace: Trace,
+    completed: Promise<!>,
+}
+
+#[derive(Clone)]
+pub struct TraceGroup(Arc<Mutex<WeakVec<mpsc::Sender<TraceRequest>>>>);
 
 impl TraceGroup {
-    pub fn new() -> Self { TraceGroup(Arc::new(Mutex::new(WeakVec::new()))) }
-    pub fn push<F: TaskFuture>(&self, fut: F) -> TraceFut<F> {
-        let task = Arc::new(Mutex::new(Task { waker: noop_waker(), fut: fut.fuse() }));
-        self.0.lock().push(Arc::downgrade(&(task.clone() as Arc<Mutex<Task>>)));
-        TraceFut { task }
+    pub fn new() -> Self {
+        TraceGroup(Arc::new(Mutex::new(WeakVec::new())))
+    }
+    pub fn push<F: Future<Output=()>>(&self, fut: F) -> TraceFut<F> {
+        let (sender, receiver) = mpsc::channel(1);
+        let sender = Arc::new(sender);
+        self.0.lock().push(Arc::downgrade(&sender));
+        TraceFut { sender, receiver, inner: fut }
     }
     pub fn on_thread_start(&self) -> impl Fn() + Send + Sync + 'static {
         let this = self.clone();
@@ -53,41 +67,49 @@ impl TraceGroup {
     }
 }
 
-impl<F: TaskFuture> TraceFut<F> {}
+impl<F: Future<Output=()>> TraceFut<F> {}
 
-impl<F: TaskFuture> Future for TraceFut<F> {
+impl<F: Future<Output=()>> Future for TraceFut<F> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<()> {
-        unsafe {
-            let this = self.get_unchecked_mut();
-            let mut lock = this.task.lock();
-            lock.waker = cx.waker().clone();
-            Pin::new_unchecked(&mut lock.fut).poll(cx)
+        let mut project = self.project();
+        let mut polled_inner = false;
+        loop {
+            match Pin::new(&mut *project.receiver).poll_recv(cx) {
+                Poll::Pending => break,
+                Poll::Ready(None) => break,
+                Poll::Ready(Some(request)) => {
+                    polled_inner = true;
+                    let result = project.inner.as_mut().poll(&mut request.trace.with_internal(&cx.waker()).as_waker().as_context());
+                    if result.is_ready() {
+                        return result;
+                    }
+                }
+            }
         }
+        if polled_inner {
+            return Poll::Pending;
+        }
+        project.inner.as_mut().poll(cx)
     }
 }
 
-impl<F: TaskFuture> Unpin for TraceFut<F> {}
-
 impl TraceGroup {
     #[inline(never)]
-    pub fn capture(&self) -> Trace {
-        unsafe {
-            let start = Instant::now();
-            let tasks: Vec<_> = self.0.lock().iter().collect();
-            let trace = Trace::new();
-            delimiter(&mut trace.with_internal(noop_waker_ref()).as_waker().as_context());
-            for task in tasks {
-                if let Some(mut lock) = task.try_lock_for(Duration::from_millis(100)) {
-                    let lock = &mut *lock;
-                    let pin = Pin::new_unchecked(&mut lock.fut);
-                    pin.poll(&mut trace.with_internal(&lock.waker).as_waker().as_context()).is_ready();
-                } else {
-                    eprintln!("Timeout while tracing");
-                }
+    pub async fn capture(&self) -> Trace {
+        let start = Instant::now();
+        let trace = Trace::new();
+        let tasks: Vec<_> = self.0.lock().iter().collect();
+        for task in tasks {
+            let completed = Promise::new();
+            task.send(TraceRequest { trace: trace.clone(), completed: completed.clone() }).await.ok();
+            let receiver = completed.receiver();
+            mem::drop(completed);
+            if let Err(e) = timeout(Duration::from_millis(100), receiver.recv_none()).await {
+                eprintln!("Timeout while capturing");
             }
-            trace
         }
+        trace
     }
 }

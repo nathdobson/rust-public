@@ -55,7 +55,7 @@ impl Service<Request<Body>> for DebugService {
 
 async fn handler_stacks_async(group: &TraceGroup, _req: Request<Body>) -> Result<Response<Body>> {
     let start = Instant::now();
-    let mut trace = group.capture().to_string();
+    let mut trace = group.capture().await.to_string();
     writeln!(trace, "Async capture in {:?}", start.elapsed()).unwrap();
     Response::builder()
         .header("content-type", "text/plain; charset=utf-8")
@@ -76,12 +76,16 @@ fn not_found() -> Result<Response<Body>> {
 
 pub fn traced_server(group: TraceGroup, addr: String) {
     // pre-load symbol tables.
-    thread::Builder::new().name("debug-server-heater".to_string()).spawn(|| { Backtrace::new(); }).unwrap();
+    thread::Builder::new().name("debug-server-heater".to_string()).spawn(|| {
+        let start = Instant::now();
+        Backtrace::new();
+        println!("Loaded debug table in {:?}", start.elapsed());
+    }).unwrap();
     thread::Builder::new().name("debug-server".to_string()).spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             // .worker_threads(2)
             .thread_name("debug-server-worker")
-            .enable_io()
+            .enable_all()
             .build().unwrap()
             .block_on(async {
                 traced_server_async(group, addr).await;
