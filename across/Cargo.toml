@@ -8,6 +8,6 @@ edition = "2018"
 
 [dependencies]
 itertools = "0.10.0"
-arrayvec = "0.5.2"
+arrayvec = "0.7.0"
 termio = { path = "../termio" }
 util = { path = "../util" }

@@ -9,19 +9,19 @@ edition = "2018"
 [dependencies]
 event-listener = "2.5.1"
 ondrop = "0.1.0"
-ctrlc = "3.1.7"
-async-weighted-semaphore = "0.1.0"
+ctrlc = "3.1.9"
+async-weighted-semaphore = "0.2.1"
 util = { path = "../util" }
-priority-queue = "1.0.5"
+priority-queue = "1.1.1"
 lazy_static = "1.4.0"
 by_address = "1.0.4"
-tokio = { version = "1.4.0", features = ["time", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+tokio = { version = "1.5.0", features = ["time", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 pin-project = "1.0.6"
 tokio-stream = "0.1.5"
 async-channel = "1.6.1"
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.4"
+loom = "0.5.0"
 
 [dev-dependencies]
 rand = "0.8.3"

@@ -26,7 +26,7 @@ pub struct Screen {
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Rune {
-    pub text: ArrayString<[u8; 7]>,
+    pub text: ArrayString<7>,
     pub style: Style,
 }
 

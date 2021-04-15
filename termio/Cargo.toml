@@ -7,24 +7,24 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-itertools = "0.9.0"
+itertools = "0.10.0"
 util = { path = "../util" }
 async-util = { path = "../async-util" }
-unicode-segmentation = "1.6.0"
-serde_derive = "1.0"
-serde = "1.0"
-rand = "0.7.3"
+unicode-segmentation = "1.7.1"
+serde_derive = "1.0.125"
+serde = "1.0.125"
+rand = "0.8.3"
 lazy_static = "1.4.0"
-backtrace = "0.3"
+backtrace = "0.3.56"
 #chrono = "0.4.19"
-arrayvec = "0.5.2"
+arrayvec = "0.7.0"
 vec_map = "0.8.2"
-strum = "0.20"
-strum_macros = "0.20"
+strum = "0.20.0"
+strum_macros = "0.20.1"
 by_address = "1.0.4"
-libc = "0.2.82"
-pin-project = "1"
-float-ord = "0.2.0"
-tokio = { version = "1.4.0", features = ["macros", "time", "io-std", "io-util"] }
+libc = "0.2.93"
+pin-project = "1.0.6"
+float-ord = "0.3.1"
+tokio = { version = "1.5.0", features = ["macros", "time", "io-std", "io-util"] }
 tokio-stream = "0.1.5"
 async-backtrace = { path = "../async-backtrace" }

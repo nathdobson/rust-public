@@ -79,11 +79,9 @@ pub fn traced_server(group: TraceGroup, addr: String) {
     thread::Builder::new().name("debug-server-heater".to_string()).spawn(|| {
         let start = Instant::now();
         Backtrace::new();
-        println!("Loaded debug table in {:?}", start.elapsed());
     }).unwrap();
     thread::Builder::new().name("debug-server".to_string()).spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
-            // .worker_threads(2)
             .thread_name("debug-server-worker")
             .enable_all()
             .build().unwrap()
