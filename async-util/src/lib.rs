@@ -16,7 +16,6 @@
 #![feature(slice_concat_trait)]
 #![feature(generic_associated_types)]
 #![feature(future_poll_fn)]
-#![feature(option_unwrap_none)]
 #![feature(generator_trait)]
 #![feature(generators)]
 #![feature(trait_alias)]
