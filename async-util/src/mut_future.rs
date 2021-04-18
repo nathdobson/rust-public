@@ -16,6 +16,7 @@ use crate::{dirty, priority};
 use crate::dirty::Sender;
 use crate::timer::poll_elapse;
 use crate::waker::AtomicWaker;
+use crate::spawn::Spawn;
 
 pub struct MutFuture<T: 'static> {
     inner: MutRc<T>,
@@ -75,10 +76,10 @@ async fn test() {
     let (spawner, runner) = priority::channel();
     let state = State { count: 0, next: None };
     let (mut state, state_runner) = MutFuture::new(state, State::poll_state);
-    spawner.spawn(0, state_runner);
+    spawner.with_priority(0).spawn(state_runner);
     let delta = Duration::from_millis(100);
     let epsilon = Duration::from_millis(10);
-    spawner.spawn(1, async move {
+    spawner.with_priority(1).spawn(async move {
         state.write().next = Some(SerialInstant::now() + delta * 2);
         yield_now().await;
         assert!(state.read().next.is_some());

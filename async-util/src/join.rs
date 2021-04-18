@@ -108,11 +108,11 @@ fn join_test() {
     let (sender, receiver) = oneshot::channel();
     let (remote, handle) = receiver.into_remote();
     pin!(remote, handle);
-    handle.as_mut().ready().unwrap_none();
-    remote.as_mut().ready().unwrap_none();
-    handle.as_mut().ready().unwrap_none();
+    assert!(handle.as_mut().ready().is_none());
+    assert!(remote.as_mut().ready().is_none());
+    assert!(handle.as_mut().ready().is_none());
     sender.send(1).unwrap();
-    handle.as_mut().ready().unwrap_none();
+    assert!(handle.as_mut().ready().is_none());
     remote.as_mut().ready().unwrap();
     assert_eq!(1, handle.as_mut().ready().unwrap().unwrap());
 }
@@ -124,8 +124,8 @@ async fn spawn_test() {
     let join = tokio::spawn(remote);
     pin!(handle, join);
     sender.send(1).unwrap();
-    handle.as_mut().ready().unwrap_none();
-    join.as_mut().ready().unwrap_none();
+    assert!(handle.as_mut().ready().is_none());
+    assert!(join.as_mut().ready().is_none());
     yield_now().await;
     assert_eq!(1, handle.as_mut().ready().unwrap().unwrap());
     join.as_mut().ready().unwrap().unwrap();
@@ -135,11 +135,15 @@ async fn spawn_test() {
 #[tokio::test]
 #[should_panic(expected = "PANIC 42")]
 async fn panic_test() {
-    let (remote, handle) = async move { panic!("PANIC {}", 42) }.into_remote();
+    let (remote, handle) = async move {
+        panic!("PANIC {}", 42);
+        #[allow(unreachable_code)]
+        ()
+    }.into_remote();
     let join = tokio::spawn(remote);
     pin!(handle, join);
-    handle.as_mut().ready().unwrap_none();
-    join.as_mut().ready().unwrap_none();
+    assert!(handle.as_mut().ready().is_none());
+    assert!(join.as_mut().ready().is_none());
     yield_now().await;
-    handle.as_mut().ready().unwrap().unwrap();
+    handle.as_mut().ready().unwrap();
 }

@@ -90,7 +90,7 @@ pub fn channel() -> (Sender, Receiver) {
 #[tokio::test]
 async fn test_simple() {
     let (sender, mut receiver) = channel();
-    receiver.next().ready().unwrap_none();
+    assert!(receiver.next().ready().is_none());
     sender.mark();
     receiver.next().ready().unwrap();
 }

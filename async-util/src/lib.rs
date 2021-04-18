@@ -21,6 +21,7 @@
 #![feature(trait_alias)]
 #![allow(incomplete_features)]
 #![feature(backtrace)]
+#![feature(ready_macro)]
 
 //pub mod bytes;
 pub mod coop;
@@ -36,3 +37,5 @@ pub mod spawn;
 pub mod join;
 pub mod futureext;
 pub mod fused;
+pub mod spmc_dirty;
+pub mod poll;

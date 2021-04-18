@@ -115,7 +115,7 @@ mod test {
         let promise = Promise::<usize>::new();
         #[allow(unused_must_use)]
             { promise.receiver().clone(); }
-        promise.recv().ready().unwrap_none();
+        assert!(promise.recv().ready().is_none());
         assert_eq!(Ok(()), promise.complete(1));
         assert_eq!(Err(2), promise.complete(2));
         assert_eq!(Ok(&1), promise.recv().ready().unwrap());
@@ -125,7 +125,7 @@ mod test {
     fn test_failure() {
         let promise = Promise::<usize>::new();
         let receiver = promise.clone().receiver();
-        receiver.recv().ready().unwrap_none();
+        assert!(receiver.recv().ready().is_none());
         mem::drop(promise);
         assert_eq!(Err(RecvError), receiver.recv().ready().unwrap());
     }

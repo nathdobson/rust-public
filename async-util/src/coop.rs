@@ -220,7 +220,7 @@ async fn test_return() {
     });
     pin!(handle);
     println!("Joining on {:?}", thread::current());
-    handle.as_mut().ready().unwrap_none();
+    assert!(handle.as_mut().ready().is_none());
     yield_now().await;
     assert_eq!(1, handle.ready().unwrap());
 }
