@@ -12,7 +12,7 @@ use util::dirty::Dirty;
 use util::mutrc::{MutRc, ReadGuard, WriteGuard};
 use util::time::SerialInstant;
 
-use crate::{dirty, priority};
+use crate::{dirty};
 use crate::dirty::Sender;
 use crate::timer::poll_elapse;
 use crate::waker::AtomicWaker;

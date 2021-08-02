@@ -9,7 +9,6 @@
 #![feature(specialization)]
 #![feature(slice_ptr_len)]
 #![feature(slice_index_methods)]
-#![feature(try_trait)]
 #![feature(maybe_uninit_extra)]
 #![feature(fn_traits)]
 #![feature(allocator_api)]
@@ -53,6 +52,7 @@ pub mod take_cell;
 pub mod take_vec;
 pub mod fun;
 pub mod shared_cell;
+pub mod sums;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(
     map: &'a mut BTreeMap<Q::Owned, V>,

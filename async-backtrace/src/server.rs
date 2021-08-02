@@ -111,5 +111,6 @@ pub fn traced_main<F: 'static + Send + Future<Output: 'static + Send>>(addr: Str
     let (remote, handle) = fut.into_remote();
     let traced = group.push(remote);
     rt.spawn(traced);
-    rt.block_on(handle)
+    let result = rt.block_on(handle);
+    result
 }

@@ -1,0 +1,15 @@
+[package]
+name = "metric"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+parking_lot = "0.11.1"
+ordered-float = "2.5.0"
+rusqlite = "0.25.3"
+lazy_static = "1.4.0"
+serde = { version = "1.0.126", features = ["derive"] }
+by_address = "1.0.4"
+tuple_list = "0.1.2"

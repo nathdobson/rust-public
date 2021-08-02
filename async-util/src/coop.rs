@@ -152,7 +152,11 @@ impl Cancel {
         }).unwrap();
     }
 
-    pub async fn run_main<E: Display>(&self, dur: Duration, f: impl Future<Output=Result<(), E>>) -> ! {
+    pub async fn run_main<E: Display>(self, f: impl Future<Output=Result<(), E>>) -> ! {
+        self.run_main_timeout(Duration::from_millis(5000), f).await
+    }
+
+    pub async fn run_main_timeout<E: Display>(self, dur: Duration, f: impl Future<Output=Result<(), E>>) -> ! {
         self.cancel_on_control_c();
         match self.checked_timeout(dur, f).await {
             Ok(Ok(())) => std::process::exit(0),

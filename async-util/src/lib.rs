@@ -22,6 +22,7 @@
 #![allow(incomplete_features)]
 #![feature(backtrace)]
 #![feature(ready_macro)]
+#![feature(try_trait)]
 
 //pub mod bytes;
 pub mod coop;
@@ -30,7 +31,7 @@ pub mod parser;
 pub mod waker;
 pub mod pipe;
 pub mod timer;
-pub mod priority;
+//pub mod priority;
 pub mod dirty;
 pub mod mut_future;
 pub mod spawn;
@@ -39,3 +40,4 @@ pub mod futureext;
 pub mod fused;
 pub mod spmc_dirty;
 pub mod poll;
+pub mod delay_writer;

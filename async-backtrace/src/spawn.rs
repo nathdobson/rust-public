@@ -3,7 +3,7 @@ use tokio::task::JoinHandle;
 use async_util::spawn::Spawn;
 use async_util::futureext::FutureExt;
 use async_util::join::RemoteJoinHandle;
-use async_util::priority::{PriorityPool, Priority, PrioritySpawn};
+//use async_util::priority::{PriorityPool, Priority, PrioritySpawn};
 use crate::TraceGroup;
 
 pub fn spawn<F: 'static + Send + Future<Output=()>>(fut: F) -> JoinHandle<()> {
@@ -29,18 +29,18 @@ impl<S: Spawn> Spawn for TracedSpawn<S> {
     }
 }
 
-#[derive(Clone)]
-pub struct TracedPriorityPool<P: Priority> {
-    group: TraceGroup,
-    inner: PriorityPool<P>,
-}
-
-impl<P: Priority> TracedPriorityPool<P> {
-    pub fn new(inner: PriorityPool<P>) -> Self {
-        TracedPriorityPool { group: TraceGroup::current(), inner }
-    }
-    pub fn with_priority(&self, priority: P) -> TracedSpawn<PrioritySpawn<P>> {
-        TracedSpawn { group: self.group.clone(), inner: self.inner.with_priority(priority) }
-    }
-}
-
+// #[derive(Clone)]
+// pub struct TracedPriorityPool<P: Priority> {
+//     group: TraceGroup,
+//     inner: PriorityPool<P>,
+// }
+//
+// impl<P: Priority> TracedPriorityPool<P> {
+//     pub fn new(inner: PriorityPool<P>) -> Self {
+//         TracedPriorityPool { group: TraceGroup::current(), inner }
+//     }
+//     pub fn with_priority(&self, priority: P) -> TracedSpawn<PrioritySpawn<P>> {
+//         TracedSpawn { group: self.group.clone(), inner: self.inner.with_priority(priority) }
+//     }
+// }
+//

@@ -12,11 +12,15 @@ use std::ops::{Deref, DerefMut};
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use crate::gui::tree;
-use crate::gui::event::{SharedGuiEvent};
+use crate::gui::event::{BoxFnMut};
 use crate::gui::div::{Div, DivRc, DivImpl};
 use crate::gui::tree::{Tree, Dirty};
 use crate::advance::{advance_of_grapheme, advance_of_string};
 use crate::string::StyleString;
+use async_util::timer::Sleep;
+use async_util::poll::PollResult;
+use std::task::Context;
+use async_util::poll::PollResult::Noop;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -26,10 +30,10 @@ pub enum PaintState {
 }
 
 pub struct Button<T: ButtonPaint = TextButtonPaint> {
-    event: SharedGuiEvent,
+    event: BoxFnMut,
     over: bool,
     down: bool,
-    countdown: usize,
+    timeout: Sleep,
     state: PaintState,
     paint: T,
 }
@@ -51,12 +55,12 @@ pub struct SmallButtonPaint {
 }
 
 impl<T: ButtonPaint> Button<T> {
-    pub fn new_from_paint(tree: Tree, paint: T, event: SharedGuiEvent) -> DivRc<Self> {
+    pub fn new_from_paint(tree: Tree, paint: T, event: BoxFnMut) -> DivRc<Self> {
         DivRc::new(tree, Button {
             event,
             over: false,
             down: false,
-            countdown: 0,
+            timeout: Sleep::new(),
             state: PaintState::Normal,
             paint,
         })
@@ -64,13 +68,13 @@ impl<T: ButtonPaint> Button<T> {
 }
 
 impl Button {
-    pub fn new(tree: Tree, text: String, event: SharedGuiEvent) -> DivRc<Button> {
+    pub fn new(tree: Tree, text: String, event: BoxFnMut) -> DivRc<Button> {
         Button::new_from_paint(tree, TextButtonPaint::new(text), event)
     }
 }
 
 impl Button<SmallButtonPaint> {
-    pub fn new_small(tree: Tree, text: String, event: SharedGuiEvent) -> DivRc<Self> {
+    pub fn new_small(tree: Tree, text: String, event: BoxFnMut) -> DivRc<Self> {
         Button::new_from_paint(tree, SmallButtonPaint::new(text), event)
     }
 }
@@ -80,8 +84,9 @@ impl<T: ButtonPaint> Button<T> {
         self.state
     }
     fn sync(self: &mut Div<Self>) {
+        let sleeping = self.timeout.sleeping();
         let new_state =
-            if self.down || self.countdown > 0 {
+            if self.down || sleeping {
                 PaintState::Down
             } else if self.over {
                 PaintState::Over
@@ -196,6 +201,10 @@ impl ButtonPaint for SmallButtonPaint {
 
 
 impl<T: ButtonPaint> DivImpl for Button<T> {
+    fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
+        self.button_layout(constraint)
+    }
+
     fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool {
         match event {
             InputEvent::MouseEvent { event, inside } => {
@@ -204,14 +213,8 @@ impl<T: ButtonPaint> DivImpl for Button<T> {
                 self.over = *inside;
                 self.down = self.over && event.mouse == Mouse::Down(0);
                 if was_down && !self.down && *inside {
-                    self.event_sender().run_now(self.event.once());
-                    self.countdown += 1;
-                    self.event_sender().run_with_delay(
-                        Duration::from_millis(50),
-                        self.new_event(|this| {
-                            this.countdown -= 1;
-                            this.sync();
-                        }));
+                    self.event.run();
+                    self.timeout.set_delay(Duration::from_millis(50));
                 }
             }
             _ => {}
@@ -220,12 +223,16 @@ impl<T: ButtonPaint> DivImpl for Button<T> {
         true
     }
 
-    fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
-        self.button_layout(constraint)
-    }
-
     fn self_paint_below(self: &Div<Self>, canvas: Canvas) {
         self.button_paint(canvas)
+    }
+
+    fn self_poll_elapse(self: &mut Div<Self>, cx: &mut Context) -> PollResult {
+        self.timeout.poll_sleep(cx).map(|()| {
+            assert!(!self.timeout.sleeping());
+            self.sync();
+        })?;
+        Noop
     }
 }
 

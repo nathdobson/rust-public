@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::sync::{Arc, Weak, Mutex};
 use crate::atomic_refcell::AtomicRefCell;
 use std::{mem, raw, hash, fmt};

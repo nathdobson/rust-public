@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::any::{Any, type_name, TypeId};
 use std::{result, fmt, error, mem, sync, rc};
 use std::marker::{Unsize, PhantomData};

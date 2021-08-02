@@ -28,7 +28,7 @@ use util::watch::Watchable;
 use util::rng::BoxRng;
 use std::any::Any;
 use termio::gui::gui::Gui;
-use termio::gui::event::SharedGuiEvent;
+use termio::gui::event::BoxFnMut;
 
 pub mod tcp;
 pub mod proxy;

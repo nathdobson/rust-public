@@ -3,22 +3,33 @@ use crate::screen::{Style, LineSetting, Screen};
 use crate::writer::TermWriter;
 use std::any::{Any, TypeId};
 //use util::any::{Upcast};
-use std::{fmt, thread, mem};
-use std::sync::{Arc, mpsc, Mutex, Condvar, Weak};
+use std::{fmt, thread, mem, io};
+use std::sync::{Arc, Mutex, Condvar, Weak};
 use crate::input::{MouseEvent, KeyEvent, Event};
 use crate::canvas::Canvas;
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, VecDeque};
 use crate::gui::layout::Constraint;
 use std::ops::{Deref, DerefMut};
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use std::sync::atomic::AtomicBool;
 use std::fmt::Debug;
 use util::lossy;
 use std::fmt::Formatter;
 use std::raw::TraitObject;
 use crate::gui::div::{Div, DivRc};
-use crate::gui::tree::{Tree, Dirty};
+use crate::gui::tree::{Tree, Dirty, TreeReceiver};
+use std::task::Context;
+use async_util::poll::{PollResult, poll_next};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio_stream::wrappers::{UnboundedReceiverStream, ReceiverStream};
+use async_util::delay_writer::DelayWriter;
+use tokio::io::AsyncWrite;
+use std::pin::Pin;
+use tokio::sync::mpsc;
+use crate::gui::BoxAsyncWrite;
+use async_util::poll::PollResult::{Noop, Abort};
+use async_util::timer::Sleep;
 
 const FRAME_BUFFER_SIZE: usize = 1;
 
@@ -29,8 +40,16 @@ pub struct Gui {
     size: (isize, isize),
     set_text_size_count: usize,
     tree: Tree,
+    tree_receiver: TreeReceiver,
+    event_receiver: Option<ReceiverStream<Event>>,
+    output: BoxAsyncWrite,
     root: DivRc,
+    resize_timeout: Sleep,
 }
+
+fn is_send() -> impl Send { Option::<Gui>::None }
+
+fn is_sync() -> impl Sync { Option::<Gui>::None }
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum InputEvent {
@@ -42,9 +61,16 @@ pub enum InputEvent {
 }
 
 impl Gui {
-    pub fn new(tree: Tree, root: DivRc) -> Gui {
+    pub fn new(
+        tree: Tree,
+        tree_receiver: TreeReceiver,
+        event_receiver: mpsc::Receiver<Event>,
+        output: BoxAsyncWrite,
+        root: DivRc,
+    ) -> Gui {
         let mut writer = TermWriter::new();
         writer.set_enabled(true);
+        let event_receiver = Some(ReceiverStream::new(event_receiver));
         Gui {
             style: Default::default(),
             title: "".to_string(),
@@ -52,14 +78,12 @@ impl Gui {
             size: (0, 0),
             set_text_size_count: 0,
             tree,
+            tree_receiver,
+            event_receiver,
+            output,
             root,
+            resize_timeout: Sleep::new(),
         }
-    }
-
-    pub fn paint_buffer(&mut self, output: &mut Vec<u8>) {
-        self.paint();
-        output.clear();
-        mem::swap(self.buffer(), output);
     }
 
     pub fn mark_dirty(&mut self, dirty: Dirty) {
@@ -71,8 +95,10 @@ impl Gui {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        self.writer.set_enabled(enabled);
-        self.mark_dirty(Dirty::Paint);
+        if self.writer.enabled() {
+            self.writer.set_enabled(enabled);
+            self.mark_dirty(Dirty::Paint);
+        }
     }
 
     pub fn enabled(&self) -> bool {
@@ -86,6 +112,7 @@ impl Gui {
         if self.set_text_size_count + FRAME_BUFFER_SIZE <= self.writer.get_text_size_count() {
             return;
         }
+        self.resize_timeout.set_delay(Duration::from_millis(1000));
         self.writer.get_text_size();
         let mut screen = Screen::new(self.size, self.style);
         let root = self.root.read();
@@ -116,8 +143,8 @@ impl Gui {
         }
     }
 
-    pub fn buffer(&mut self) -> &mut Vec<u8> {
-        self.writer.buffer()
+    pub fn writer(&mut self) -> &mut DelayWriter {
+        self.writer.writer()
     }
 
     pub fn layout(&mut self) {
@@ -129,7 +156,6 @@ impl Gui {
         match event {
             Event::KeyEvent(e) => {
                 if *e == KeyEvent::typed('c').control() {
-                    self.set_enabled(false);
                     self.tree.cancel().cancel();
                 } else {
                     let mut root = self.root.write();
@@ -165,6 +191,30 @@ impl Gui {
 
     pub fn root(&self) -> &DivRc { &self.root }
     pub fn root_mut(&mut self) -> &mut DivRc { &mut self.root }
+
+    pub fn poll_elapse(&mut self, cx: &mut Context) -> PollResult<(), io::Error> {
+        self.root.write().poll_elapse(cx)?;
+        poll_next(cx, &mut self.event_receiver).map(|event| {
+            self.handle(&event);
+        })?;
+        if self.event_receiver.is_none() {
+            self.set_enabled(false);
+        }
+        poll_next(cx, &mut self.tree_receiver.layout).map(|()| {
+            self.layout();
+        })?;
+        self.resize_timeout.poll_sleep(cx).map(|()|{
+            self.mark_dirty(Dirty::Paint);
+        })?;
+        poll_next(cx, &mut self.tree_receiver.paint).map(|()| {
+            self.paint();
+        })?;
+        self.writer.writer().poll_flush(cx, Pin::new(&mut self.output))?;
+        if self.event_receiver.is_none() && self.writer.writer().is_empty() {
+            return Abort(io::Error::new(io::ErrorKind::Interrupted, "canceled"));
+        }
+        Noop
+    }
 }
 
 impl Debug for Gui {

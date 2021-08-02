@@ -4,6 +4,7 @@ use util::grid::Grid;
 use util::itertools::Itertools2;
 use crate::gui::div::{Div, DivRc};
 
+#[derive(Debug)]
 pub struct Constraint {
     pub max_size: Option<(isize, isize)>,
 }

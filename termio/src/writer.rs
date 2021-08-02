@@ -18,12 +18,13 @@ use itertools::Itertools;
 use arrayvec::ArrayString;
 use std::borrow::Borrow;
 use crate::advance::advance_of_grapheme;
+use async_util::delay_writer::DelayWriter;
 
 #[derive(Debug)]
 pub struct TermWriter {
     cursor: (isize, isize),
     style: Style,
-    inner: Vec<u8>,
+    inner: DelayWriter,
     screen: Screen,
     enabled: bool,
     bounds: Rect,
@@ -78,14 +79,14 @@ impl TermWriter {
         TermWriter {
             cursor: (1, 1),
             style: style,
-            inner: vec![],
+            inner: DelayWriter::new(),
             screen: Screen::new((0, 0), style),
             enabled: false,
             bounds: Rect::from_position_size((1, 1), (1000, 1000)),
             get_text_size_count: 0,
         }
     }
-    pub fn buffer(&mut self) -> &mut Vec<u8> {
+    pub fn writer(&mut self) -> &mut DelayWriter {
         &mut self.inner
     }
     pub fn enabled(&self) -> bool {

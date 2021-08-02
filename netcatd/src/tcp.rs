@@ -10,11 +10,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use by_address::ByAddress;
-use chrono::format::Item::Error;
 use async_util::coop::{Cancel, Canceled};
 use async_util::promise::Promise;
-use termio::gui::event::{EventSender, GuiEvent, GuiPriority, read_loop, SharedGuiEvent};
-use termio::gui::event;
+//use termio::gui::event::{EventSender, GuiEvent, GuiPriority, read_loop, SharedGuiEvent};
+use termio::gui::{event, GuiBuilder};
 use termio::gui::gui::Gui;
 use termio::gui::tree::{Dirty, Tree};
 use termio::input::{Event, EventReader};
@@ -31,235 +30,141 @@ use crate::proxy;
 use crate::proxy::Host;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Error};
 use async_util::spawn::Spawn;
 use async_backtrace::trace_annotate;
+use async_backtrace::spawn;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel, UnboundedReceiver};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use std::net::SocketAddr;
+use util::expect::Server;
+use std::task::Context;
+use async_util::poll::{PollResult, poll_next};
+use async_util::poll::PollResult::{Noop, Abort, Yield};
 
-pub trait Model: 'static + Send + Sync + Debug {
-    fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui>;
-    fn remove_peer(&mut self, username: &Name);
+pub trait Model {
+    fn make_peer(&mut self, name: &Name, builder: GuiBuilder) -> Gui;
+    fn remove_peer(&mut self, name: &Name);
 }
 
 #[derive(Debug)]
-pub struct NetcatState {
-    peers: HashMap<Name, Peer>,
+struct PeerRequest {
+    name: Name,
+    stream: TcpStream,
 }
 
 #[derive(Debug)]
 struct Peer {
-    peer_cancel: Cancel,
-    terminated: Promise<!>,
-}
-
-pub struct NetcatServerBuilder {
-    pub server_cancel: Cancel,
-    pub event_sender: EventSender,
+    gui: Gui,
 }
 
 pub struct NetcatServer {
-    listener: TcpListener,
-    event_sender: EventSender,
-    state: MutRc<NetcatState>,
-    model: MutRc<dyn Model>,
+    peers: HashMap<Name, Peer>,
+    queue: HashMap<Name, TcpStream>,
+    request_stream: Option<UnboundedReceiverStream<PeerRequest>>,
     server_cancel: Cancel,
 }
 
-impl NetcatServerBuilder {
-    pub fn new() -> (Self, impl Future<Output=()>) {
-        let server_cancel = Cancel::new();
-        let (event_sender, event_joiner) =
-            event::event_loop();
-        (NetcatServerBuilder {
-            server_cancel,
-            event_sender,
-        }, event_joiner)
-    }
+pub struct NetcatListener {
+    request_sender: UnboundedSender<PeerRequest>,
+    server_cancel: Cancel,
+}
 
-    async fn build_inner(self, address: &str, model: MutRc<dyn Model>)
-                         -> io::Result<Arc<NetcatServer>> {
-        NetcatServer::new(
-            address,
-            self.event_sender,
-            model,
-            self.server_cancel,
-        ).await
+impl NetcatListener {
+    async fn accept(cancel: Cancel, mut stream: TcpStream, sender: UnboundedSender<PeerRequest>) {
+        if let Err(e) = async {
+            if let Ok((host, _port)) = cancel.checked(proxy::run_proxy_server(&mut stream)).await? {
+                sender.send(PeerRequest { name: Arc::new(host.to_string()?), stream }).ok();
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        }.await {
+            eprintln!("proxy error: {}", e);
+        }
     }
-
-    async fn run(self, address: &str, model: MutRc<dyn Model>) -> io::Result<()> {
-        let server = self.build_inner(address, model).await?;
-        server.listen().await?;
+    pub async fn listen(self, address: &str) -> io::Result<()> {
+        let listener = TcpListener::bind(address).await?;
+        let sender = self.request_sender.clone();
+        let cancel = self.server_cancel.clone();
+        spawn(async move {
+            loop {
+                match cancel.checked(listener.accept()).await {
+                    Err(Canceled) => break,
+                    Ok(Err(e)) => {
+                        eprintln!("accept error: {}", e);
+                        break;
+                    }
+                    Ok(Ok((stream, _))) => spawn(NetcatListener::accept(cancel.clone(), stream, sender.clone())),
+                };
+            }
+            println!("Server stopped accepting");
+        });
         Ok(())
-    }
-
-    async fn run_main(self, address: &str, model: MutRc<dyn Model>) -> ! {
-        self.server_cancel.clone().run_main(Duration::from_secs(5), self.run(address, model)).await
-    }
-
-    pub fn build_main(self, address: &str, model: MutRc<dyn Model>) {
-        let address = address.to_string();
-        self.event_sender.clone().spawner().with_priority(GuiPriority::Read).spawn(async move {
-            trace_annotate(&|f| write!(f, "Listening {}", address), self.run_main(&address, model)).await;
-        })
     }
 }
 
 impl NetcatServer {
-    pub async fn new(
-        address: &str,
-        event_sender: EventSender,
-        model: MutRc<dyn Model>,
-        server_cancel: Cancel) -> io::Result<Arc<Self>> {
-        let state = MutRc::new(NetcatState {
-            peers: HashMap::new(),
-        });
-        let result = Arc::new(NetcatServer {
-            listener: TcpListener::bind(address).await?,
-            event_sender,
-            state,
-            model,
-            server_cancel,
-        });
-        Ok(result)
-    }
-    async fn handle_stream(self: &Arc<Self>,
-                           mut stream: TcpStream)
-                           -> Result<(), Box<dyn error::Error>> {
-        let peer_cancel = Cancel::new();
-        let (host, _) = proxy::run_proxy_server(&mut stream).await?;
-        let (read_stream, mut write_stream) = stream.into_split();
-        let username = Arc::new(host.to_string()?);
-        let (tree, paint, layout) =
-            Tree::new(peer_cancel.clone(), self.event_sender.clone());
-        peer_cancel.attach(&self.server_cancel);
-        loop {
-            let terminated: Promise<!> = match self.state.borrow_mut().peers.entry(username.clone()) {
-                Entry::Occupied(peer) => {
-                    eprintln!("Peer {:?} reconnecting", username);
-                    peer.get().peer_cancel.cancel();
-                    peer.get().terminated.clone()
-                }
-                Entry::Vacant(x) => {
-                    eprintln!("Peer {:?} connected", username);
-                    x.insert(Peer {
-                        peer_cancel: peer_cancel.clone(),
-                        terminated: Promise::new(),
-                    });
-                    break;
-                }
-            };
-            terminated.join().await;
-            eprintln!("Peer {:?} reconnected", username);
-        }
-        let gui = self.model.borrow_mut().add_peer(&username, tree.clone());
-
-        let layout_annot = {
-            let username = username.clone();
-            move |f: &mut Formatter| write!(f, "User {} layout loop", username)
-        };
-        let write_annot = {
-            let username = username.clone();
-            move |f: &mut Formatter| write!(f, "User {} send loop", username)
-        };
-        let read_annot = {
-            let username = username.clone();
-            move |f: &mut Formatter| write!(f, "User {} receive loop", username)
-        };
-
-        let ll = {
-            let gui = gui.clone();
-            async move {
-                trace_annotate(&layout_annot, layout.layout_loop(gui)).await
-            }
-        };
-        let wl = {
-            let gui = gui.clone();
-            let peer_cancel = peer_cancel.clone();
-            let username = username.clone();
-            async move {
-                trace_annotate(&write_annot, async move {
-                    if let Err(e) = paint.render_loop(gui, Pin::new(&mut write_stream)).await {
-                        eprintln!("Peer {:?} responses error: {}", username, e);
-                    }
-                    peer_cancel.cancel();
-                }).await
-            }
-        };
-        let rl = {
-            let peer_cancel = peer_cancel.clone();
-            let event_sender = self.event_sender.clone();
-            let username = username.clone();
-
-            async move {
-                trace_annotate(&read_annot, async move {
-                    match peer_cancel.checked(read_loop(
-                        event_sender,
-                        gui.clone(),
-                        read_stream)).await {
-                        Ok(Ok(x)) => match x {}
-                        Ok(Err(error)) => {
-                            if error.kind() == ErrorKind::UnexpectedEof {
-                                eprintln!("Peer {:?} requests EOF", username);
-                            } else {
-                                eprintln!("Peer {:?} requests error: {}", username, error);
-                            }
-                        }
-                        Err(_canceled) => {
-                            eprintln!("Peer {:?} requests canceled", username);
-                        }
-                    }
-                    gui.borrow_mut().set_enabled(false);
-                    gui.borrow_mut().tree().cancel().cancel();
-                }).await;
-            }
-        };
-        trace_annotate(
-            &{
-                let username = username.clone();
-                move |f| write!(f, "User {}", username)
-            },
-            async move {
-                join!(
-                    self.event_sender.spawner().with_priority(GuiPriority::Read).spawn_with_handle(rl),
-                    self.event_sender.spawner().with_priority(GuiPriority::Layout).spawn_with_handle(ll),
-                    self.event_sender.spawner().with_priority(GuiPriority::Paint).spawn_with_handle(wl)
-                )
-            },
-        ).await;
-        eprintln!("Peer {:?} removed", username);
-        self.state.borrow_mut().peers.remove(&username).unwrap();
-        self.model.borrow_mut().remove_peer(&username);
-        Ok(())
+    pub fn new(cancel: Cancel) -> (NetcatListener, Self) {
+        let (tx, rx) = unbounded_channel();
+        (NetcatListener {
+            request_sender: tx,
+            server_cancel: cancel.clone(),
+        },
+         NetcatServer {
+             peers: HashMap::new(),
+             queue: HashMap::new(),
+             server_cancel: cancel,
+             request_stream: Some(UnboundedReceiverStream::new(rx)),
+         })
     }
 
-    pub async fn listen(self: &Arc<Self>) -> io::Result<()> {
-        let bundle = Promise::new();
-        loop {
-            let (stream, addr) =
-                match self.server_cancel.checked(self.listener.accept()).await {
-                    Err(Canceled) => break,
-                    Ok(stream_result) => stream_result?,
-                };
-            let self2 = self.clone();
-            self.event_sender.spawner().with_priority(GuiPriority::Read).spawn(bundle.outlive(async move {
-                trace_annotate(&|f| write!(f, "Peer {}", addr), async move {
-                    if let Err(e) = self2.handle_stream(stream).await {
-                        if let Some(io) = e.downcast_ref::<io::Error>() {
-                            match io.kind() {
-                                ErrorKind::UnexpectedEof => {}
-                                ErrorKind::Interrupted => { eprintln!("Cancelled") }
-                                _ => eprintln!("IO error: {:?}", e),
-                            }
-                        } else {
-                            eprintln!("Comm error: {:?}", e);
+    fn make_peer(server_cancel: &Cancel, name: &Name, stream: TcpStream, model: &mut dyn Model) -> Peer {
+        let mut builder = GuiBuilder::new();
+        builder.tree().cancel().attach(server_cancel);
+        let (read, write) = stream.into_split();
+        builder.set_input(Box::pin(read));
+        builder.set_output(Box::pin(write));
+        let gui = model.make_peer(&name, builder);
+        Peer { gui }
+    }
+    pub fn poll_elapse(&mut self, cx: &mut Context, model: &mut dyn Model) -> PollResult<(), io::Error> {
+        poll_next(cx, &mut self.request_stream).map(|request| {
+            match self.peers.entry(request.name.clone()) {
+                Entry::Occupied(mut e) => {
+                    println!("Peer {} reconnecting", request.name);
+                    e.get_mut().gui.tree().cancel().cancel();
+                    self.queue.insert(request.name, request.stream);
+                }
+                Entry::Vacant(e) => {
+                    println!("Peer {} connected", request.name);
+                    e.insert(Self::make_peer(&self.server_cancel, &request.name, request.stream, model));
+                }
+            }
+        })?;
+        let names: Vec<Name> = self.peers.keys().cloned().collect();
+        for name in names.iter() {
+            if let Some(peer) = self.peers.get_mut(name) {
+                match peer.gui.poll_elapse(cx) {
+                    Noop => {}
+                    Yield(()) => return Yield(()),
+                    Abort(e) => {
+                        if e.kind() != ErrorKind::Interrupted {
+                            eprintln!("Peer {} error {}", name, e);
+                        }
+                        self.peers.remove(name);
+                        model.remove_peer(name);
+                        println!("Peer {} removed", name);
+                        if let Some(new_stream) = self.queue.remove(name) {
+                            println!("Peer {} reconnected", name);
+                            self.peers.insert(name.clone(), Self::make_peer(&self.server_cancel, name, new_stream, model));
                         }
                     }
-                }).await
-            }));
+                }
+            }
         }
-        eprintln!("Server canceling all peers");
-        bundle.join().await;
-        eprintln!("Server canceled all peers");
-        Ok(())
+        if self.request_stream.is_none() && self.peers.is_empty() && self.queue.is_empty() {
+            println!("Server terminated");
+            return Abort(io::Error::new(io::ErrorKind::Interrupted, "canceled"));
+        }
+        Noop
     }
 }
-

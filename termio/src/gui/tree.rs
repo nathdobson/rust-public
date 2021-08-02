@@ -14,7 +14,7 @@ use util::atomic_refcell::AtomicRefCell;
 use util::mutrc::MutRc;
 use util::pmpsc;
 
-use crate::gui::event::{EventSender, GuiEvent};
+// use crate::gui::event::{GuiEvent};
 use crate::gui::gui::Gui;
 use std::io::Write;
 use tokio::io::AsyncWrite;
@@ -28,7 +28,6 @@ pub enum Dirty {
 }
 
 struct TreeInner {
-    event_sender: EventSender,
     paint: dirty::Sender,
     layout: dirty::Sender,
     cancel: Cancel,
@@ -37,20 +36,21 @@ struct TreeInner {
 #[derive(Clone, Debug)]
 pub struct Tree(Arc<TreeInner>);
 
-pub struct PaintReceiver(dirty::Receiver, Cancel);
-
-pub struct LayoutReceiver(dirty::Receiver, Cancel);
+pub struct TreeReceiver {
+    pub(crate) paint: Option<dirty::Receiver>,
+    pub(crate) layout: Option<dirty::Receiver>,
+    pub(crate) cancel: Cancel,
+}
 
 impl Tree {
-    pub fn new(cancel: Cancel, event_sender: EventSender) -> (Self, PaintReceiver, LayoutReceiver) {
+    pub fn new(cancel: Cancel) -> (Self, TreeReceiver) {
         let (paint, paint_receiver) = dirty::channel();
         let (layout, layout_receiver) = dirty::channel();
-        (Tree(Arc::new(TreeInner { event_sender, paint, layout, cancel: cancel.clone() })),
-         PaintReceiver(paint_receiver, cancel.clone()),
-         LayoutReceiver(layout_receiver, cancel.clone()))
+        paint.mark();
+        layout.mark();
+        (Tree(Arc::new(TreeInner { paint, layout, cancel: cancel.clone() })),
+         TreeReceiver { paint: Some(paint_receiver), layout: Some(layout_receiver), cancel: cancel.clone() })
     }
-
-    pub fn event_sender(&self) -> &EventSender { &self.0.event_sender }
 
     pub fn mark_dirty(&mut self, dirty: Dirty) {
         match dirty {
@@ -64,39 +64,6 @@ impl Tree {
     }
 }
 
-impl LayoutReceiver {
-    pub async fn layout_loop(self, mut gui: MutRc<Gui>) {
-        let LayoutReceiver(mut receiver, cancel) = self;
-        cancel.checked(async {
-            loop {
-                gui.write().layout();
-                if receiver.next().await.is_none() { break; }
-            }
-        }).await.ok();
-    }
-}
-
-impl PaintReceiver {
-    pub async fn render_loop(mut self, mut gui: MutRc<Gui>, mut write: Pin<&mut (impl Send + AsyncWrite)>) -> io::Result<()> {
-        let mut buffer = vec![];
-        loop {
-            gui.write().paint_buffer(&mut buffer);
-            if !buffer.is_empty() {
-                write.write_all(&buffer).await?;
-                buffer.clear();
-                write.flush().await?;
-            }
-            if let Ok(Some(_)) = self.1.checked(self.0.next()).await {} else { break; }
-        }
-        gui.write().paint_buffer(&mut buffer);
-        if !buffer.is_empty() {
-            write.write_all(&buffer).await?;
-            buffer.clear();
-            write.flush().await?;
-        }
-        Ok(())
-    }
-}
 
 impl Debug for TreeInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

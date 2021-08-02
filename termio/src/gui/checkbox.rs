@@ -1,4 +1,4 @@
-use crate::gui::event::SharedGuiEvent;
+use crate::gui::event::BoxFnMut;
 use crate::string::StyleString;
 use crate::gui::div::{DivRc, DivImpl, Div};
 use crate::gui::layout::{Constraint, Layout};
@@ -12,13 +12,13 @@ use crate::color::Color;
 
 #[derive(Debug)]
 pub struct CheckBox {
-    event: SharedGuiEvent,
+    event: BoxFnMut,
     text: StyleString,
     state: bool,
 }
 
 impl CheckBox {
-    pub fn new(tree: Tree, text: StyleString, state: bool, event: SharedGuiEvent) -> DivRc<CheckBox> {
+    pub fn new(tree: Tree, text: StyleString, state: bool, event: BoxFnMut) -> DivRc<CheckBox> {
         DivRc::new(tree, CheckBox { event, text, state })
     }
     pub fn get_state(&self) -> bool {
@@ -55,7 +55,8 @@ impl DivImpl for CheckBox {
             InputEvent::MouseEvent { event, inside } => {
                 if *inside && !event.motion && event.mouse == Mouse::Down(0) {
                     self.state = !self.state;
-                    self.event_sender().run_now(self.event.once());
+                    self.mark_dirty(Dirty::Paint);
+                    self.event.run();
                     return true;
                 }
             }

@@ -1,5 +1,6 @@
 #![allow(unused_imports, unused_variables)]
 #![feature(arbitrary_self_types)]
+#![deny(unused_must_use)]
 
 use std::{io, mem, process};
 use std::collections::{HashMap, HashSet};
@@ -7,13 +8,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_util::coop::Cancel;
-use netcatd::tcp::{Model, NetcatServer, NetcatServerBuilder};
+use netcatd::tcp::{NetcatServer, Model};
 use termio::canvas::Canvas;
 use termio::color::Color;
 use termio::gui::button::Button;
 use termio::gui::div::{Div, DivImpl, DivRc};
-use termio::gui::event;
-use termio::gui::event::{EventSender, SharedGuiEvent};
+use termio::gui::{event, GuiBuilder};
+use termio::gui::event::{BoxFnMut};
 use termio::gui::gui::{Gui, InputEvent};
 use termio::gui::layout::{Constraint, Layout};
 use termio::gui::tree::Tree;
@@ -27,6 +28,7 @@ use util::mutrc::MutRc;
 use termio::gui::table::{Table, TableDiv};
 use termio::line::Stroke;
 use async_backtrace::traced_main;
+use async_util::poll::poll_loop;
 
 #[derive(Debug)]
 pub struct DemoModel {}
@@ -34,6 +36,17 @@ pub struct DemoModel {}
 impl DemoModel {
     pub fn new() -> Self {
         DemoModel {}
+    }
+}
+
+impl Model for DemoModel {
+    fn make_peer(&mut self, name: &Name, mut builder: GuiBuilder) -> Gui {
+        let div = Root::new(builder.tree());
+        builder.build(div)
+    }
+
+    fn remove_peer(&mut self, name: &Name) {
+        println!("Demo remove peer {}", name);
     }
 }
 
@@ -49,12 +62,12 @@ impl Root {
         let hello = Button::new(
             tree.clone(),
             "hello".to_string(),
-            SharedGuiEvent::new(||
+            BoxFnMut::new(||
                 println!("Hello")));
         let goodbye = Button::new(
             tree.clone(),
             "goodbye".to_string(),
-            SharedGuiEvent::new(||
+            BoxFnMut::new(||
                 println!("Goodbye")));
         let grid = Grid::new((2, 1), |x, y| {
             match (x, y) {
@@ -89,14 +102,6 @@ impl Root {
     }
 }
 
-impl Model for DemoModel {
-    fn add_peer(&mut self, username: &Name, tree: Tree) -> MutRc<Gui> {
-        MutRc::new(Gui::new(tree.clone(), Root::new(tree)))
-    }
-
-    fn remove_peer(&mut self, username: &Name) {}
-}
-
 impl DivImpl for Root {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
         let mut table = self.table.write();
@@ -107,10 +112,16 @@ impl DivImpl for Root {
 
 fn main() {
     traced_main("127.0.0.1:9999".to_string(), async move {
-        let (builder, runner) = NetcatServerBuilder::new();
-        let model =
-            MutRc::new(DemoModel::new());
-        builder.build_main("0.0.0.0:8000", model);
-        runner.await;
+        let cancel = Cancel::new();
+        cancel.clone().run_main(async {
+            let (listener, mut server) = NetcatServer::new(cancel);
+            listener.listen("0.0.0.0:8000").await?;
+            let mut model = DemoModel::new();
+            poll_loop(|cx| {
+                server.poll_elapse(cx, &mut model)
+            }).await?;
+            #[allow(unreachable_code)]
+                Ok::<(), io::Error>(())
+        }).await;
     });
 }

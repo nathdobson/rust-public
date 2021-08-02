@@ -9,6 +9,10 @@ use crate::waker::HashWaker;
 use lazy_static::lazy_static;
 use priority_queue::PriorityQueue;
 use std::future::poll_fn;
+use crate::poll::PollResult;
+use crate::poll::PollResult::{Yield, Noop};
+use serde::Serialize;
+use serde::Deserialize;
 
 struct State {
     queue: PriorityQueue<HashWaker, SerialInstant>,
@@ -54,6 +58,42 @@ pub fn poll_elapse(cx: &mut Context, instant: SerialInstant) -> Poll<()> {
         lock.queue.push(HashWaker(cx.waker().clone()), instant);
         TIMER.condvar.notify_one();
         Poll::Pending
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Sleep {
+    time: Option<SerialInstant>,
+    #[serde(skip)]
+    waker: Option<Waker>,
+}
+
+impl Sleep {
+    pub fn new() -> Self {
+        Sleep { time: None, waker: None }
+    }
+    pub fn set_instant(&mut self, time: SerialInstant) {
+        self.time = Some(time);
+        self.waker.as_ref().map(|waker| poll_elapse(&mut Context::from_waker(waker), time));
+    }
+    pub fn set_delay(&mut self, delay: Duration) {
+        self.set_instant(SerialInstant::now() + delay);
+    }
+    pub fn sleeping(&mut self) -> bool {
+        self.time.is_some()
+    }
+    pub fn poll_sleep(&mut self, cx: &mut Context) -> PollResult {
+        self.waker = Some(cx.waker().clone());
+        if let Some(time) = self.time {
+            if let Poll::Ready(()) = poll_elapse(cx, time) {
+                self.time = None;
+                Yield(())
+            } else {
+                Noop
+            }
+        } else {
+            Noop
+        }
     }
 }
 

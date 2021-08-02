@@ -17,7 +17,7 @@ use crate::gui::gui::InputEvent;
 use crate::canvas::Canvas;
 use crate::input::MouseEvent;
 use crate::gui::tree::{Tree, Dirty};
-use crate::gui::event::{EventSender, GuiEvent, SharedGuiEvent};
+use crate::gui::event::{BoxFnMut};
 use std::hash::{Hash, Hasher};
 use std::ptr::{null, null_mut};
 use util::mutrc::{MutRc, MutWeak};
@@ -25,12 +25,16 @@ use std::borrow::BorrowMut;
 use util::any;
 use util::any::{TypeInfo, Downcast, Upcast, RawAny};
 use crate::gui::div::sealed::DivTypeInfo;
+use std::task::Context;
+use async_util::poll::PollResult;
+use async_util::poll::PollResult::Noop;
 
 pub trait DivImpl: 'static + Send + Sync + Debug + DivTypeInfo {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout;
     fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool { false }
     fn self_paint_below(self: &Div<Self>, canvas: Canvas) {}
     fn self_paint_above(self: &Div<Self>, canvas: Canvas) {}
+    fn self_poll_elapse(self: &mut Div<Self>, cx: &mut Context) -> PollResult { Noop }
 }
 
 #[derive(Debug)]
@@ -122,7 +126,7 @@ impl<T: DivImpl + ?Sized> Div<T> {
     }
     pub fn tree(&self) -> &Tree { &self.tree }
     pub fn tree_mut(&mut self) -> &mut Tree { &mut self.tree }
-    pub fn event_sender(&self) -> &EventSender { self.tree().event_sender() }
+    //pub fn event_sender(&self) -> &EventSender { self.tree().event_sender() }
 
     pub fn size(&self) -> (isize, isize) { self.bounds().size() }
     pub fn set_size(&mut self, size: (isize, isize)) {
@@ -156,12 +160,12 @@ impl<T: DivImpl + ?Sized> Div<T> {
         assert!(child.borrow_mut().parent.take().is_some());
         assert!(self.children.remove(&child));
     }
-    pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Self)) -> GuiEvent {
-        self.div_weak().new_event(f)
-    }
-    pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Self)) -> SharedGuiEvent {
-        self.div_weak().new_shared_event(f)
-    }
+    // pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Self)) -> GuiEvent {
+    //     self.div_weak().new_event(f)
+    // }
+    // pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Self)) -> SharedGuiEvent {
+    //     self.div_weak().new_shared_event(f)
+    // }
 
     pub fn layout(&mut self, constraint: &Constraint) {
         let layout = self.layout_impl(constraint);
@@ -224,34 +228,42 @@ impl<T: DivImpl + ?Sized> Div<T> {
             _ => {}
         }
     }
+
+    pub fn poll_elapse(&mut self, cx: &mut Context) -> PollResult {
+        self.self_poll_elapse(cx)?;
+        for child in self.children.iter() {
+            child.0.borrow_mut().poll_elapse(cx)?;
+        }
+        Noop
+    }
 }
 
 impl<T: DivImpl + ?Sized> DivWeak<T> {
-    pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Div<T>)) -> GuiEvent {
-        let this = self.clone();
-        GuiEvent::new(move || {
-            if let Some(mut this) = this.upgrade() {
-                f(&mut *this.write())
-            }
-        })
-    }
-    pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Div<T>)) -> SharedGuiEvent {
-        let this = self.clone();
-        SharedGuiEvent::new(move || {
-            if let Some(mut this) = this.upgrade() {
-                f(&mut *this.write())
-            }
-        })
-    }
+    // pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Div<T>)) -> GuiEvent {
+    //     let this = self.clone();
+    //     GuiEvent::new(move || {
+    //         if let Some(mut this) = this.upgrade() {
+    //             f(&mut *this.write())
+    //         }
+    //     })
+    // }
+    // pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Div<T>)) -> SharedGuiEvent {
+    //     let this = self.clone();
+    //     SharedGuiEvent::new(move || {
+    //         if let Some(mut this) = this.upgrade() {
+    //             f(&mut *this.write())
+    //         }
+    //     })
+    // }
 }
 
 impl<T: DivImpl + ?Sized> DivRc<T> {
-    pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Div<T>)) -> GuiEvent {
-        self.downgrade().new_event(f)
-    }
-    pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Div<T>)) -> SharedGuiEvent {
-        self.downgrade().new_shared_event(f)
-    }
+    // pub fn new_event(&self, f: impl 'static + Send + Sync + FnOnce(&mut Div<T>)) -> GuiEvent {
+    //     self.downgrade().new_event(f)
+    // }
+    // pub fn new_shared_event(&self, f: impl 'static + Send + Sync + Fn(&mut Div<T>)) -> SharedGuiEvent {
+    //     self.downgrade().new_shared_event(f)
+    // }
 }
 
 unsafe impl RawAny for Div<dyn DivImpl> {

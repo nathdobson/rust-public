@@ -155,7 +155,7 @@ pub unsafe fn raw_split_at<T>(slice: *const [T], len: usize) -> SlicePair<*const
 }
 
 impl<'a> SlicePair<&'a [u8]> {
-    pub fn as_io(&self) -> [IoSlice; 2] {
+    pub fn as_io(self) -> [IoSlice<'a>; 2] {
         [IoSlice::new(self.0), IoSlice::new(self.1)]
     }
 }

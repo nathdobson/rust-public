@@ -17,11 +17,8 @@ use std::time::{Duration, Instant};
 use tokio::pin;
 use libc::close;
 use std::future::poll_fn;
-use async_backtrace::TracedPriorityPool;
 use async_util::spawn::Spawn;
 
-use async_util::priority::{priority_join2, PriorityPool};
-use async_util::priority;
 use util::{lossy, pmpsc};
 use util::atomic_refcell::AtomicRefCell;
 use util::mutrc::MutRc;
@@ -29,148 +26,52 @@ use util::mutrc::MutRc;
 use crate::gui::div::{Div, DivImpl, DivRc};
 use crate::gui::gui::Gui;
 use crate::gui::tree::Tree;
-use crate::input::EventReader;
+use crate::input::{EventReader, Event};
 use tokio::time::sleep;
 use tokio_stream::Stream;
 use tokio::io::AsyncRead;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel, UnboundedReceiver};
+use util::shared::Shared;
+
+// #[must_use]
+// pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
 
 #[must_use]
-pub struct GuiEvent(Box<dyn FnOnce() + Send + Sync>);
+pub struct BoxFnMut(Box<dyn FnMut() + Send + Sync>);
 
-#[derive(Clone)]
-pub struct SharedGuiEvent(Arc<dyn Fn() + Send + Sync>);
+// impl GuiEvent {
+//     pub fn new(f: impl 'static + Send + Sync + FnOnce()) -> Self {
+//         GuiEvent(Box::new(f))
+//     }
+// }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash, Debug)]
-pub enum GuiPriority {
-    Action,
-    Simulate,
-    Read,
-    Layout,
-    Paint,
-}
-
-struct EventSenderInner {
-    spawner: TracedPriorityPool<GuiPriority>,
-}
-
-#[derive(Clone, Debug)]
-pub struct EventSender(Arc<EventSenderInner>);
-
-impl GuiEvent {
-    pub fn new(f: impl 'static + Send + Sync + FnOnce()) -> Self {
-        GuiEvent(Box::new(f))
-    }
-}
-
-impl SharedGuiEvent {
+impl BoxFnMut {
     pub fn new(f: impl 'static + Fn() + Send + Sync) -> Self {
-        SharedGuiEvent(Arc::new(f))
+        BoxFnMut(Box::new(f))
     }
-    pub fn once(&self) -> GuiEvent {
-        let this = self.clone();
-        GuiEvent::new(move || (this.0)())
+    pub fn run(&mut self) {
+        (self.0)()
     }
-}
-
-impl GuiEvent {
-    fn run(self) {
-        (self.0)();
+    pub fn new_channel() -> (BoxFnMut, UnboundedReceiver<()>) {
+        let (tx, rx) = unbounded_channel();
+        (BoxFnMut::new(move || { tx.send(()).ok(); }), rx)
     }
 }
 
-pub fn priority_consume<S: Stream>(x: S, mut f: impl FnMut(S::Item)) -> impl Future<Output=()> {
-    async move {
-        pin!(x);
-        poll_fn(|cx| {
-            match x.as_mut().poll_next(cx) {
-                Poll::Ready(Some(x)) => {
-                    f(x);
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-                Poll::Ready(None) => Poll::Ready(()),
-                Poll::Pending => Poll::Pending,
-            }
-        }).await
-    }
-}
+// impl GuiEvent {
+//     fn run(self) {
+//         (self.0)();
+//     }
+// }
 
-pub fn event_loop() -> (EventSender, impl Future<Output=()>) {
-    let (spawner, runner) = priority::channel();
-    let spawner = TracedPriorityPool::new(spawner);
-    (
-        EventSender(Arc::new(EventSenderInner { spawner })),
-        runner
-    )
-}
-
-pub async fn read_loop(
-    event_sender: EventSender,
-    gui: MutRc<Gui>,
-    read: impl 'static + Send + AsyncRead) -> io::Result<!> {
-    let reader = EventReader::new(read);
-    pin!(reader);
-    loop {
-        let next = reader.as_mut().read().await?;
-        let gui = gui.clone();
-        let now = Instant::now();
-        event_sender.run_later(GuiEvent::new(move || {
-            gui.borrow_mut().handle(&next)
-        }))
-    }
-}
-
-impl EventSender {
-    pub fn run_now(&self, event: GuiEvent) {
-        self.0.spawner.with_priority(GuiPriority::Action).spawn(async { event.run() });
-    }
-    pub fn run_later(&self, event: GuiEvent) {
-        self.0.spawner.with_priority(GuiPriority::Simulate).spawn(async { event.run() });
-    }
-    pub fn spawner(&self) -> &TracedPriorityPool<GuiPriority> {
-        &self.0.spawner
-    }
-    pub fn run_with_delay(&self, delay: Duration, event: GuiEvent) {
-        self.0.spawner.with_priority(GuiPriority::Simulate).spawn(async move {
-            sleep(delay).await;
-            event.run();
-        });
-    }
-    pub fn run_at(&self, instant: Instant, event: GuiEvent) {
-        self.run_with_delay(
-            instant.checked_duration_since(Instant::now()).unwrap_or_default(),
-            event)
-    }
-
-    pub fn spawn_poll_div<T: DivImpl, F>(&self, mut poll: F, div: DivRc<T>)
-        where F: FnMut(&mut Div<T>, &mut Context) -> Poll<()> + Send + 'static {
-        let div = div.downgrade();
-        self.0.spawner.with_priority(GuiPriority::Simulate).spawn(async move {
-            poll_fn(|cx| {
-                if let Some(mut div) = div.upgrade() {
-                    poll(&mut *div.write(), cx)
-                } else {
-                    Poll::Ready(())
-                }
-            }).await;
-        });
-    }
-}
-
-impl Debug for EventSenderInner {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EventSenderInner").finish()
-    }
-}
-
-impl Debug for SharedGuiEvent {
+impl Debug for BoxFnMut {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("SharedGuiEvent").finish()
     }
 }
 
-impl Debug for GuiEvent {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GuiEvent").finish()
-    }
-}
+// impl Debug for GuiEvent {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+//         f.debug_struct("GuiEvent").finish()
+//     }
+// }

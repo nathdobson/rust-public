@@ -1,6 +1,9 @@
+#![allow(deprecated)]
+
 use std::sync::{Arc, Weak, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
-use std::{hash, fmt, mem, io, raw};
+use std::raw;
+use std::{hash, fmt, mem, io};
 use std::hash::Hasher;
 use std::fmt::{Formatter, Arguments};
 use std::marker::Unsize;
