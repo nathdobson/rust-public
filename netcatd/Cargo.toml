@@ -11,16 +11,16 @@ attempt = { path = "../attempt" }
 termio = { path = "../termio" }
 util = { path = "../util" }
 async-util = { path = "../async-util" }
-itertools = "0.10.0"
-serde_json = "1.0.64"
-serde_derive = "1.0.125"
-serde = "1.0.125"
-rand = "0.8.3"
+itertools = "0.10.1"
+serde_json = "1.0.66"
+serde_derive = "1.0.127"
+serde = "1.0.127"
+rand = "0.8.4"
 rand_xorshift = "0.3.0"
 byteorder = "1.4.3"
 chrono = "0.4.19"
 by_address = "1.0.4"
 #async-channel = "1.6.1"
-tokio = { version = "1.5.0", features = ["io-util", "io-std", "net"] }
-tokio-stream = "0.1.5"
+tokio = { version = "1.9.0", features = ["io-util", "io-std", "net"] }
+tokio-stream = "0.1.7"
 async-backtrace = { path = "../async-backtrace" }

@@ -7,21 +7,21 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand_core = "0.6.2"
+rand_core = "0.6.3"
 num = "0.4.0"
-itertools = "0.10.0"
+itertools = "0.10.1"
 ctrlc = "3.1.9"
 cancellation = "0.1.0"
 defer = "0.1.0"
 atomic_refcell = "0.1.7"
 by_address = "1.0.4"
-futures = "0.3.14"
-serde = "1.0.125"
+futures = "0.3.16"
+serde = "1.0.127"
 lazy_static = "1.4.0"
 ondrop = "0.1.0"
-libc = "0.2.93"
+libc = "0.2.98"
 
 #
 [dev-dependencies]
-crossbeam = "0.8.0"
-serde_json = "1.0.64"
+crossbeam = "0.8.1"
+serde_json = "1.0.66"

@@ -7,9 +7,9 @@ edition = "2018"
 
 [dependencies]
 parking_lot = "0.11.1"
-ordered-float = "2.5.0"
+ordered-float = "2.7.0"
 rusqlite = "0.25.3"
 lazy_static = "1.4.0"
-serde = { version = "1.0.126", features = ["derive"] }
+serde = { version = "1.0.127", features = ["derive"] }
 by_address = "1.0.4"
-tuple_list = "0.1.2"
+tuple_list = "0.1.3"
