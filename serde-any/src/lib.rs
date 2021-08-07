@@ -1,0 +1,306 @@
+#![feature(specialization)]
+#![allow(incomplete_features, unused_variables, dead_code, unused_imports)]
+#![deny(unused_must_use)]
+
+
+mod test;
+
+use std::any::Any;
+use serde::{Serialize, Serializer};
+use std::io::Write;
+use std::ops::{Deref, DerefMut};
+use std::any::type_name;
+use bincode::Options;
+
+pub enum SerdeAny {
+    #[allow(non_camel_case_types)]
+    __SerdeAny__Private__ { inner: Box<dyn AnySerialize> }
+}
+
+impl SerdeAny {
+    pub fn new<T: AnySerialize>(inner: T) -> Self {
+        SerdeAny::__SerdeAny__Private__ { inner: Box::new(inner) }
+    }
+    pub fn into_inner(self) -> Box<dyn AnySerialize> {
+        match self {
+            SerdeAny::__SerdeAny__Private__ { inner } => inner
+        }
+    }
+}
+
+impl Deref for SerdeAny {
+    type Target = dyn AnySerialize;
+    fn deref(&self) -> &Self::Target {
+        match self { SerdeAny::__SerdeAny__Private__ { inner } => &**inner }
+    }
+}
+
+impl DerefMut for SerdeAny {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self { SerdeAny::__SerdeAny__Private__ { inner } => &mut **inner }
+    }
+}
+
+type BincodeSerializer<'a, 'b> = &'a mut bincode::Serializer<&'b mut Vec<u8>,
+    bincode::config::WithOtherTrailing<
+        bincode::config::WithOtherIntEncoding<
+            bincode::config::DefaultOptions,
+            bincode::config::FixintEncoding>,
+        bincode::config::AllowTrailing>>;
+
+pub trait AnySerialize: Any {
+    fn serialize_bincode<'a, 'b>(
+        &self,
+        serializer: BincodeSerializer<'a, 'b>,
+    ) -> Result<(), bincode::Error>;
+
+    fn serialize_json<'a, 'b>(
+        &self,
+        serializer: &'a mut serde_json::Serializer<&'b mut Vec<u8>>,
+    ) -> Result<(), serde_json::Error>;
+}
+
+trait AnySerializer<R>: Sized {
+    fn serialize_any(self, any: &dyn AnySerialize) -> R;
+}
+
+impl<S, R> AnySerializer<R> for S {
+    default fn serialize_any(self, any: &dyn AnySerialize) -> R {
+        panic!("Missing AnySerializer specialization {:?}!=\n{:?}\n{:?}!=\n{:?}", type_name::<R>(), type_name::<Result<(), bincode::Error>>(), type_name::<S>(), type_name::<&'static mut bincode::Serializer<&'static mut Vec<u8>, bincode::DefaultOptions>>());
+    }
+}
+
+impl<'a, 'b> AnySerializer<Result<(), bincode::Error>> for BincodeSerializer<'a, 'b> {
+    fn serialize_any(self, any: &dyn AnySerialize) -> Result<(), bincode::Error> {
+        any.serialize_bincode(self)
+    }
+}
+
+impl<'a, 'b> AnySerializer<Result<(), serde_json::Error>> for &'a mut serde_json::Serializer<&'b mut Vec<u8>> {
+    fn serialize_any(self, any: &dyn AnySerialize) -> Result<(), serde_json::Error> {
+        any.serialize_json(self)
+    }
+}
+
+impl Serialize for SerdeAny {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let inner = match self {
+            SerdeAny::__SerdeAny__Private__ { inner } => &**inner
+        };
+        AnySerializer::<Result<S::Ok, S::Error>>::serialize_any(serializer, inner)
+    }
+}
+
+impl<T: Serialize + 'static> AnySerialize for T {
+    fn serialize_bincode<'a, 'b>(
+        &self,
+        serializer: BincodeSerializer<'a, 'b>) -> Result<(), bincode::Error> {
+        self.serialize(serializer)
+    }
+
+    fn serialize_json<'a, 'b>(&self, serializer: &'a mut serde_json::Serializer<&'b mut Vec<u8>>) -> Result<(), serde_json::Error> {
+        self.serialize(serializer)
+    }
+}
+
+fn serialize_bincode<T: Serialize>(input: &T) -> Result<Vec<u8>, bincode::Error> {
+    let mut vec = vec![];
+    let mut serializer =
+        bincode::Serializer::new(
+            &mut vec,
+            bincode::DefaultOptions::new()
+                .with_fixint_encoding()
+                .allow_trailing_bytes(),
+        );
+    input.serialize(&mut serializer)?;
+    Ok(vec)
+}
+
+fn serialize_json<T: Serialize>(input: &T) -> Result<String, serde_json::Error> {
+    let mut vec = vec![];
+    let mut serializer = serde_json::Serializer::new(&mut vec);
+    input.serialize(&mut serializer)?;
+    Ok(String::from_utf8(vec).unwrap())
+}
+
+#[test]
+fn test_serialize_bincode() {
+    assert_eq!(vec![10, 0, 0, 0], bincode::serialize(&10i32).unwrap());
+    assert_eq!(vec![10, 0, 0, 0], serialize_bincode(&SerdeAny::new(10i32)).unwrap());
+}
+
+#[test]
+fn test_serialize_json() {
+    assert_eq!("10", serialize_json(&SerdeAny::new(10)).unwrap());
+}
+
+
+// struct AnySerializer<S> {
+//     inner: S,
+// }
+//
+// impl<S: Serializer> Serializer for AnySerializer<S> {
+//     type Ok = S::Ok;
+//     type Error = S::Error;
+//     type SerializeSeq = S::SerializeSeq;
+//     type SerializeTuple = S::SerializeTuple;
+//     type SerializeTupleStruct = S::SerializeTupleStruct;
+//     type SerializeTupleVariant = S::SerializeTupleVariant;
+//     type SerializeMap = S::SerializeMap;
+//     type SerializeStruct = S::SerializeStruct;
+//     type SerializeStructVariant = S::SerializeStructVariant;
+//
+//     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_bool(v)
+//     }
+//
+//     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_i8(v)
+//     }
+//
+//     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_i16(v)
+//     }
+//
+//     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_i32(v)
+//     }
+//
+//     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_i64(v)
+//     }
+//
+//     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_u8(v)
+//     }
+//
+//     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_u16(v)
+//     }
+//
+//     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_u32(v)
+//     }
+//
+//     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_u64(v)
+//     }
+//
+//     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_f32(v)
+//     }
+//
+//     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_f64(v)
+//     }
+//
+//     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_char(v)
+//     }
+//
+//     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_str(v)
+//     }
+//
+//     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_bytes(v)
+//     }
+//
+//     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_none()
+//     }
+//
+//     fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error> where T: Serialize {
+//         self.inner.serialize_some(value)
+//     }
+//
+//     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_unit()
+//     }
+//
+//     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_unit_struct(name)
+//     }
+//
+//     fn serialize_unit_variant(self, name: &'static str, variant_index: u32, variant: &'static str) -> Result<Self::Ok, Self::Error> {
+//         self.inner.serialize_unit_variant(name, variant_index, variant)
+//     }
+//
+//     fn serialize_newtype_struct<T: ?Sized>(self, name: &'static str, value: &T) -> Result<Self::Ok, Self::Error> where T: Serialize {
+//         self.inner.serialize_newtype_struct(name, value)
+//     }
+//
+//     fn serialize_newtype_variant<T: ?Sized>(self, name: &'static str, variant_index: u32, variant: &'static str, value: &T) -> Result<Self::Ok, Self::Error> where T: Serialize {
+//         self.inner.serialize_newtype_variant(name, variant_index, variant, value)
+//     }
+//
+//     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+//         self.inner.serialize_seq(len)
+//     }
+//
+//     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+//         self.inner.serialize_tuple(len)
+//     }
+//
+//     fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeTupleStruct, Self::Error> {
+//         self.inner.serialize_tuple_struct(name, len)
+//     }
+//
+//     fn serialize_tuple_variant(self, name: &'static str, variant_index: u32, variant: &'static str, len: usize) -> Result<Self::SerializeTupleVariant, Self::Error> {
+//         self.inner.serialize_tuple_variant(name, variant_index, variant, len)
+//     }
+//
+//     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+//         self.inner.serialize_map(len)
+//     }
+//
+//     fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self::SerializeStruct, Self::Error> {
+//         self.inner.serialize_struct(name, len)
+//     }
+//
+//     fn serialize_struct_variant(self, name: &'static str, variant_index: u32, variant: &'static str, len: usize) -> Result<Self::SerializeStructVariant, Self::Error> {
+//         self.inner.serialize_struct_variant(name, variant_index, variant, len)
+//     }
+// }
+
+// trait SerializerExt: Serializer {
+//     fn serialize_any(self, any: &dyn Any) -> Result<Self::Ok, Self::Error>;
+// }
+//
+// default impl<S: Serializer> SerializerExt for S {
+//     fn serialize_any(self, any: &dyn Any) -> Result<Self::Ok, Self::Error> {
+//         panic!("Must use AnySerializer ")
+//     }
+// }
+//
+// impl<S: Serializer> SerializerExt for AnySerializer<S> {
+//     fn serialize_any(self, any: &dyn Any) -> Result<Self::Ok, Self::Error> {
+//         todo!()
+//     }
+// }
+
+//
+// trait AnySerializer {
+//     fn foo() {}
+// }
+//
+// impl<T: Serializer> AnySerializer for T {
+//     fn foo() {}
+// }
+//
+// default impl<W: Write, O: bincode::Options> AnySerializer for bincode::Serializer<W, O> {
+//     fn foo() {}
+// }
+//
+// trait SerdeAnyInner {
+//     fn serialize2(&self, serializer: &mut dyn AnySerializer);
+// }
+//
+// impl Serialize for SerdeAny {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+//         let mut serializer: Option<S> = Some(serializer);
+//         let mut result: Option<Result<S::Ok, S::Error>> = None;
+//         self.inner.serialize2(&mut serializer);
+//         result.unwrap()
+//     }
+// }
