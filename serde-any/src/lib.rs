@@ -3,42 +3,23 @@
 #![deny(unused_must_use)]
 
 
-mod test;
+// mod test;
 
-use std::any::Any;
-use serde::{Serialize, Serializer};
-use std::io::Write;
-use std::ops::{Deref, DerefMut};
-use std::any::type_name;
-use bincode::Options;
+use serde::{Serializer, Serialize};
+use std::any::{Any, type_name};
+use std::ops::{DerefMut, Deref};
+use bincode::{Error, Options};
 
-pub enum SerdeAny {
-    #[allow(non_camel_case_types)]
-    __SerdeAny__Private__ { inner: Box<dyn AnySerialize> }
+pub struct AnySerde {
+    inner: Box<dyn AnySerialize>,
 }
 
-impl SerdeAny {
-    pub fn new<T: AnySerialize>(inner: T) -> Self {
-        SerdeAny::__SerdeAny__Private__ { inner: Box::new(inner) }
-    }
-    pub fn into_inner(self) -> Box<dyn AnySerialize> {
-        match self {
-            SerdeAny::__SerdeAny__Private__ { inner } => inner
-        }
-    }
+trait AnySerializerInner: Serializer {
+    fn serialize_any_inner(self, any: &dyn AnySerialize) -> Result<Self::Ok, Self::Error>;
 }
 
-impl Deref for SerdeAny {
-    type Target = dyn AnySerialize;
-    fn deref(&self) -> &Self::Target {
-        match self { SerdeAny::__SerdeAny__Private__ { inner } => &**inner }
-    }
-}
-
-impl DerefMut for SerdeAny {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self { SerdeAny::__SerdeAny__Private__ { inner } => &mut **inner }
-    }
+trait AnySerializerOuter: Serializer {
+    fn serialize_any_outer(self, any: &dyn AnySerialize) -> Result<Self::Ok, Self::Error>;
 }
 
 type BincodeSerializer<'a, 'b> = &'a mut bincode::Serializer<&'b mut Vec<u8>,
@@ -48,58 +29,57 @@ type BincodeSerializer<'a, 'b> = &'a mut bincode::Serializer<&'b mut Vec<u8>,
             bincode::config::FixintEncoding>,
         bincode::config::AllowTrailing>>;
 
-pub trait AnySerialize: Any {
-    fn serialize_bincode<'a, 'b>(
-        &self,
-        serializer: BincodeSerializer<'a, 'b>,
-    ) -> Result<(), bincode::Error>;
+type JsonSerializer<'a, 'b> = &'a mut serde_json::Serializer<&'b mut Vec<u8>>;
 
-    fn serialize_json<'a, 'b>(
-        &self,
-        serializer: &'a mut serde_json::Serializer<&'b mut Vec<u8>>,
-    ) -> Result<(), serde_json::Error>;
+pub trait AnySerialize: 'static {
+    fn serialize_bincode<'a, 'b>(&self, serializer: BincodeSerializer<'a, 'b>) -> Result<(), bincode::Error>;
+    fn serialize_json<'a, 'b>(&self, serializer: JsonSerializer<'a, 'b>) -> Result<(), serde_json::Error>;
 }
 
-trait AnySerializer<R>: Sized {
-    fn serialize_any(self, any: &dyn AnySerialize) -> R;
-}
-
-impl<S, R> AnySerializer<R> for S {
-    default fn serialize_any(self, any: &dyn AnySerialize) -> R {
-        panic!("Missing AnySerializer specialization {:?}!=\n{:?}\n{:?}!=\n{:?}", type_name::<R>(), type_name::<Result<(), bincode::Error>>(), type_name::<S>(), type_name::<&'static mut bincode::Serializer<&'static mut Vec<u8>, bincode::DefaultOptions>>());
+impl<T: Serialize + 'static> AnySerialize for T {
+    fn serialize_bincode<'a, 'b>(&self, serializer: BincodeSerializer<'a, 'b>) -> Result<(), Error> {
+        self.serialize(serializer)
+    }
+    fn serialize_json<'a, 'b>(&self, serializer: JsonSerializer<'a, 'b>) -> Result<(), serde_json::Error> {
+        self.serialize(serializer)
     }
 }
 
-impl<'a, 'b> AnySerializer<Result<(), bincode::Error>> for BincodeSerializer<'a, 'b> {
-    fn serialize_any(self, any: &dyn AnySerialize) -> Result<(), bincode::Error> {
+impl<'a, 'b> AnySerializerInner for BincodeSerializer<'a, 'b> {
+    fn serialize_any_inner(self, any: &dyn AnySerialize) -> Result<Self::Ok, Self::Error> {
         any.serialize_bincode(self)
     }
 }
 
-impl<'a, 'b> AnySerializer<Result<(), serde_json::Error>> for &'a mut serde_json::Serializer<&'b mut Vec<u8>> {
-    fn serialize_any(self, any: &dyn AnySerialize) -> Result<(), serde_json::Error> {
-        any.serialize_json(self)
+impl<S: Serializer> AnySerializerOuter for S {
+    default fn serialize_any_outer(self, any: &dyn AnySerialize) -> Result<Self::Ok, Self::Error> {
+        panic!("No specialization for {:?}", type_name::<S>())
     }
 }
 
-impl Serialize for SerdeAny {
+impl<S: AnySerializerInner> AnySerializerOuter for S {
+    fn serialize_any_outer(self, any: &dyn AnySerialize) -> Result<Self::Ok, Self::Error> {
+        self.serialize_any_inner(any)
+    }
+}
+
+impl AnySerde {
+    pub fn new<T: AnySerialize>(inner: T) -> Self { AnySerde { inner: Box::new(inner) } }
+    pub fn into_inner(self) -> Box<dyn AnySerialize> { self.inner }
+}
+
+impl Deref for AnySerde {
+    type Target = dyn AnySerialize;
+    fn deref(&self) -> &Self::Target { &*self.inner }
+}
+
+impl DerefMut for AnySerde {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut *self.inner }
+}
+
+impl Serialize for AnySerde {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        let inner = match self {
-            SerdeAny::__SerdeAny__Private__ { inner } => &**inner
-        };
-        AnySerializer::<Result<S::Ok, S::Error>>::serialize_any(serializer, inner)
-    }
-}
-
-impl<T: Serialize + 'static> AnySerialize for T {
-    fn serialize_bincode<'a, 'b>(
-        &self,
-        serializer: BincodeSerializer<'a, 'b>) -> Result<(), bincode::Error> {
-        self.serialize(serializer)
-    }
-
-    fn serialize_json<'a, 'b>(&self, serializer: &'a mut serde_json::Serializer<&'b mut Vec<u8>>) -> Result<(), serde_json::Error> {
-        self.serialize(serializer)
+        serializer.serialize_any_outer(&*self.inner)
     }
 }
 
@@ -126,12 +106,12 @@ fn serialize_json<T: Serialize>(input: &T) -> Result<String, serde_json::Error> 
 #[test]
 fn test_serialize_bincode() {
     assert_eq!(vec![10, 0, 0, 0], bincode::serialize(&10i32).unwrap());
-    assert_eq!(vec![10, 0, 0, 0], serialize_bincode(&SerdeAny::new(10i32)).unwrap());
+    assert_eq!(vec![10, 0, 0, 0], serialize_bincode(&AnySerde::new(10i32)).unwrap());
 }
 
 #[test]
 fn test_serialize_json() {
-    assert_eq!("10", serialize_json(&SerdeAny::new(10)).unwrap());
+    assert_eq!("10", serialize_json(&AnySerde::new(10)).unwrap());
 }
 
 
