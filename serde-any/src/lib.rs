@@ -4,11 +4,11 @@
 
 #[macro_use]
 mod macros;
-mod tag;
+pub mod tag;
 #[cfg(test)]
 mod test;
 pub mod binary;
 pub mod ser;
-mod any;
+pub mod any;
 mod de;
 

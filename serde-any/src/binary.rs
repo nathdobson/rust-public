@@ -31,6 +31,9 @@ pub enum Error {
     FromUtf8(FromUtf8Error),
     BadChar,
     Unsupported,
+    MissingImpl,
+    BadImpl,
+    BadType,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -45,6 +48,9 @@ impl Display for Error {
             Error::BadChar => write!(f, "Char not in unicode range."),
             Error::FromUtf8(e) => write!(f, "{}", e),
             Error::Unsupported => write!(f, "Unsupported operation"),
+            Error::MissingImpl => write!(f, "Missing AnySerializeBinary"),
+            Error::BadImpl => write!(f, "Bad AnySerializeBinary"),
+            Error::BadType => write!(f, "Bad AnySerialize"),
         }
     }
 }

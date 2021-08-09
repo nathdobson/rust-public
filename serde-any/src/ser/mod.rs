@@ -24,9 +24,27 @@ pub trait AnySerializer: Serializer {
     fn serialize_dyn(self, value: &dyn AnySerialize) -> Result<Self::Ok, Self::Error>;
 }
 
+pub trait AnySerializerImpl: Serializer {
+    fn serialize_dyn_impl(self, value: &dyn AnySerialize) -> Result<Self::Ok, Self::Error>;
+}
+
+pub struct AnySerializeSingleton<T>(PhantomData<fn() -> T>);
+
 impl<T: Serializer> AnySerializer for T {
     default fn serialize_dyn(self, value: &dyn AnySerialize) -> Result<Self::Ok, Self::Error> {
         todo!()
+    }
+}
+
+impl<T: AnySerializerImpl> AnySerializer for T {
+    fn serialize_dyn(self, value: &dyn AnySerialize) -> Result<Self::Ok, Self::Error> {
+        self.serialize_dyn_impl(value)
+    }
+}
+
+impl<T> AnySerializeSingleton<T> {
+    pub const fn new() -> Self {
+        AnySerializeSingleton(PhantomData)
     }
 }
 
