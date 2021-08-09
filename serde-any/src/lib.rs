@@ -7,8 +7,8 @@ mod macros;
 mod tag;
 #[cfg(test)]
 mod test;
-mod binary;
-mod ser;
+pub mod binary;
+pub mod ser;
 mod any;
 mod de;
 

@@ -5,13 +5,11 @@ use std::collections::HashMap;
 use bincode::Options;
 use crate::any::AnySerde;
 use std::ops::Deref;
-use crate::ser::{AnySerialize, AnySerializeBinary, AnySerializeJson};
-use std::any::Any;
-use crate::ser::AnySerializeEntry;
-use crate::ser::AnySerializeKey;
+use std::any::{Any, TypeId};
 use std::marker::PhantomData;
-use crate::ser::ANY_SERIALIZE_BINARY_KEY;
-use crate::ser::ANY_SERIALIZE_JSON_KEY;
+use crate::ser::{AnySerialize};
+use crate::binary::{BinarySerializer, Error};
+use crate::ser::binary::AnySerializeBinary;
 
 #[derive(Serialize, Deserialize)]
 struct Test1;
@@ -85,48 +83,43 @@ fn test_binary() {
     value.serialize(crate::binary::BinarySerializer::new(&mut vec)).unwrap();
 }
 
-#[derive(Serialize, Deserialize, Eq, Ord, PartialEq, PartialOrd, Copy, Clone, Hash, Debug)]
-struct Any32(i32);
 
-#[derive(Serialize, Deserialize, Eq, Ord, PartialEq, PartialOrd, Copy, Clone, Hash, Debug)]
-struct Any64(i32);
+//impl_any_serde!(Any32, "serde_any::test::Any32");
 
-impl_any_serde!(Any32, "serde_any::test::Any32");
-
-static ANY32_IMPL: AnySerializeEntry<Any32> = AnySerializeEntry::new();
-static ANY32_IMPL_REF: &'static AnySerializeEntry<Any32> = &ANY32_IMPL;
-static ANY32_IMPL_BINARY: &'static dyn AnySerializeBinary = &ANY32_IMPL_REF;
-static ANY32_IMPL_JSON: &'static dyn AnySerializeJson = &ANY32_IMPL_REF;
-
-impl AnySerialize for Any32 {
-    fn as_any(&self) -> &dyn Any { self }
-    fn get_any_serialize_impl(&self, key: AnySerializeKey) -> Option<&'static dyn Any> {
-        if key == *ANY_SERIALIZE_BINARY_KEY {
-            Some(&ANY32_IMPL_BINARY)
-        } else if key == *ANY_SERIALIZE_JSON_KEY {
-            Some(&ANY32_IMPL_JSON)
-        } else {
-            None
-        }
-    }
-}
-
-#[test]
-fn test_binary_any() {
-    let encoded = binary::serialize(&AnySerde::new(Any32(10))).unwrap();
-    assert_eq!(vec![162, 84, 184, 227, 172, 2, 145, 44,
-                    181, 48, 53, 118, 52, 245, 232, 222,
-                    5, 146, 159, 249, 183, 58, 17, 251,
-                    82, 96, 233, 238, 56, 59, 91, 37,
-                    4, 0, 0, 0, 0, 0, 0, 0,
-                    10, 0, 0, 0], encoded);
-    assert_eq!(&Any32(10), binary::deserialize::<AnySerde>(
-        &encoded).unwrap().deref().as_any().downcast_ref::<Any32>().unwrap());
-}
-
-#[test]
-fn test_json_any() {
-    let encoded = serde_json::to_string(&AnySerde::new(Any32(10))).unwrap();
-    assert_eq!(r#"{"serde_any::test::Any32":10}"#, encoded);
-    assert_eq!(&Any32(10), serde_json::from_slice::<AnySerde>(encoded.as_bytes()).unwrap().deref().as_any().downcast_ref::<Any32>().unwrap());
-}
+// static ANY32_IMPL: AnySerializeEntry<Any32> = AnySerializeEntry::new();
+// static ANY32_IMPL_REF: &'static AnySerializeEntry<Any32> = &ANY32_IMPL;
+// static ANY32_IMPL_BINARY: &'static dyn AnySerializeBinary = &ANY32_IMPL_REF;
+// static ANY32_IMPL_JSON: &'static dyn AnySerializeJson = &ANY32_IMPL_REF;
+//
+// impl AnySerialize for Any32 {
+//     fn as_any(&self) -> &dyn Any { self }
+//     fn get_any_serialize_impl(&self, key: AnySerializeKey) -> Option<&'static dyn Any> {
+//         if key == *ANY_SERIALIZE_BINARY_KEY {
+//             Some(&ANY32_IMPL_BINARY)
+//         } else if key == *ANY_SERIALIZE_JSON_KEY {
+//             Some(&ANY32_IMPL_JSON)
+//         } else {
+//             None
+//         }
+//     }
+// }
+//
+// #[test]
+// fn test_binary_any() {
+//     let encoded = binary::serialize(&AnySerde::new(Any32(10))).unwrap();
+//     assert_eq!(vec![162, 84, 184, 227, 172, 2, 145, 44,
+//                     181, 48, 53, 118, 52, 245, 232, 222,
+//                     5, 146, 159, 249, 183, 58, 17, 251,
+//                     82, 96, 233, 238, 56, 59, 91, 37,
+//                     4, 0, 0, 0, 0, 0, 0, 0,
+//                     10, 0, 0, 0], encoded);
+//     assert_eq!(&Any32(10), binary::deserialize::<AnySerde>(
+//         &encoded).unwrap().deref().as_any().downcast_ref::<Any32>().unwrap());
+// }
+//
+// #[test]
+// fn test_json_any() {
+//     let encoded = serde_json::to_string(&AnySerde::new(Any32(10))).unwrap();
+//     assert_eq!(r#"{"serde_any::test::Any32":10}"#, encoded);
+//     assert_eq!(&Any32(10), serde_json::from_slice::<AnySerde>(encoded.as_bytes()).unwrap().deref().as_any().downcast_ref::<Any32>().unwrap());
+// }
