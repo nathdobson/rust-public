@@ -22,7 +22,7 @@ macro_rules! impl_any_serde {
             }
             impl $crate::TraitAnySerde for $ty {
                 fn clone_box(&self) -> $crate::BoxAnySerde{
-                    $crate::BoxAnySerde::new_box(self.clone())
+                    Box::new(self.clone())
                 }
             }
         }

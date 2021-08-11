@@ -7,7 +7,7 @@ mod common;
 use common::any_string::AnyString;
 use common::custom;
 use std::ops::Deref;
-use typetag_static::{PtrAnySerde, json, BoxAnySerde};
+use typetag_static::{json, BoxAnySerde};
 use typetag_static::binary;
 use crate::common::custom::{Expected, Custom};
 use serde::{Serialize, Deserialize};
@@ -15,7 +15,7 @@ use serde::{Serialize, Deserialize};
 #[test]
 fn test_binary_any() {
     let input = AnyString("abcd".to_string());
-    let encoded = binary::serialize(&BoxAnySerde::new_box(input.clone())).unwrap();
+    let encoded = binary::serialize(&(Box::new(input.clone()) as BoxAnySerde)).unwrap();
     assert_eq!(vec![
         180, 166, 84, 202, 194, 153, 125, 1,
         216, 27, 194, 70, 212, 225, 67, 100,
@@ -41,13 +41,13 @@ fn test_binary_unknown() {
 #[test]
 fn test_json_any() {
     let input = AnyString("abcd".to_string());
-    let encoded = json::serialize(&BoxAnySerde::new_box(input.clone())).unwrap();
+    let encoded = json::serialize(&(Box::new(input.clone()) as BoxAnySerde)).unwrap();
     assert_eq!(r#"{"serde_any::tests::common::AnyString":"abcd"}"#, encoded);
     assert_eq!(&input, json::deserialize::<BoxAnySerde>(encoded.as_bytes()).unwrap().deref().downcast_ref::<AnyString>().unwrap());
 }
 
 #[test]
-fn test_json_unknown(){
+fn test_json_unknown() {
     let input = r#"{"????":"abcd"}"#;
     let decoded = json::deserialize::<BoxAnySerde>(input.as_bytes()).unwrap();
     let encoded = json::serialize(&decoded).unwrap();
@@ -56,11 +56,11 @@ fn test_json_unknown(){
 
 #[test]
 fn test_custom_serializer() {
-    assert_eq!(Expected, PtrAnySerde::new_box(AnyString("abcd".to_string())).serialize(Custom).unwrap());
+    assert_eq!(Expected, (Box::new(AnyString("abcd".to_string())) as BoxAnySerde).serialize(Custom).unwrap());
 }
 
 #[test]
 fn test_custom_deserializer() {
     assert_eq!(&AnyString("abcd".to_string()),
-               PtrAnySerde::deserialize(Custom).unwrap().deref().downcast_ref::<AnyString>().unwrap());
+               BoxAnySerde::deserialize(Custom).unwrap().deref().downcast_ref::<AnyString>().unwrap());
 }

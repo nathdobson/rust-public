@@ -1,7 +1,7 @@
 use serde::{Serializer, Serialize, Deserializer, Deserialize};
 use serde::ser::Impossible;
 use std::fmt;
-use typetag_static::{AnySerializer, AnyDeserializer, PtrAnySerde, BoxAnySerde, TraitAnySerde};
+use typetag_static::{AnySerializer, AnyDeserializer, BoxAnySerde, TraitAnySerde};
 use std::any::{TypeId, Any};
 use typetag_static::util::AnySingleton;
 use serde::de::Visitor;
@@ -46,7 +46,7 @@ impl AnySerializer for Custom {
 
 impl<'de> AnyDeserializer<'de> for Custom {
     fn deserialize_dyn_impl(self) -> Result<BoxAnySerde, Self::Error> {
-        Ok(BoxAnySerde::new_box(AnyString("abcd".to_string())))
+        Ok(Box::new(AnyString("abcd".to_string())))
     }
 }
 

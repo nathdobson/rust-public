@@ -1,5 +1,5 @@
 use crate::binary::{Error, UnknownBinary};
-use crate::{AnySerializerDefault, AnyDeserializer, PtrAnySerde, BoxAnySerde, TraitAnySerde};
+use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, TraitAnySerde};
 use serde::{Deserialize, Serialize, Serializer};
 use std::any::Any;
 use crate::binary::de::BinaryDeserializer;
@@ -45,7 +45,7 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut BinaryDeserializer<'de> {
         } else {
             let mut content = vec![0; length as usize];
             self.read_exact(&mut content)?;
-            Ok(PtrAnySerde::new_box(UnknownBinary { tag, content }))
+            Ok(Box::new(UnknownBinary { tag, content }))
         }
     }
 }
@@ -66,13 +66,13 @@ impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + TraitAnyS
         Ok(())
     }
     fn deserialize_binary<'a, 'de>(&self, deserializer: &'a mut BinaryDeserializer<'de>) -> Result<BoxAnySerde, Error> {
-        Ok(PtrAnySerde::new_box(T::deserialize(deserializer)?))
+        Ok(Box::new(T::deserialize(deserializer)?))
     }
 }
 
 impl TraitAnySerde for UnknownBinary {
     fn clone_box(&self) -> BoxAnySerde {
-        BoxAnySerde::new_box(self.clone())
+        Box::new(self.clone())
     }
 }
 

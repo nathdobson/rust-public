@@ -17,7 +17,7 @@
 //! // Register an implementation for MyStruct that supports JSON.
 //! impl_any_json!(MyStruct);
 //!
-//! let input: BoxAnySerde = BoxAnySerde::new_box(MyStruct { foo: 10 });
+//! let input: BoxAnySerde = Box::new(MyStruct { foo: 10 });
 //! let encoded = json::serialize(&input).unwrap();
 //! assert_eq!(r#"{"typetag_static::docs::MyStruct":{"foo":10}}"#, encoded);
 //! let output: BoxAnySerde = json::deserialize::<BoxAnySerde>(encoded.as_bytes()).unwrap();
@@ -30,7 +30,6 @@ use std::ops::{Deref, DerefMut, CoerceUnsized};
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use std::borrow::{Borrow, BorrowMut};
 use std::sync::Arc;
-use serde::de::Error;
 
 #[macro_use]
 mod macros;
@@ -50,14 +49,20 @@ pub trait TraitAnySerde: Any + Send + Sync + 'static {
     fn clone_box(&self) -> BoxAnySerde;
 }
 
-/// A wrapper around [`Box<dyn Any>`] that implements [`Serialize`] and [`Deserialize`].
-// pub struct PtrAnySerde<P> {
-//     inner: P,
-// }
-type PtrAnySerde<T> = T;
+pub fn downcast_box<T: TraitAnySerde>(b: Box<dyn TraitAnySerde>) -> Result<Box<T>, Box<dyn TraitAnySerde>> {
+    if b.deref().is::<T>() {
+        unsafe {
+            let raw: *mut dyn TraitAnySerde = Box::into_raw(b);
+            Ok(Box::from_raw(raw as *mut T))
+        }
+    } else {
+        Err(b)
+    }
+}
 
-pub type BoxAnySerde = PtrAnySerde<Box<dyn TraitAnySerde>>;
-pub type RefAnySerde<'a> = PtrAnySerde<&'a dyn TraitAnySerde>;
+/// A wrapper around [`Box<dyn Any>`] that implements [`Serialize`] and [`Deserialize`].
+
+pub type BoxAnySerde = Box<dyn TraitAnySerde>;
 
 impl dyn TraitAnySerde {
     pub fn is<T: Any>(&self) -> bool {
@@ -84,62 +89,21 @@ impl dyn TraitAnySerde {
     }
 }
 
-// impl BoxAnySerde {
-//     pub fn new_box<T: TraitAnySerde>(inner: T) -> Self { PtrAnySerde { inner: Box::new(inner) } }
-//     pub fn downcast<T: TraitAnySerde>(self) -> Result<Box<T>, Self> {
-//         if self.inner.deref().is::<T>() {
-//             unsafe {
-//                 let raw: *mut dyn TraitAnySerde = Box::into_raw(self.inner);
-//                 Ok(Box::from_raw(raw as *mut T))
-//             }
-//         } else {
-//             Err(self)
-//         }
-//     }
-// }
-
-// impl<T> PtrAnySerde<T> {
-//     pub fn new(inner: T) -> Self {
-//         PtrAnySerde { inner }
-//     }
-// }
-//
-// impl<T> PtrAnySerde<T> {
-//     pub fn into_inner(self) -> T { self.inner }
-// }
-
-// impl<T, U> CoerceUnsized<PtrAnySerde<U>> for PtrAnySerde<T> where T: CoerceUnsized<U> {}
-
-// impl<T: Borrow<dyn TraitAnySerde>> Deref for PtrAnySerde<T> {
-//     type Target = dyn TraitAnySerde;
-//     fn deref(&self) -> &Self::Target { self.inner.borrow() }
-// }
-//
-// impl<T: BorrowMut<dyn TraitAnySerde>> DerefMut for PtrAnySerde<T> {
-//     fn deref_mut(&mut self) -> &mut Self::Target { self.inner.borrow_mut() }
-// }
-
 impl Serialize for BoxAnySerde {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         serializer.serialize_dyn(&**self)
     }
 }
 
+impl Serialize for &dyn TraitAnySerde {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        serializer.serialize_dyn(*self)
+    }
+}
+
 impl Clone for BoxAnySerde {
     fn clone(&self) -> Self { self.clone_box() }
 }
-
-// impl<'de> Deserialize<'de> for Box<dyn TraitAnySerde>{
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
-//         todo!()
-//     }
-// }
-//
-// impl Clone for Box<dyn TraitAnySerde>{
-//     fn clone(&self) -> Self {
-//         todo!()
-//     }
-// }
 
 impl<'de> Deserialize<'de> for BoxAnySerde {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {

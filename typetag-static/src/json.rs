@@ -2,7 +2,7 @@ use std::any::{TypeId, Any, type_name};
 use serde::{ser, Deserialize};
 use serde::de;
 use serde::{Serialize, Deserializer};
-use crate::{AnySerializerDefault, PtrAnySerde, AnyDeserializer, BoxAnySerde, TraitAnySerde};
+use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, TraitAnySerde};
 use std::fmt;
 use std::fmt::Formatter;
 use serde::de::{Visitor, MapAccess, DeserializeSeed, Error};
@@ -76,7 +76,7 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut JsonDeserializer<'de> {
                 if let Some(imp) = IMPL_BY_TYPE_TAG_NAME.get(typ) {
                     seq.next_value_seed(&**imp)
                 } else {
-                    Ok(BoxAnySerde::new_box(UnknownJson {
+                    Ok(Box::new(UnknownJson {
                         tag: typ.to_string(),
                         value: seq.next_value::<serde_json::Value>()?,
                     }))
@@ -105,7 +105,7 @@ impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + TraitAnyS
         Ok(())
     }
     fn deserialize_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<BoxAnySerde, serde_json::Error> {
-        Ok(PtrAnySerde::new_box(T::deserialize(deserializer)?))
+        Ok(Box::new(T::deserialize(deserializer)?))
     }
 }
 
@@ -118,8 +118,8 @@ pub fn deserialize<'de, T: Deserialize<'de>>(slice: &'de [u8]) -> Result<T, serd
 }
 
 impl TraitAnySerde for UnknownJson {
-    fn clone_box(&self) ->BoxAnySerde{
-        BoxAnySerde::new_box(self.clone())
+    fn clone_box(&self) -> BoxAnySerde {
+        Box::new(self.clone())
     }
 }
 
