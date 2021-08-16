@@ -41,3 +41,4 @@ pub mod fused;
 pub mod spmc_dirty;
 pub mod poll;
 pub mod delay_writer;
+pub mod condvar;

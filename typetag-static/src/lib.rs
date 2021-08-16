@@ -30,6 +30,7 @@ use std::ops::{Deref, DerefMut, CoerceUnsized};
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use std::borrow::{Borrow, BorrowMut};
 use std::sync::Arc;
+use std::fmt::Debug;
 
 #[macro_use]
 mod macros;
@@ -45,14 +46,14 @@ pub mod util;
 pub mod reexport;
 mod impls;
 
-pub trait TraitAnySerde: Any + Send + Sync + 'static {
+pub trait AnySerde: Any + Send + Sync + Debug + 'static {
     fn clone_box(&self) -> BoxAnySerde;
 }
 
-pub fn downcast_box<T: TraitAnySerde>(b: Box<dyn TraitAnySerde>) -> Result<Box<T>, Box<dyn TraitAnySerde>> {
+pub fn downcast_box<T: AnySerde>(b: Box<dyn AnySerde>) -> Result<Box<T>, Box<dyn AnySerde>> {
     if b.deref().is::<T>() {
         unsafe {
-            let raw: *mut dyn TraitAnySerde = Box::into_raw(b);
+            let raw: *mut dyn AnySerde = Box::into_raw(b);
             Ok(Box::from_raw(raw as *mut T))
         }
     } else {
@@ -62,9 +63,9 @@ pub fn downcast_box<T: TraitAnySerde>(b: Box<dyn TraitAnySerde>) -> Result<Box<T
 
 /// A wrapper around [`Box<dyn Any>`] that implements [`Serialize`] and [`Deserialize`].
 
-pub type BoxAnySerde = Box<dyn TraitAnySerde>;
+pub type BoxAnySerde = Box<dyn AnySerde>;
 
-impl dyn TraitAnySerde {
+impl dyn AnySerde {
     pub fn is<T: Any>(&self) -> bool {
         let t = TypeId::of::<T>();
         let concrete = self.type_id();
@@ -72,17 +73,17 @@ impl dyn TraitAnySerde {
     }
 }
 
-impl dyn TraitAnySerde {
-    pub fn downcast_ref<T: TraitAnySerde>(&self) -> Option<&T> {
+impl dyn AnySerde {
+    pub fn downcast_ref<T: AnySerde>(&self) -> Option<&T> {
         if self.is::<T>() {
-            unsafe { Some(&*(self as *const dyn TraitAnySerde as *const T)) }
+            unsafe { Some(&*(self as *const dyn AnySerde as *const T)) }
         } else {
             None
         }
     }
-    pub fn downcast_mut<T: TraitAnySerde>(&mut self) -> Option<&T> {
+    pub fn downcast_mut<T: AnySerde>(&mut self) -> Option<&T> {
         if self.is::<T>() {
-            unsafe { Some(&*(self as *const dyn TraitAnySerde as *const T)) }
+            unsafe { Some(&*(self as *const dyn AnySerde as *const T)) }
         } else {
             None
         }
@@ -95,7 +96,7 @@ impl Serialize for BoxAnySerde {
     }
 }
 
-impl Serialize for &dyn TraitAnySerde {
+impl Serialize for &dyn AnySerde {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         serializer.serialize_dyn(*self)
     }
@@ -133,23 +134,29 @@ impl<'de, D: AnyDeserializer<'de>> AnyDeserializerDefault<'de> for D {
 }
 
 pub(crate) trait AnySerializerDefault: Serializer {
-    fn serialize_dyn(self, value: &dyn TraitAnySerde) -> Result<Self::Ok, Self::Error>;
+    fn serialize_dyn(self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error>;
 }
 
 /// A trait that extends [`Serializer`] with the ability to consume `&dyn Any`.
 pub trait AnySerializer: Serializer {
-    fn serialize_dyn_impl(self, value: &dyn TraitAnySerde) -> Result<Self::Ok, Self::Error>;
+    fn serialize_dyn_impl(self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error>;
 }
 
 impl<T: Serializer> AnySerializerDefault for T {
-    default fn serialize_dyn(self, value: &dyn TraitAnySerde) -> Result<Self::Ok, Self::Error> {
+    default fn serialize_dyn(self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error> {
         todo!()
     }
 }
 
 impl<T: AnySerializer> AnySerializerDefault for T {
-    fn serialize_dyn(self, value: &dyn TraitAnySerde) -> Result<Self::Ok, Self::Error> {
+    fn serialize_dyn(self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error> {
         self.serialize_dyn_impl(value)
     }
 }
 
+// Traits for scoping macro contents.
+#[doc(hidden)]
+pub trait JsonNopTrait { fn nop(); }
+
+#[doc(hidden)]
+pub trait BinaryNopTrait { fn nop(); }

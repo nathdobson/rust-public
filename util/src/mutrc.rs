@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Weak, Mutex};
 use crate::atomic_refcell::AtomicRefCell;
-use std::{mem, raw, hash, fmt};
+use std::{mem, hash, fmt};
 use std::any::Any;
 use std::cmp::Ordering;
 use std::ops::CoerceUnsized;
@@ -166,6 +166,6 @@ impl<T, U> CoerceUnsized<MutRc<U>> for MutRc<T> where T: ?Sized + Unsize<U>, U: 
 
 impl<T, U> CoerceUnsized<MutWeak<U>> for MutWeak<T> where T: ?Sized + Unsize<U>, U: ?Sized {}
 
-unsafe impl<T:?Sized> Pointy for MutRc<T>{ type Target = T; }
+unsafe impl<T: ?Sized> Pointy for MutRc<T> { type Target = T; }
 
-unsafe impl<T:?Sized> Pointy for MutWeak<T>{ type Target = T; }
+unsafe impl<T: ?Sized> Pointy for MutWeak<T> { type Target = T; }

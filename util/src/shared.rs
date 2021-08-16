@@ -2,7 +2,6 @@
 
 use std::sync::{Arc, Weak, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
-use std::raw;
 use std::{hash, fmt, mem, io};
 use std::hash::Hasher;
 use std::fmt::{Formatter, Arguments};

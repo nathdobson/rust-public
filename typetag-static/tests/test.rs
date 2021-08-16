@@ -39,12 +39,35 @@ fn test_binary_unknown() {
 }
 
 #[test]
+fn test_binary_string() {
+    let input = "abcd".to_string();
+    let encoded = binary::serialize(&(Box::new(input.clone()) as BoxAnySerde)).unwrap();
+    assert_eq!(vec![
+        247, 72, 104, 66, 51, 227, 114, 137,
+        133, 127, 33, 123, 240, 188, 154, 122,
+        12, 0, 0, 0, 0, 0, 0, 0,
+        4, 0, 0, 0, 0, 0, 0, 0,
+        97, 98, 99, 100], encoded);
+    assert_eq!(&input, binary::deserialize::<BoxAnySerde>(
+        &encoded).unwrap().deref().downcast_ref::<String>().unwrap());
+}
+
+#[test]
 fn test_json_any() {
     let input = AnyString("abcd".to_string());
     let encoded = json::serialize(&(Box::new(input.clone()) as BoxAnySerde)).unwrap();
     assert_eq!(r#"{"serde_any::tests::common::AnyString":"abcd"}"#, encoded);
     assert_eq!(&input, json::deserialize::<BoxAnySerde>(encoded.as_bytes()).unwrap().deref().downcast_ref::<AnyString>().unwrap());
 }
+
+#[test]
+fn test_json_string() {
+    let input = "abcd".to_string();
+    let encoded = json::serialize(&(Box::new(input.clone()) as BoxAnySerde)).unwrap();
+    assert_eq!(r#"{"std::string::String":"abcd"}"#, encoded);
+    assert_eq!(&input, json::deserialize::<BoxAnySerde>(encoded.as_bytes()).unwrap().deref().downcast_ref::<String>().unwrap());
+}
+
 
 #[test]
 fn test_json_unknown() {

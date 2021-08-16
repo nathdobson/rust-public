@@ -7,23 +7,21 @@
 #[macro_export]
 macro_rules! impl_any_serde {
     ($ty:ty, $($name:tt)*) => {
-        paste::paste! {
-            impl $crate::tag::HasTypeTag for $ty {
-                fn type_tag() -> &'static $crate::tag::TypeTag {
-                    #[allow(non_upper_case_globals, non_snake_case)]
-                    mod  internal  {
-                        use lazy_static::lazy_static;
-                        lazy_static! {
-                            pub static ref TYPE_TAG: $crate::tag::TypeTag = $crate::tag::TypeTag::new($($name)*);
-                        }
+        impl $crate::tag::HasTypeTag for $ty {
+            fn type_tag() -> &'static $crate::tag::TypeTag {
+                #[allow(non_upper_case_globals, non_snake_case)]
+                mod  internal  {
+                    use lazy_static::lazy_static;
+                    lazy_static! {
+                        pub static ref TYPE_TAG: $crate::tag::TypeTag = $crate::tag::TypeTag::new($($name)*);
                     }
-                    &*internal::TYPE_TAG
                 }
+                &*internal::TYPE_TAG
             }
-            impl $crate::TraitAnySerde for $ty {
-                fn clone_box(&self) -> $crate::BoxAnySerde{
-                    Box::new(self.clone())
-                }
+        }
+        impl $crate::AnySerde for $ty {
+            fn clone_box(&self) -> $crate::BoxAnySerde{
+                Box::new(self.clone())
             }
         }
     }
@@ -33,8 +31,8 @@ macro_rules! impl_any_serde {
 #[macro_export]
 macro_rules! impl_any_json {
     ($ty:ty) => {
-        paste::paste! {
-            fn [< __private__any_json_mod_ $ty >]() {
+        impl $crate::JsonNopTrait for $ty {
+            fn nop(){
                 static SINGLETON: $crate::util::AnySingleton<$ty> = $crate::util::AnySingleton::new();
                 use $crate::reexport::inventory;
                 inventory::submit!(&SINGLETON as &'static dyn $crate::json::AnyJson);
@@ -47,8 +45,8 @@ macro_rules! impl_any_json {
 #[macro_export]
 macro_rules! impl_any_binary {
     ($ty:ty) => {
-        paste::paste! {
-            fn [< __private__any_binary_mod_ $ty >]() {
+        impl $crate::BinaryNopTrait for $ty{
+            fn nop(){
                 static SINGLETON: $crate::util::AnySingleton<$ty> = $crate::util::AnySingleton::new();
                 use $crate::reexport::inventory;
                 inventory::submit!(&SINGLETON as &'static dyn $crate::binary::any::AnyBinary);

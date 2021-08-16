@@ -1,5 +1,5 @@
 use crate::binary::{Error, UnknownBinary};
-use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, TraitAnySerde};
+use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, AnySerde};
 use serde::{Deserialize, Serialize, Serializer};
 use std::any::Any;
 use crate::binary::de::BinaryDeserializer;
@@ -15,7 +15,7 @@ use crate::util::AnySingleton;
 use std::fmt::{Debug, Formatter};
 
 impl<'a> AnySerializerDefault for BinarySerializer<'a> {
-    fn serialize_dyn(mut self, value: &dyn TraitAnySerde) -> Result<Self::Ok, Self::Error> {
+    fn serialize_dyn(mut self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error> {
         if let Some(unknown) = value.downcast_ref::<UnknownBinary>() {
             unknown.tag.serialize(self.reborrow())?;
             self.reborrow().serialize_u64(unknown.content.len() as u64)?;
@@ -53,14 +53,14 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut BinaryDeserializer<'de> {
 pub trait AnyBinary: 'static + Send + Sync {
     fn inner_type_tag(&self) -> &'static TypeTag;
     fn inner_type_id(&self) -> TypeId;
-    fn serialize_binary<'a>(&self, serializer: BinarySerializer<'a>, value: &dyn TraitAnySerde) -> Result<(), Error>;
+    fn serialize_binary<'a>(&self, serializer: BinarySerializer<'a>, value: &dyn AnySerde) -> Result<(), Error>;
     fn deserialize_binary<'a, 'de>(&self, deserializer: &'a mut BinaryDeserializer<'de>) -> Result<BoxAnySerde, Error>;
 }
 
-impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + TraitAnySerde> AnyBinary for AnySingleton<T> {
+impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde> AnyBinary for AnySingleton<T> {
     fn inner_type_tag(&self) -> &'static TypeTag { T::type_tag() }
     fn inner_type_id(&self) -> TypeId { TypeId::of::<T>() }
-    fn serialize_binary<'a>(&self, mut serializer: BinarySerializer<'a>, value: &dyn TraitAnySerde) -> Result<(), Error> {
+    fn serialize_binary<'a>(&self, mut serializer: BinarySerializer<'a>, value: &dyn AnySerde) -> Result<(), Error> {
         T::type_tag().hash.serialize(serializer.reborrow())?;
         serializer.serialize_with_length(value.downcast_ref::<T>().ok_or(Error::BadType)?)?;
         Ok(())
@@ -70,7 +70,7 @@ impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + TraitAnyS
     }
 }
 
-impl TraitAnySerde for UnknownBinary {
+impl AnySerde for UnknownBinary {
     fn clone_box(&self) -> BoxAnySerde {
         Box::new(self.clone())
     }

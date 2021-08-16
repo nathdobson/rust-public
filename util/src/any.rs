@@ -5,7 +5,6 @@ use std::{result, fmt, error, mem, sync, rc};
 use std::marker::{Unsize, PhantomData};
 use std::ops::{CoerceUnsized, Deref};
 use std::ptr::{null, null_mut};
-use std::raw::TraitObject;
 use std::sync::Arc;
 use std::rc::Rc;
 

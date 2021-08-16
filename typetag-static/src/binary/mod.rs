@@ -32,7 +32,7 @@ type Result<T> = std::result::Result<T, Error>;
 
 /// A struct created by [`AnySerde`](crate::AnySerde) when deserializing a binary value with
 /// an unrecognized tag. Ensures that such values can safely be re-serialized without losing data.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnknownBinary {
     pub(in crate::binary) tag: TypeTagHash,
     pub(in crate::binary) content: Vec<u8>,
