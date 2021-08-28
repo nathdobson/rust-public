@@ -42,3 +42,4 @@ pub mod spmc_dirty;
 pub mod poll;
 pub mod delay_writer;
 pub mod condvar;
+pub mod spsc_semaphore;

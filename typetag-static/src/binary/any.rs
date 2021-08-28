@@ -13,6 +13,7 @@ use serde::ser;
 use serde::de;
 use crate::util::AnySingleton;
 use std::fmt::{Debug, Formatter};
+use std::io::Seek;
 
 impl<'a> AnySerializerDefault for BinarySerializer<'a> {
     fn serialize_dyn(mut self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error> {
@@ -24,7 +25,7 @@ impl<'a> AnySerializerDefault for BinarySerializer<'a> {
         } else {
             let id = value.type_id();
             IMPL_BY_TYPE_ID.get(&id)
-                .ok_or(Error::MissingSerialize(id))?
+                .ok_or(Error::MissingSerialize(Some(id)))?
                 .serialize_binary(self, value)
         }
     }
@@ -43,6 +44,9 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut BinaryDeserializer<'de> {
         if let Some(imp) = IMPL_BY_TYPE_TAG_HASH.get(&tag) {
             imp.deserialize_binary(self)
         } else {
+            if length > self.cursor.stream_len().unwrap() {
+                return Err(Self::Error::BadLength);
+            }
             let mut content = vec![0; length as usize];
             self.read_exact(&mut content)?;
             Ok(Box::new(UnknownBinary { tag, content }))

@@ -1,5 +1,6 @@
 #![feature(specialization, never_type, const_fn_fn_ptr_basics)]
 #![feature(coerce_unsized)]
+#![feature(seek_stream_len)]
 #![allow(incomplete_features, unused_variables, dead_code, unused_imports, unused_macros, unused_mut)]
 #![deny(unused_must_use)]
 

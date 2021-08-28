@@ -219,6 +219,7 @@ impl<'a> Serializer for BinarySerializer<'a> {
         Ok(self)
     }
     fn serialize_tuple_variant(mut self, name: &'static str, variant_index: u32, variant: &'static str, len: usize) -> Result<Self> {
+        self.reborrow().serialize_u32(variant_index)?;
         Ok(self)
     }
     fn serialize_map(mut self, len: Option<usize>) -> Result<BinaryCountSerializer<'a>> {
@@ -228,6 +229,7 @@ impl<'a> Serializer for BinarySerializer<'a> {
         Ok(self)
     }
     fn serialize_struct_variant(mut self, name: &'static str, variant_index: u32, variant: &'static str, len: usize) -> Result<Self> {
+        self.reborrow().serialize_u32(variant_index)?;
         Ok(self)
     }
 }

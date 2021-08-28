@@ -113,6 +113,11 @@ pub fn serialize<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
     serde_json::to_string(value)
 }
 
+pub fn serialize_into<T: Serialize>(output: &mut Vec<u8>, value: &T) -> Result<(), serde_json::Error> {
+    value.serialize(&mut JsonSerializer::new(output))?;
+    Ok(())
+}
+
 pub fn deserialize<'de, T: Deserialize<'de>>(slice: &'de [u8]) -> Result<T, serde_json::Error> {
     serde_json::from_slice(slice)
 }
