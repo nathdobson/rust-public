@@ -1,0 +1,13 @@
+[package]
+name = "registry"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+parking_lot = { version = "0.11.2", features = ["nightly"] }
+rand = "0.8.4"
+
+[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "illumos", target_os = "macos", target_os = "ios", windows))'.dependencies]
+inventory = "0.1.10"
