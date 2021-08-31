@@ -11,8 +11,8 @@ itertools = "0.10.1"
 util = { path = "../util" }
 async-util = { path = "../async-util" }
 unicode-segmentation = "1.8.0"
-serde_derive = "1.0.127"
-serde = "1.0.127"
+serde_derive = "1.0.130"
+serde = "1.0.130"
 rand = "0.8.4"
 lazy_static = "1.4.0"
 backtrace = "0.3.61"
@@ -22,9 +22,9 @@ vec_map = "0.8.2"
 strum = "0.21.0"
 strum_macros = "0.21.1"
 by_address = "1.0.4"
-libc = "0.2.98"
+libc = "0.2.101"
 pin-project = "1.0.8"
 float-ord = "0.3.2"
-tokio = { version = "1.9.0", features = ["macros", "time", "io-std", "io-util"] }
+tokio = { version = "1.10.1", features = ["macros", "time", "io-std", "io-util"] }
 tokio-stream = "0.1.7"
 async-backtrace = { path = "../async-backtrace" }
