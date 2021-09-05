@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use serde_json::de::SliceRead;
 use serde::Serializer;
 use serde::ser::SerializeMap;
-use crate::util::AnySingleton;
+use std::marker::PhantomData;
+use registry::{Registry, Builder, BuilderFrom};
+//use crate::util::AnySingleton;
 
 /// A struct created by [`AnySerde`](crate::AnySerde) when deserializing a JSON value with
 /// an unrecognized tag. Ensures that such values can safely be re-serialized without losing data.
@@ -33,7 +35,7 @@ impl<'a, 'b> AnySerializerDefault for &'a mut JsonSerializer<'b> {
             map.end()?;
             Ok(())
         } else {
-            IMPL_BY_TYPE_ID.get(&value.type_id())
+            IMPLS.by_type_id.get(&value.type_id())
                 .ok_or(<Self::Error as ser::Error>::custom("Missing AnyJson impl"))?
                 .serialize_json(self, value)
         }
@@ -73,7 +75,7 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut JsonDeserializer<'de> {
             }
             fn visit_map<A: MapAccess<'de>>(self, mut seq: A) -> Result<BoxAnySerde, A::Error> {
                 let typ = seq.next_key::<&'de str>()?.ok_or(<A::Error as de::Error>::custom("missing key"))?;
-                if let Some(imp) = IMPL_BY_TYPE_TAG_NAME.get(typ) {
+                if let Some(imp) = IMPLS.by_type_tag_name.get(typ) {
                     seq.next_value_seed(&**imp)
                 } else {
                     Ok(Box::new(UnknownJson {
@@ -94,7 +96,7 @@ pub trait AnyJson: 'static + Send + Sync {
     fn deserialize_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<BoxAnySerde, serde_json::Error>;
 }
 
-impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde> AnyJson for AnySingleton<T> {
+impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde> AnyJson for PhantomData<T> {
     fn inner_type_tag(&self) -> &'static TypeTag { T::type_tag() }
     fn inner_type_id(&self) -> TypeId { TypeId::of::<T>() }
     fn serialize_json<'a, 'b>(&self, serializer: &'a mut JsonSerializer<'b>, value: &dyn AnySerde) -> Result<(), serde_json::Error> {
@@ -126,13 +128,35 @@ impl AnySerde for UnknownJson {
     fn clone_box(&self) -> BoxAnySerde {
         Box::new(self.clone())
     }
+
+    fn inner_type_name(&self) -> &'static str {
+        "typetag_static::json::UnknownJson"
+    }
 }
 
-inventory::collect!(&'static dyn AnyJson);
-
-lazy_static! {
-    static ref IMPL_BY_TYPE_ID: HashMap<TypeId, &'static dyn AnyJson> =
-        inventory::iter::<&'static dyn AnyJson>().map(|x| (x.inner_type_id(), *x)).collect();
-    static ref IMPL_BY_TYPE_TAG_NAME: HashMap<&'static str, &'static dyn AnyJson> =
-        inventory::iter::<&'static dyn AnyJson>().map(|x| (x.inner_type_tag().name, *x)).collect();
+pub struct Impls {
+    by_type_id: HashMap<TypeId, &'static dyn AnyJson>,
+    by_type_tag_name: HashMap<&'static str, &'static dyn AnyJson>,
 }
+
+impl Builder for Impls {
+    type Output = Self;
+
+    fn new() -> Self {
+        Impls {
+            by_type_id: HashMap::new(),
+            by_type_tag_name: HashMap::new(),
+        }
+    }
+
+    fn build(self) -> Self::Output { self }
+}
+
+impl BuilderFrom<&'static dyn AnyJson> for Impls {
+    fn insert(&mut self, element: &'static dyn AnyJson) {
+        self.by_type_id.insert(element.inner_type_id(), element);
+        self.by_type_tag_name.insert(element.inner_type_tag().name, element);
+    }
+}
+
+pub static IMPLS: Registry<Impls> = Registry::new();

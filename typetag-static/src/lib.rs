@@ -7,7 +7,10 @@
 //! A crate that allows `Box<dyn Any>` to be serialized and deserialized using [`serde`].
 //! ```
 //! # use serde::{Serialize, Deserialize};
-//! use typetag_static::{json, impl_any_serde, impl_any_json, BoxAnySerde};
+//! # use std::marker::PhantomData;
+//! use typetag_static::impl_any_serde;
+//! use typetag_static::{json, BoxAnySerde};
+//! use registry::registry;
 //!
 //! // Implement a normal struct with serde support.
 //! #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
@@ -16,7 +19,11 @@
 //! // Give a stable globally unique name to identify MyStruct.
 //! impl_any_serde!(MyStruct, "typetag_static::docs::MyStruct");
 //! // Register an implementation for MyStruct that supports JSON.
-//! impl_any_json!(MyStruct);
+//! registry! {
+//!     require typetag_static;
+//!     type typetag_static::json::IMPLS => MyStruct;
+//! }
+//! REGISTRY.build();
 //!
 //! let input: BoxAnySerde = Box::new(MyStruct { foo: 10 });
 //! let encoded = json::serialize(&input).unwrap();
@@ -32,6 +39,7 @@ use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use std::borrow::{Borrow, BorrowMut};
 use std::sync::Arc;
 use std::fmt::Debug;
+use registry::registry;
 
 #[macro_use]
 mod macros;
@@ -41,14 +49,15 @@ pub mod tag;
 pub mod json;
 /// A serialization format similar to [`bincode`](https://crates.io/crates/bincode) that supports [`AnySerde`](crate::AnySerde).
 pub mod binary;
-#[doc(hidden)]
-pub mod util;
+// #[doc(hidden)]
+// pub mod util;
 #[doc(hidden)]
 pub mod reexport;
 mod impls;
 
 pub trait AnySerde: Any + Send + Sync + Debug + 'static {
     fn clone_box(&self) -> BoxAnySerde;
+    fn inner_type_name(&self) -> &'static str;
 }
 
 pub fn downcast_box<T: AnySerde>(b: Box<dyn AnySerde>) -> Result<Box<T>, Box<dyn AnySerde>> {
@@ -161,3 +170,7 @@ pub trait JsonNopTrait { fn nop(); }
 
 #[doc(hidden)]
 pub trait BinaryNopTrait { fn nop(); }
+
+registry! {
+    require impls;
+}

@@ -23,33 +23,8 @@ macro_rules! impl_any_serde {
             fn clone_box(&self) -> $crate::BoxAnySerde{
                 Box::new(self.clone())
             }
-        }
-    }
-}
-
-/// `impl_any_json!(T)` registers `T` for use in [`AnySerde`](crate::AnySerde) with the JSON format.
-#[macro_export]
-macro_rules! impl_any_json {
-    ($ty:ty) => {
-        impl $crate::JsonNopTrait for $ty {
-            fn nop(){
-                static SINGLETON: $crate::util::AnySingleton<$ty> = $crate::util::AnySingleton::new();
-                use $crate::reexport::inventory;
-                inventory::submit!(&SINGLETON as &'static dyn $crate::json::AnyJson);
-            }
-        }
-    }
-}
-
-/// `impl_any_json!(T)` registers `T` for use in [`AnySerde`](crate::AnySerde) with the binary format.
-#[macro_export]
-macro_rules! impl_any_binary {
-    ($ty:ty) => {
-        impl $crate::BinaryNopTrait for $ty{
-            fn nop(){
-                static SINGLETON: $crate::util::AnySingleton<$ty> = $crate::util::AnySingleton::new();
-                use $crate::reexport::inventory;
-                inventory::submit!(&SINGLETON as &'static dyn $crate::binary::any::AnyBinary);
+            fn inner_type_name(&self) -> &'static str{
+                ::std::any::type_name::<Self>()
             }
         }
     }

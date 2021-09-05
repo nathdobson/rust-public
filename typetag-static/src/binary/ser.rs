@@ -47,7 +47,7 @@ impl<'a> BinarySerializer<'a> {
 impl<'a> BinaryCountSerializer<'a> {
     fn end_count(self) -> Result<()> {
         self.serializer.vec[self.count_index..self.count_index + 8]
-            .copy_from_slice(&self.count.to_le_bytes());
+            .copy_from_slice(&(self.count as u64).to_le_bytes());
         Ok(())
     }
 }

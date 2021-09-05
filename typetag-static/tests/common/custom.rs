@@ -3,7 +3,6 @@ use serde::ser::Impossible;
 use std::fmt;
 use typetag_static::{AnySerializer, AnyDeserializer, BoxAnySerde, AnySerde};
 use std::any::{TypeId, Any};
-use typetag_static::util::AnySingleton;
 use serde::de::Visitor;
 use std::fmt::{Display, Formatter};
 use crate::common::any_string::AnyString;

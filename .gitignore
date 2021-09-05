@@ -15,6 +15,7 @@ Cargo.lock
 #Added by cargo
 
 /target
+/logs
 
 #Added by cargo
 #

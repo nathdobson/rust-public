@@ -1,10 +1,15 @@
+use registry::registry;
+use std::marker::PhantomData;
+
 macro_rules! impls {
     ($($id:ty;)*) => {
         $(
             impl_any_serde!($id, stringify!($id));
-            impl_any_json!($id);
-            impl_any_binary!($id);
         )*
+        registry!{$(
+            type crate::binary::IMPLS => $id;
+            type crate::json::IMPLS => $id;
+        )*}
     }
 }
 

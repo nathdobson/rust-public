@@ -16,6 +16,8 @@ use crate::binary::ser::BinarySerializer;
 use crate::binary::de::BinaryDeserializer;
 use std::any::TypeId;
 
+pub use any::IMPLS;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Error {
     Custom(String),
@@ -23,7 +25,7 @@ pub enum Error {
     FromUtf8(#[serde(skip)] Option<FromUtf8Error>),
     BadChar,
     Unsupported,
-    MissingSerialize(#[serde(skip)] Option<TypeId>),
+    MissingSerialize(String),
     BadType,
     BadLength,
 }
