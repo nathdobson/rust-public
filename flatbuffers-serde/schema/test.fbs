@@ -1,0 +1,4 @@
+include "../../flatbuffers-serde/schema/any.fbs";
+table Test{
+    any: AnyFlat;
+}
