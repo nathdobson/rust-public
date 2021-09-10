@@ -11,13 +11,14 @@
 mod ser;
 mod de;
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset, UnionWIPOffset, InvalidFlatbuffer, Push, Follow};
+use flatbuffers::{FlatBufferBuilder, WIPOffset, UnionWIPOffset, InvalidFlatbuffer, Push, Follow, UOffsetT};
 use serde::{Serializer, Serialize, Deserializer};
 use std::fmt::{Display, Debug, Formatter};
 use std::error::Error;
 use serde::ser::{SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeMap, SerializeTuple, SerializeTupleStruct, SerializeTupleVariant};
 use std::io::Cursor;
 use serde::de::{Visitor, SeqAccess, DeserializeSeed};
+use std::marker::PhantomData;
 
 pub mod test_generated {
     include!(concat!(env!("OUT_DIR"), "/test_generated.rs"));
@@ -28,10 +29,8 @@ pub mod any_raw_generated {
     use std::fmt::{Debug, Formatter};
     use serde::{Serialize, Deserialize};
     use crate::ser::{SerializeError, Serializer};
-    use crate::de::{DeserializeError, Deserializer};
+    use crate::de::{DeserializeError, Deserializer, IdentityDeserializer};
     use crate::ser::Stack;
-    use crate::de::IsIdentity;
-
 
     pub struct AnyFlatRaw<'a> {
         buf: &'a [u8],
@@ -68,7 +67,7 @@ pub mod any_raw_generated {
             Ok(WIPOffset::new(value.value()))
         }
         pub fn deserialize<T: Deserialize<'a>>(&self) -> Result<T, DeserializeError> {
-            T::deserialize(Deserializer::<IsIdentity>::follow(self.buf, self.loc))
+            T::deserialize(Deserializer::<IdentityDeserializer>::follow(self.buf, self.loc))
         }
     }
 }
@@ -77,4 +76,42 @@ pub mod any_generated {
     include!(concat!(env!("OUT_DIR"), "/any_generated.rs"));
 }
 
+struct EmptyPush;
 
+struct U128(u128);
+
+impl Push for U128 {
+    type Output = u128;
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        dst.copy_from_slice(&self.0.to_le_bytes())
+    }
+}
+
+impl<'de> Follow<'de> for U128 {
+    type Inner = u128;
+
+    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner {
+        u128::from_le_bytes(buf[loc..loc + 16].try_into().unwrap())
+    }
+}
+
+impl Push for EmptyPush {
+    type Output = ();
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {}
+}
+
+struct FollowOrNull<T>(T);
+
+impl<'de, T: Follow<'de>> Follow<'de> for FollowOrNull<T> {
+    type Inner = Option<T::Inner>;
+
+    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner {
+        if UOffsetT::follow(buf, loc) == 0 {
+            None
+        } else {
+            Some(T::follow(buf, loc))
+        }
+    }
+}
+
+type VariantT = u16;

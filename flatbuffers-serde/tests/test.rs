@@ -154,4 +154,121 @@ fn test() {
     run_test::<Identity<Option<Option<Option<u8>>>>>(Identity(Some(None)), &[]);
     run_test::<Identity<Option<Option<Option<u8>>>>>(Identity(Some(Some(None))), &[]);
     run_test::<Identity<Option<Option<Option<u8>>>>>(Identity(Some(Some(Some(55u8)))), &[]);
+    run_test::<Vec<u8>>(
+        vec![],
+        &[
+            4, 0, 0, 0,
+            0, 0, 0, 0,
+        ]);
+    run_test(
+        vec![1u8],
+        &[
+            4, 0, 0, 0,
+            1, 0, 0, 0,
+            1,
+            0, 0, 0
+        ]);
+    run_test(
+        vec![1u8, 2u8],
+        &[
+            4, 0, 0, 0,
+            2, 0, 0, 0,
+            1, 2,
+            0, 0
+        ]);
+    run_test(
+        vec![0x1234_5678_1234_5678_1234_5678_1234_5678u128],
+        &[
+            4, 0, 0, 0, 1, 0, 0, 0, 120, 86, 52, 18, 120, 86, 52, 18, 120, 86, 52, 18, 120, 86, 52, 18
+        ]);
+    run_test::<Vec<Option<u8>>>(
+        vec![None],
+        &[
+            4, 0, 0, 0,
+            1, 0, 0, 0,
+            0, 0, 0, 0]);
+    run_test::<Vec<Option<u8>>>(
+        vec![None, None, None, None, None],
+        &[
+            4, 0, 0, 0,
+            5, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0]);
+    run_test::<Vec<Option<u8>>>(
+        vec![Some(55), Some(66)],
+        &[
+            4, 0, 0, 0,
+            2, 0, 0, 0,
+            11, 0, 0, 0,
+            6, 0, 0, 0,
+            0, 0,
+            66,
+            55]);
+    run_test::<Vec<Option<Option<u8>>>>(
+        vec![None, Some(None), Some(Some(55))],
+        &[
+            4, 0, 0, 0,
+            3, 0, 0, 0,
+            0, 0, 0, 0,
+            16, 0, 0, 0,
+            4, 0, 0, 0,
+            7, 0, 0, 0,
+            0, 0, 0,
+            55,
+            0, 0, 0, 0]);
+    run_test::<Result<u8, u8>>(
+        Ok(55),
+        &[
+            12, 0, 0, 0, //root
+            8, 0,
+            8, 0,
+            6, 0, // tag offset
+            5, 0, // value offset
+            8, 0, 0, 0, //vptr
+            0,
+            55,//value
+            0, 0//tag
+        ]);
+    run_test::<Result<u8, u8>>(
+        Err(55),
+        &[
+            12, 0, 0, 0, //root
+            8, 0,
+            8, 0,
+            6, 0, // tag offset
+            5, 0, // value offset
+            8, 0, 0, 0, //vptr
+            0,
+            55,//value
+            1, 0//tag
+        ]);
+    run_test::<Result<u8, Result<u8, u8>>>(
+        Err(Ok(55)),
+        &[
+            12, 0, 0, 0, // root
+            8, 0,
+            12, 0,
+            10, 0, // variant offset
+            4, 0, // value offset
+            8, 0, 0, 0, //vptr
+            16, 0, 0, 0, // Ok(55)
+            0, 0,
+            1, 0, //Err
+            8, 0,
+            8, 0,
+            6, 0, //variant offset
+            5, 0, //value offset
+            8, 0, 0, 0,//vptr
+            0,
+            55, //55
+            0, 0 //Ok
+        ]);
+    run_test::<Vec<Result<u8, u8>>>(
+        vec![Ok(55), Err(66)],
+        &[
+            4, 0, 0, 0, 2, 0, 0, 0, 24, 0, 0, 0, 4, 0, 0, 0, 248, 255, 255, 255, 0, 66, 1, 0, 8, 0, 8, 0, 6, 0, 5, 0, 8, 0, 0, 0, 0, 55, 0, 0
+        ]);
 }
