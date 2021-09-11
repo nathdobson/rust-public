@@ -1,10 +1,10 @@
-include "./any_raw.fbs";
+table AnyFlat {
+    type_tag_hash: TypeTagHash;
+    data: AnyFlatRaw;
+}
 
 struct TypeTagHash{
     v: [ubyte: 16];
 }
 
-table AnyFlat {
-    type_tag: TypeTagHash;
-    data: AnyFlatRaw;
-}
+table AnyFlatRaw{}

@@ -55,6 +55,7 @@ use std::ops::Deref;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 use std::sync::Once;
+use std::fmt::{Debug, Formatter};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "illumos", target_os = "macos", target_os = "ios", windows))]
 #[macro_export]
@@ -233,5 +234,13 @@ macro_rules! registry {
                 }
             }
         );
+    }
+}
+
+impl<B: Builder> Debug for Registry<B> where B::Output: Debug {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registry")
+            .field("output", self.deref())
+            .finish_non_exhaustive()
     }
 }

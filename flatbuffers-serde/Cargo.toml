@@ -11,6 +11,11 @@ flatbuffers = "2.0.0"
 serde = { version = "1.0.130", features = ["derive"] }
 itertools = "0.10.1"
 lazy_static = "1.4.0"
+registry = { version = "0.1.0", path = "../registry" }
+sha2 = "0.9.6"
 
 [build-dependencies]
 flatc-build = { version = "0.1.0", path = "../flatc-build" }
+
+[dev-dependencies]
+serde_bytes = "0.11.5"
