@@ -4,6 +4,7 @@ use std::ffi::{OsStr};
 
 #[must_use]
 pub fn build(input_dir: &str) -> bool {
+    println!("cargo:rerun-if-changed={}", input_dir);
     let paths = match fs::read_dir(input_dir) {
         Ok(paths) => paths,
         Err(e) => {

@@ -13,6 +13,7 @@
 #![allow(unreachable_code)]
 #![feature(trivial_bounds)]
 #![feature(log_syntax)]
+#![feature(generic_associated_types)]
 
 use std::marker::PhantomData;
 use std::any::{TypeId, Any};
@@ -35,6 +36,8 @@ pub mod any_generated;
 pub mod tag;
 #[cfg(test)]
 mod test;
+pub mod vec_slice;
+pub mod buffer;
 
 registry! {
     require tag;

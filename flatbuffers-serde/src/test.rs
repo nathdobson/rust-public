@@ -9,7 +9,7 @@ use crate::tag::{TYPE_TAGS, HasTypeTag};
 use registry::registry;
 use crate::ser::serialize_raw;
 use crate::de::deserialize_raw;
-use crate::flat_util::FollowLazy;
+use crate::flat_util::FlatUnion;
 
 fn run_raw_test<T: Serialize + for<'de> Deserialize<'de> + Eq + Debug>(value: T, expected: &[u8]) {
     println!("\nSerializing {:?}", value);
@@ -21,7 +21,7 @@ fn run_raw_test<T: Serialize + for<'de> Deserialize<'de> + Eq + Debug>(value: T,
         assert_eq!(expected, data);
     }
     println!("{}", data.chunks(8).map(|x| format!("{:?}", x)).join("\n"));
-    let any = unsafe { root_unchecked::<FollowLazy>(data) };
+    let any = unsafe { root_unchecked::<FlatUnion>(data) };
     let x = deserialize_raw::<T>(any.buf, any.loc).unwrap();
     assert_eq!(x, value);
 }

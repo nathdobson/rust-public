@@ -3,6 +3,8 @@ use core::option::Option::{None, Some};
 use flatbuffers::Follow;
 use flatbuffers::UOffsetT;
 use flatbuffers::Push;
+use std::marker::PhantomData;
+use crate::vec_slice::VecSlice;
 
 pub struct FlatUnit;
 
@@ -11,7 +13,7 @@ pub struct Flat128(pub u128);
 
 pub type VariantT = u16;
 
-pub struct FollowLazy<'a> {
+pub struct FlatUnion<'a> {
     pub buf: &'a [u8],
     pub loc: usize,
 }
@@ -59,9 +61,9 @@ impl<'de> Follow<'de> for FlatUnit {
     }
 }
 
-impl<'a> Follow<'a> for FollowLazy<'a> {
+impl<'a> Follow<'a> for FlatUnion<'a> {
     type Inner = Self;
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        FollowLazy { buf, loc }
+        FlatUnion { buf, loc }
     }
 }

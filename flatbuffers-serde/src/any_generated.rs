@@ -10,11 +10,12 @@ use sha2::{Sha256, Digest};
 use std::convert::TryInto;
 use core::mem;
 use crate::ser::serialize_raw;
-use crate::flat_util::FollowLazy;
+use crate::flat_util::FlatUnion;
 use crate::de::deserialize_raw;
 use std::default::default;
 use std::any::type_name;
 use registry::registry;
+use crate::buffer::{Covariant, FlatBuffer};
 
 pub struct AnyFlat<'a> {
     table: flatbuffers::Table<'a>,
@@ -70,7 +71,7 @@ impl<'a> AnyFlat<'a> {
         Ok(Self::create_raw(fbb, T::type_tag().type_tag_hash(), data))
     }
     pub fn deserialize<T: Deserialize<'a> + HasTypeTag>(&self) -> crate::de::Result<T> {
-        let data = unsafe { self.follow_raw::<FollowLazy>(T::type_tag()) }?;
+        let data = unsafe { self.follow_raw::<FlatUnion>(T::type_tag()) }?;
         deserialize_raw(data.buf, data.loc)
     }
     pub fn create<'b, T: HasTypeTag>(fbb: &'b mut FlatBufferBuilder<'a>, value: WIPOffset<T>) -> WIPOffset<AnyFlat<'a>> {
@@ -135,7 +136,7 @@ impl Verifiable for AnyFlat<'_> {
                 Self::VT_DATA,
                 true,
                 |hash, value, pos| {
-                    println!("Pos {:?}",pos);
+                    println!("Pos {:?}", pos);
                     if let Ok(tag) = TypeTag::lookup_hash(*hash) {
                         if let Some(tag_vtable) = tag.flat_type_tag() {
                             tag_vtable.run_verifier(value, pos)
@@ -173,6 +174,12 @@ impl Debug for TypeTagHash {
         Ok(())
     }
 }
+
+unsafe impl<'a> Covariant for AnyFlat<'a> {
+    type Super<'b> where AnyFlat<'a>: 'b = AnyFlat<'b>;
+}
+
+fn test(x: FlatBuffer<AnyFlat<'static>>) -> impl Debug {x}
 
 registry!(
     value crate::tag::TYPE_TAGS => type_tag!(type AnyFlat<'a>, name "flatbuffer_serde::any::AnyFlat", kinds [flat]);

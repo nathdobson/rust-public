@@ -3,6 +3,10 @@ table AnyFlat {
     data: AnyFlatRaw;
 }
 
+table AnyLazy {
+    bytes: [ubyte];
+}
+
 struct TypeTagHash{
     v: [ubyte: 16];
 }
