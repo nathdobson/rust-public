@@ -1,4 +1,5 @@
 #![feature(never_type)]
+#![feature(trivial_bounds)]
 #![allow(dead_code, unused_imports, unused_variables, unused_mut)]
 
 use std::future::Future;
