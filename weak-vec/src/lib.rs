@@ -1,9 +1,9 @@
+#![feature(unsize)]
+#![feature(vec_into_raw_parts)]
+
 use std::sync::{Weak, Arc};
 use std::mem;
-use std::collections::VecDeque;
-use ondrop::OnDrop;
-use itertools::Itertools;
-use crate::take_cell::TakeCell;
+use take_cell::TakeCell;
 use std::marker::Unsize;
 
 const MAX_FACTOR: f64 = 0.5;

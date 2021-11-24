@@ -27,4 +27,4 @@ pin-project = "1.0.8"
 float-ord = "0.3.2"
 tokio = { version = "1.10.1", features = ["macros", "time", "io-std", "io-util"] }
 tokio-stream = "0.1.7"
-async-backtrace = { path = "../async-backtrace" }
+async-backtrace = { path = "../../runtime/async-backtrace" }

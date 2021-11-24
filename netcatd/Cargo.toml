@@ -23,4 +23,4 @@ by_address = "1.0.4"
 #async-channel = "1.6.1"
 tokio = { version = "1.10.1", features = ["io-util", "io-std", "net"] }
 tokio-stream = "0.1.7"
-async-backtrace = { path = "../async-backtrace" }
+async-backtrace = { path = "../../runtime/async-backtrace" }

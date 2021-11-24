@@ -53,7 +53,7 @@ impl SeqThreadPool {
     //     let f = Arc::new(f);
     //     (0..count).map(|i| {
     //         let f = f.clone();
-    //         thread::spawn(move || {
+    //         thread::executor(move || {
     //             THREAD_ID.with(|thread_id| {
     //                 thread_id.set(i);
     //             });

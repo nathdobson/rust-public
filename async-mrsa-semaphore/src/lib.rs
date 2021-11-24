@@ -76,7 +76,7 @@ impl Releaser {
     pub fn release(&self, release: u64) {
         assert!(release <= i64::MAX as u64);
         let release = release as i64;
-        self.0.available.fetch_add(release, Ordering::AcqRel).checked_add(release).unwrap();
+        self.0.available.fetch_add(release, Ordering::AcqRel).checked_add(release).expect("overflowing semaphore");
         self.0.waker.wake();
     }
 }

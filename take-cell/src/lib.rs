@@ -1,12 +1,11 @@
-use crate::atomic_refcell::AtomicRefCell;
-use crate::weak_vec::WeakVec;
+#![feature(allocator_api)]
+
+use std::alloc::{Allocator, AllocError, Layout};
 use std::sync::atomic::AtomicBool;
-use std::mem::{MaybeUninit, ManuallyDrop};
+use std::mem::{ ManuallyDrop};
 use std::cell::UnsafeCell;
 use std::sync::atomic::Ordering::Relaxed;
-use std::alloc::{Allocator, Layout, AllocError};
 use std::ptr::NonNull;
-use crate::fun::call_once_raw;
 
 pub struct TakeCell<T: ?Sized> {
     taken: AtomicBool,
@@ -31,12 +30,19 @@ impl<T> TakeCell<T> {
     }
 }
 
+struct NoopAllocator;
+
+unsafe impl Allocator for NoopAllocator {
+    fn allocate(&self, _: Layout) -> Result<NonNull<[u8]>, AllocError> { Err(AllocError) }
+    unsafe fn deallocate(&self, _: NonNull<u8>, _: Layout) {}
+}
+
 impl<T: FnOnce() + ?Sized> TakeCell<T> {
     pub fn call(&self) {
         unsafe {
             if !self.taken.swap(true, Relaxed) {
                 let x = &mut **self.value.get();
-                call_once_raw(x as *mut T);
+                Box::from_raw_in(x, NoopAllocator)()
             }
         }
     }

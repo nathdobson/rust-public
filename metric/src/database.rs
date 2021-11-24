@@ -78,7 +78,7 @@ impl FromIterator<SnapshotRow> for Snapshot {
 //         Database(Arc::new(Mutex::new(Inner { callbacks: vec![] })))
 //     }
 //     pub fn add_connection(mut conn: Connection) {
-//         thread::spawn(move || {
+//         thread::executor(move || {
 //             loop {
 //                 thread::sleep(Duration::from_millis(1000));
 //                 for cb in DATABASE.0.lock().callbacks.iter_mut() {
