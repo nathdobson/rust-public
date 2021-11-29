@@ -1,5 +1,6 @@
 #![feature(once_cell)]
 #![deny(unused_must_use)]
+#![allow(unused_mut)]
 
 use registry::{Registry, BuilderFrom, Builder};
 use registry::registry;

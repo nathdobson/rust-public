@@ -1,3 +1,6 @@
+#![allow(unused_mut)]
+#![allow(unused_variables)]
+#![deny(unused_must_use)]
 use registry::{Registry, Builder, BuilderFrom};
 use registry::registry;
 
@@ -32,5 +35,5 @@ mod foo {
 #[should_panic(expected = "Registry not built for test_bad::foo")]
 fn test() {
     REGISTRY.build();
-    &*TEST_REGISTRY;
+    let _ = &*TEST_REGISTRY;
 }

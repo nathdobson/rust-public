@@ -1,5 +1,7 @@
 #![allow(dead_code, unused_imports)]
 #![feature(once_cell, const_fn_fn_ptr_basics, const_mut_refs, const_fn_trait_bound)]
+#![feature(thread_id_value)]
+#![allow(unused_mut)]
 //! An alternative to [ctor](https://crates.io/crates/ctor) and [inventory](https://crates.io/crates/inventory) that supports WASM.
 //! ```
 //! use registry::registry;
@@ -49,6 +51,8 @@
 //! REGISTRY.build();
 //! assert_eq!(*IMPLS, vec!["native", "external", "internal"].into_iter().collect());
 //! ```
+pub mod safe_cell;
+
 use parking_lot::Mutex;
 use std::lazy::{SyncOnceCell, Lazy, SyncLazy};
 use std::ops::Deref;
@@ -56,6 +60,7 @@ use rand::thread_rng;
 use rand::seq::SliceRandom;
 use std::sync::Once;
 use std::fmt::{Debug, Formatter};
+use crate::safe_cell::{SafeLazy, SafeOnceCell};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "illumos", target_os = "macos", target_os = "ios", windows))]
 #[macro_export]
@@ -91,20 +96,20 @@ pub trait BuilderFrom<T> {
 
 pub struct Registry<B: Builder> {
     inputs: Mutex<Option<Vec<fn(&mut B)>>>,
-    output: SyncOnceCell<B::Output>,
+    output: SafeOnceCell<B::Output>,
 }
 
 pub struct LazyEntry<T: 'static> {
-    private: SyncLazy<T>,
-    public: SyncLazy<&'static T>,
+    private: SafeLazy<T>,
+    public: SafeLazy<&'static T>,
 }
 
 impl<T> LazyEntry<T> {
     #[doc(hidden)]
     pub const fn new(private: fn() -> T, public: fn() -> &'static T) -> Self {
         LazyEntry {
-            private: SyncLazy::new(private),
-            public: SyncLazy::new(public),
+            private: SafeLazy::new(private),
+            public: SafeLazy::new(public),
         }
     }
     #[doc(hidden)]
@@ -115,7 +120,7 @@ impl<B: Builder> Registry<B> {
     pub const fn new() -> Self {
         Registry {
             inputs: Mutex::new(Some(vec![])),
-            output: SyncOnceCell::new(),
+            output: SafeOnceCell::new(),
         }
     }
     #[doc(hidden)]
