@@ -1,0 +1,13 @@
+[package]
+name = "async-promise"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-weighted-semaphore = "0.2.1"
+
+[dev-dependencies]
+tokio = { version = "1.14.0", features = ["rt", "macros"] }
+async-future-ext = { version = "0.1.0", path = "../async-future-ext" }

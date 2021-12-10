@@ -1,0 +1,11 @@
+[package]
+name = "cache-map"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rental = "0.5.6"
+colosseum = "0.2.2"
+parking_lot = "0.11.2"

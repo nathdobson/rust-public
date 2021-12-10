@@ -2,8 +2,13 @@ use local_pool::{run_until};
 use std::time::Duration;
 use futures::executor::block_on;
 
+registry!{
+    require status;
+}
+
 #[test]
 fn test() {
+    REGISTRY.build();
     let n = block_on(run_until(async move {
         println!("S1");
         let handle2 = local_pool::spawn(async move {
