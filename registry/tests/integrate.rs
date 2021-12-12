@@ -1,11 +1,14 @@
+#![allow(unused_imports)]
 #![feature(once_cell)]
 #![deny(unused_must_use)]
 #![allow(unused_mut)]
+wasm_bindgen_test_configure!(run_in_browser);
 
 use registry::{Registry, BuilderFrom, Builder};
-use registry::registry;
 use std::collections::{HashMap, HashSet};
 use std::lazy::SyncOnceCell;
+use wasm_bindgen_test::wasm_bindgen_test_configure;
+use registry_macros::register;
 
 struct TestRegistry(HashMap<&'static str, &'static str>);
 
@@ -16,7 +19,7 @@ struct TestEntry {
     value: &'static str,
 }
 
-struct TestEntryLazy {
+pub struct TestEntryLazy {
     cell: SyncOnceCell<usize>,
 }
 
@@ -64,24 +67,33 @@ impl TestEntryLazy {
     }
 }
 
-registry! {
-    require foo;
-    value TEST_REGISTRY => TestEntry { key: "a", value: "a" };
-    static TEST_REGISTRY => TEST_ENTRY: TestEntry = TestEntry { key: "c", value: "c"};
-    lazy TEST_REGISTRY_LAZY => TEST_ENTRY_LAZY1: TestEntryLazy = TestEntryLazy::new();
-    lazy TEST_REGISTRY_LAZY => TEST_ENTRY_LAZY2: TestEntryLazy = TestEntryLazy::new();
+#[register(TEST_REGISTRY)]
+fn register_fn() -> TestEntry {
+    TestEntry { key: "a", value: "a" }
 }
 
+#[register(TEST_REGISTRY)]
+static TEST_ENTRY: TestEntry = TestEntry { key: "c", value: "c" };
+
+#[register(TEST_REGISTRY_LAZY, lazy = true)]
+static TEST_ENTRY_LAZY1: TestEntryLazy = TestEntryLazy::new();
+
+#[register(TEST_REGISTRY_LAZY, lazy = true)]
+static TEST_ENTRY_LAZY2: TestEntryLazy = TestEntryLazy::new();
+
 mod foo {
-    use registry::registry;
-    registry! {
-        value crate::TEST_REGISTRY => crate::TestEntry { key: "b", value: "b" };
+    use crate::TestEntry;
+    use registry_macros::register;
+
+    #[register(crate::TEST_REGISTRY)]
+    fn register_fn2() -> TestEntry {
+         crate::TestEntry { key: "b", value: "b" }
     }
 }
 
+#[wasm_bindgen_test::wasm_bindgen_test]
 #[test]
 fn test() {
-    REGISTRY.build();
     assert_eq!(*TEST_REGISTRY, vec![("a", "a"), ("b", "b"), ("c", "c")].into_iter().collect());
     assert_eq!(vec![0, 1].into_iter().collect::<HashSet<_>>(),
                vec![*TEST_ENTRY_LAZY1.cell.get().unwrap(),

@@ -3,11 +3,29 @@ name = "registry"
 version = "0.1.0"
 edition = "2018"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-parking_lot = { version = "0.11.2", features = ["nightly"] }
 rand = "0.8.4"
+cfg-if = "1.0.0"
+registry-macros = { version = "0.1.0", path = "registry-macros" }
+parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "7b12ce385133b5588f83d0054b68f0d46c1a6c98", features = ["nightly"] }
+safe-cell = { version = "0.1.0", path = "../safe-cell" }
 
-[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "illumos", target_os = "macos", target_os = "ios", windows))'.dependencies]
-inventory = "0.1.10"
+[target.'cfg(any(target_arch = "wasi", target_arch = "wasm32"))'.dependencies]
+getrandom = { version = "0.2.3", features = ["js"] }
+js-sys = { version = "0.3.55", features = [] }
+wasm-bindgen = { version = "0.2.78" }
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "wasi")))'.dependencies]
+ctor = "0.1.21"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.28"
+
+[target.'cfg(any(target_arch = "wasi", target_arch = "wasm32"))'.dev-dependencies]
+
+
