@@ -68,7 +68,11 @@ cfg_if!(
         mod imp;
     }
 );
-pub use imp::reexport;
+
+pub mod reexport {
+    pub use crate::imp::reexport::*;
+    pub use cfg_if;
+}
 
 pub trait Builder {
     type Output;

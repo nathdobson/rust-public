@@ -36,7 +36,7 @@ fn ctor(name: &Ident, body: &TokenStream2) -> TokenStream2 {
     let bytes = format!("{} ", pub_ident_fn).into_bytes();
     let bytes = LitByteStr::new(&bytes, Span::call_site());
     quote! {
-        cfg_if::cfg_if!(
+        ::registry::reexport::cfg_if::cfg_if!(
             if #[cfg(any(target_arch = "wasm32", target_arch = "wasi"))] {
                 #[registry::reexport::wasm_bindgen]
                 #[doc(hidden)]
