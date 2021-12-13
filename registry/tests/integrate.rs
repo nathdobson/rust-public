@@ -72,7 +72,7 @@ fn register_fn() -> TestEntry {
     TestEntry { key: "a", value: "a" }
 }
 
-#[register(TEST_REGISTRY)]
+#[register(TEST_REGISTRY, crate = ::arena_buffers::reexport::registry)]
 static TEST_ENTRY: TestEntry = TestEntry { key: "c", value: "c" };
 
 #[register(TEST_REGISTRY_LAZY, lazy = true)]

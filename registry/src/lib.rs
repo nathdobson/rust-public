@@ -48,7 +48,6 @@
 //! assert_eq!(*IMPLS, vec!["native", "external", "internal"].into_iter().collect());
 //! ```
 
-pub use registry_macros::register;
 use parking_lot::Mutex;
 use std::ops::Deref;
 use std::sync::{Once};
@@ -73,6 +72,8 @@ pub mod reexport {
     pub use crate::imp::reexport::*;
     pub use cfg_if;
 }
+
+pub use registry_macros::register;
 
 pub trait Builder {
     type Output;
