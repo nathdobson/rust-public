@@ -42,9 +42,12 @@ fn ctor(crat: &Path, name: &Ident, body: &TokenStream2) -> TokenStream2 {
     quote! {
         #crat::reexport::cfg_if::cfg_if!(
             if #[cfg(any(target_arch = "wasm32", target_arch = "wasi"))] {
-                #[registry::reexport::wasm_bindgen]
-                #[doc(hidden)]
-                pub fn #pub_ident_fn()  { #body }
+                const _: () = {
+                    use #crat::reexport::wasm_bindgen;
+                    #[wasm_bindgen::prelude::wasm_bindgen]
+                    #[doc(hidden)]
+                    pub fn #pub_ident_fn()  { #body }
+                };
 
                 #[used]
                 #[link_section = "registry_ctors"]

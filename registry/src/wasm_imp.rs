@@ -1,5 +1,5 @@
 pub mod reexport {
-    pub use wasm_bindgen::prelude::wasm_bindgen;
+    pub use wasm_bindgen;
 }
 
 use std::sync::Once;
