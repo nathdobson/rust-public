@@ -6,7 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-parking_lot = "0.11.2"
+parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "7b12ce385133b5588f83d0054b68f0d46c1a6c98"}
 ordered-float = "2.7.0"
 rusqlite = "0.25.3"
 lazy_static = "1.4.0"
