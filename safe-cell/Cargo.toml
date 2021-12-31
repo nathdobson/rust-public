@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "7b12ce385133b5588f83d0054b68f0d46c1a6c98", features = ["nightly"] }
 ondrop = "0.1.0"
+cache-map = { version = "0.1.0", path = "../cache-map" }
 
 [dev-dependencies]
 rand = "0.8.4"
