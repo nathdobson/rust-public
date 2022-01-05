@@ -7,7 +7,7 @@ registry!{
 }
 
 #[test]
-fn test() {
+fn test_foofofo() {
     REGISTRY.build();
     let n = block_on(run_until(async move {
         println!("S1");
