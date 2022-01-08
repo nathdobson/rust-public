@@ -11,4 +11,4 @@ serde_json = "1.0.67"
 paste = "1.0.5"
 lazy_static = "1.4.0"
 sha2 = "0.9.6"
-registry = { version = "0.1.0", path = "../registry" }
+catalog = { version = "0.1.0", path = "../catalog" }

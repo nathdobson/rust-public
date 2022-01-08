@@ -103,7 +103,7 @@ impl Parse for CustomArgs {
         let mut result = CustomArgs {
             registry: None,
             lazy: parse_quote!(false),
-            crat: parse_quote!(::registry),
+            crat: parse_quote!(::catalog),
         };
         for arg in input.parse_terminated::<CustomArg, Comma>(CustomArg::parse)? {
             match arg {
@@ -127,14 +127,14 @@ pub fn register(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 fn register_impl(args: CustomArgs, input: Item) -> Result<TokenStream2, Error> {
-    // let mut registry = None;
+    // let mut catalog = None;
     // let mut lazy = false;
-    // let mut crat = quote!( ::registry );
+    // let mut crat = quote!( ::catalog );
     // for arg in &args {
     //     match arg {
     //         NestedMeta::Meta(meta) => {
     //             match meta {
-    //                 Meta::Path(x) => registry = Some(x),
+    //                 Meta::Path(x) => catalog = Some(x),
     //                 Meta::List(x) => return Err(Error::new(x.span(), "Cannot use List as arg")),
     //                 Meta::NameValue(namevalue) => {
     //                     if namevalue.path.segments.len() == 1 && namevalue.path.segments[0].ident.to_string() == "lazy" {
@@ -151,7 +151,7 @@ fn register_impl(args: CustomArgs, input: Item) -> Result<TokenStream2, Error> {
     //         NestedMeta::Lit(x) => return Err(Error::new(x.span(), "Cannot use List as arg")),
     //     }
     // }
-    let registry = args.registry.ok_or_else(|| Error::new(input.span(), "Must specify registry"))?;
+    let registry = args.registry.ok_or_else(|| Error::new(input.span(), "Must specify catalog"))?;
     let crat = &args.crat;
     let lazy = args.lazy.value;
     match &input {

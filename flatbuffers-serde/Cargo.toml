@@ -11,7 +11,7 @@ flatbuffers = "2.0.0"
 serde = { version = "1.0.130", features = ["derive"] }
 itertools = "0.10.1"
 lazy_static = "1.4.0"
-registry = { version = "0.1.0", path = "../registry" }
+catalog = { version = "0.1.0", path = "../catalog" }
 sha2 = "0.9.6"
 
 [build-dependencies]
