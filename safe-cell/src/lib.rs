@@ -67,6 +67,9 @@ impl<T> SafeOnceCell<T> {
             (*self.value.get()).as_ref()
         }
     }
+    pub fn into_inner(self) -> Option<T> {
+        self.value.into_inner()
+    }
 }
 
 impl<T> Default for SafeOnceCell<T> {

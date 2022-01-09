@@ -1,5 +1,5 @@
 [package]
-name = "registry-macros"
+name = "catalog-macros"
 version = "0.1.0"
 authors = ["Nathan Dobson <nadobson@mac.com>"]
 description = "A `cargo generate` template for quick-starting a procedural macro crate"

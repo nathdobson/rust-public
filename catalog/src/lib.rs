@@ -73,7 +73,7 @@ pub mod reexport {
     pub use cfg_if;
 }
 
-pub use registry_macros::register;
+pub use catalog_macros::register;
 
 pub trait Builder {
     type Output;
