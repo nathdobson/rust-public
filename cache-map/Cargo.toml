@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 rental = "0.5.6"
 colosseum = "0.2.2"
-parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "7b12ce385133b5588f83d0054b68f0d46c1a6c98"}
+parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "80194730f2104fa5ca92fe17a619b57d0677ece7"}

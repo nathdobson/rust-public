@@ -1,4 +1,3 @@
-#![feature(entry_insert)]
 #![allow(proc_macro_back_compat)]
 #![allow(unreachable_code)]
 #![deny(unused_must_use)]
@@ -91,7 +90,7 @@ impl<K: Hash + Eq, V> CacheMap<K, V> {
         if let Some(value) = lock.get(k) {
             *value
         } else {
-            lock.entry(k.to_owned()).insert(arena.alloc(f())).get()
+            lock.entry(k.to_owned()).insert_entry(arena.alloc(f())).get()
         }
     }
 }
