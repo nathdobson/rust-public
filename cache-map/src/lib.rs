@@ -2,30 +2,22 @@
 #![allow(unreachable_code)]
 #![deny(unused_must_use)]
 
-#[macro_use]
-extern crate rental;
-
 use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use parking_lot::Mutex;
-use rental::rental;
-use rented::CacheMapInner;
 use colosseum::sync::Arena;
+use ouroboros::self_referencing;
+use ouroboros_impl_cache_map_inner::BorrowedFields;
 
-rental! {
-    mod rented {
-        use parking_lot::Mutex;
-        use std::collections::HashMap;
-        use colosseum::sync::Arena;
-        #[rental]
-        pub struct CacheMapInner<K:'static , V: 'static> {
-            arena: Box<Arena<V>>,
-            map: Mutex<HashMap<K, &'arena V>>,
-        }
-    }
+#[self_referencing]
+pub struct CacheMapInner<K: 'static, V: 'static> {
+    arena: Arena<V>,
+    #[borrows(arena)]
+    #[not_covariant]
+    map: Mutex<HashMap<K, &'this V>>,
 }
 
 pub struct CacheMap<K: 'static, V: 'static>(CacheMapInner<K, V>);
@@ -41,13 +33,13 @@ impl Display for InsertError {
 
 impl<K, V> CacheMap<K, V> {
     pub fn new() -> Self {
-        CacheMap(CacheMapInner::new(Box::new(Arena::new()), |_| Mutex::new(HashMap::new())))
+        CacheMap(CacheMapInner::new(Arena::new(), |_| Mutex::new(HashMap::new())))
     }
 }
 
 impl<K: Hash + Eq, V> CacheMap<K, V> {
-    pub fn try_insert(&self, k: K, v: V) -> Result<(), InsertError> {
-        self.0.rent_all(|all| Self::try_insert_impl(all.arena, all.map, k, v))
+    pub fn try_insert(&mut self, k: K, v: V) -> Result<(), InsertError> {
+        self.0.with_mut(|all| Self::try_insert_impl(all.arena, all.map, k, v))
     }
     fn try_insert_impl<'arena>(arena: &'arena Arena<V>, map: &Mutex<HashMap<K, &'arena V>>, k: K, v: V) -> Result<(), InsertError> {
         match map.lock().entry(k) {
@@ -60,38 +52,49 @@ impl<K: Hash + Eq, V> CacheMap<K, V> {
         }
     }
     pub fn get<'a, Q>(&'a self, k: &Q) -> Option<&'a V> where K: Borrow<Q>, Q: ?Sized + Hash + Eq {
-        self.0.maybe_ref_rent(|map| Self::get_impl(map, k))
+        fn imp<'outer, 'q, K, V, Q>(
+            k: &'q Q
+        ) ->
+            impl 'q + for<'arena> FnOnce(
+                BorrowedFields<'outer, 'arena, K, V>
+            ) -> Option<&'outer V>
+            where K: Eq + Hash + Borrow<Q>,
+                  Q: ?Sized + Eq + Hash {
+            |all| {
+                all.map.lock().get(k).map(|x| &**x)
+            }
+        }
+        self.0.with(imp(k))
     }
-    fn get_impl<'arena, Q>(map: &Mutex<HashMap<K, &'arena V>>, k: &Q) -> Option<&'arena V> where K: Borrow<Q>, Q: ?Sized + Hash + Eq {
-        map.lock().get(k).map(|x| &**x)
-    }
-    pub fn get_or_init<'a, Q, F>(
+    pub fn get_or_init<'a, 'q, Q, F: 'q>(
         &'a self,
-        k: &Q,
+        k: &'q Q,
         f: F,
     ) -> &'a V
         where K: Borrow<Q>,
               Q: ?Sized + Eq + Hash + ToOwned<Owned=K>,
-              F: FnOnce() -> V
+              F: 'q + FnOnce() -> V
     {
-        self.0.ref_rent_all(|all| Self::get_or_init_impl(all.arena, all.map, k, f))
-    }
-    fn get_or_init_impl<'arena, Q, F>(
-        arena: &'arena Arena<V>,
-        map: &Mutex<HashMap<K, &'arena V>>,
-        k: &Q,
-        f: F,
-    ) -> &'arena V
-        where K: Borrow<Q>,
-              Q: ?Sized + Hash + Eq + ToOwned<Owned=K>,
-              F: FnOnce() -> V,
-    {
-        let mut lock = map.lock();
-        if let Some(value) = lock.get(k) {
-            *value
-        } else {
-            lock.entry(k.to_owned()).insert_entry(arena.alloc(f())).get()
+        fn imp<'outer, 'q, K, V, Q, F: 'q>(
+            k: &'q Q,
+            f: F,
+        ) ->
+            impl 'q + for<'arena> FnOnce(
+                BorrowedFields<'outer, 'arena, K, V>
+            ) -> &'outer V
+            where K: Eq + Hash + Borrow<Q>,
+                  Q: ?Sized + Eq + Hash + ToOwned<Owned=K>,
+                  F: FnOnce() -> V {
+            |all| {
+                let mut lock = all.map.lock();
+                if let Some(value) = lock.get(k) {
+                    *value
+                } else {
+                    lock.entry(k.to_owned()).insert_entry(all.arena.alloc(f())).get()
+                }
+            }
         }
+        self.0.with(imp(k, f))
     }
 }
 
