@@ -48,6 +48,21 @@ impl<T> SafeOnceCell<T> {
             value: UnsafeCell::new(None),
         }
     }
+    pub fn from(x: T) -> Self {
+        SafeOnceCell {
+            initializing: ReentrantMutex::new(Cell::new(true)),
+            initialized: AtomicBool::new(true),
+            value: UnsafeCell::new(Some(x)),
+        }
+    }
+    pub fn get(&self) -> Option<&T> {
+        unsafe {
+            if self.initialized.load(Ordering::Acquire) {
+                return (*self.value.get()).as_ref();
+            }
+            None
+        }
+    }
     pub fn get_or_init<F: FnOnce() -> T>(&self, init: F) -> &T {
         self.get_or_init_impl(init).expect("Poisoned")
     }
@@ -131,6 +146,16 @@ impl SafeTypeMap {
 impl Default for SafeTypeMap {
     fn default() -> Self {
         SafeTypeMap::new()
+    }
+}
+
+impl<T: Clone> Clone for SafeOnceCell<T> {
+    fn clone(&self) -> Self {
+        if let Some(x) = self.get() {
+            SafeOnceCell::from(x.clone())
+        } else {
+            SafeOnceCell::new()
+        }
     }
 }
 
