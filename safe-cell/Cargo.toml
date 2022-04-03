@@ -11,4 +11,4 @@ ondrop = "0.1.0"
 cache-map = { version = "0.1.0", path = "../cache-map" }
 
 [dev-dependencies]
-rand = "0.8.4"
+rand = "0.8.5"

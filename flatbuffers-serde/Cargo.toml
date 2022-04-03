@@ -7,12 +7,12 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-flatbuffers = "2.0.0"
-serde = { version = "1.0.130", features = ["derive"] }
-itertools = "0.10.1"
+flatbuffers = "2.1.1"
+serde = { version = "1.0.136", features = ["derive"] }
+itertools = "0.10.3"
 lazy_static = "1.4.0"
 catalog = { version = "0.1.0", path = "../catalog" }
-sha2 = "0.9.6"
+sha2 = "0.10.2"
 
 [build-dependencies]
 flatc-build = { version = "0.1.0", path = "../flatc-build" }

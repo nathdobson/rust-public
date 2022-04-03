@@ -7,9 +7,9 @@ edition = "2018"
 
 [dependencies]
 parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "80194730f2104fa5ca92fe17a619b57d0677ece7"}
-ordered-float = "2.7.0"
-rusqlite = "0.25.3"
+ordered-float = "2.10.0"
+rusqlite = "0.27.0"
 lazy_static = "1.4.0"
-serde = { version = "1.0.130", features = ["derive"] }
+serde = { version = "1.0.136", features = ["derive"] }
 by_address = "1.0.4"
 tuple_list = "0.1.3"

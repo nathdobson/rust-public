@@ -6,22 +6,22 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.8.4"
+rand = "0.8.5"
 cfg-if = "1.0.0"
 catalog-macros = { version = "0.1.0", path = "catalog-macros" }
 parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "80194730f2104fa5ca92fe17a619b57d0677ece7", features = ["nightly"] }
 safe-cell = { version = "0.1.0", path = "../safe-cell" }
 
 [target.'cfg(any(target_arch = "wasi", target_arch = "wasm32"))'.dependencies]
-getrandom = { version = "0.2.3", features = ["js"] }
-js-sys = { version = "0.3.55", features = [] }
-wasm-bindgen = { version = "0.2.78" }
+getrandom = { version = "0.2.6", features = ["js"] }
+js-sys = { version = "0.3.56", features = [] }
+wasm-bindgen = "0.2.79"
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "wasi")))'.dependencies]
-ctor = "0.1.21"
+ctor = "0.1.22"
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.28"
+wasm-bindgen-test = "0.3.29"
 
 [target.'cfg(any(target_arch = "wasi", target_arch = "wasm32"))'.dev-dependencies]
 

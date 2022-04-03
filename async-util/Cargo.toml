@@ -7,23 +7,23 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-event-listener = "2.5.1"
+event-listener = "2.5.2"
 ondrop = "0.1.0"
-ctrlc = "3.2.0"
+ctrlc = "3.2.1"
 async-weighted-semaphore = "0.2.1"
 util = { path = "../util" }
-priority-queue = "1.1.1"
+priority-queue = "1.2.1"
 lazy_static = "1.4.0"
 by_address = "1.0.4"
-tokio = { version = "1.10.1", features = ["time", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
-pin-project = "1.0.8"
-tokio-stream = "0.1.7"
+tokio = { version = "1.17.0", features = ["time", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+pin-project = "1.0.10"
+tokio-stream = "0.1.8"
 async-channel = "1.6.1"
-serde = { version = "1.0.130", features = ["derive"] }
+serde = { version = "1.0.136", features = ["derive"] }
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.5.1"
+loom = "0.5.4"
 
 [dev-dependencies]
-rand = "0.8.4"
+rand = "0.8.5"
 rand_xorshift = "0.3.0"
