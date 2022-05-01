@@ -9,13 +9,13 @@ edition = "2018"
 [dependencies]
 event-listener = "2.5.2"
 ondrop = "0.1.0"
-ctrlc = "3.2.1"
+ctrlc = "3.2.2"
 async-weighted-semaphore = "0.2.1"
 util = { path = "../util" }
 priority-queue = "1.2.1"
 lazy_static = "1.4.0"
 by_address = "1.0.4"
-tokio = { version = "1.17.0", features = ["time", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+tokio = { version = "1.18.0", features = ["time", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 pin-project = "1.0.10"
 tokio-stream = "0.1.8"
 async-channel = "1.6.1"

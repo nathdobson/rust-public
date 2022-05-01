@@ -10,8 +10,8 @@ lalrpop-util = "0.19.7"
 regex = "1.5.5"
 ustr = "0.8.1"
 retain_mut = "0.1.7"
-ordered-float = "2.10.0"
-im = "15.0.0"
+ordered-float = "3.0.0"
+im = "15.1.0"
 itertools = "0.10.3"
 
 [build-dependencies]

@@ -1,3 +1,4 @@
+#![feature(entry_insert)]
 #![allow(proc_macro_back_compat)]
 #![allow(unreachable_code)]
 #![deny(unused_must_use)]

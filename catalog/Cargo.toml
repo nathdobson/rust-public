@@ -14,14 +14,14 @@ safe-cell = { version = "0.1.0", path = "../safe-cell" }
 
 [target.'cfg(any(target_arch = "wasi", target_arch = "wasm32"))'.dependencies]
 getrandom = { version = "0.2.6", features = ["js"] }
-js-sys = { version = "0.3.56", features = [] }
-wasm-bindgen = "0.2.79"
+js-sys = { version = "0.3.57", features = [] }
+wasm-bindgen = "0.2.80"
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "wasi")))'.dependencies]
 ctor = "0.1.22"
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.29"
+wasm-bindgen-test = "0.3.30"
 
 [target.'cfg(any(target_arch = "wasi", target_arch = "wasm32"))'.dev-dependencies]
 
