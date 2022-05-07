@@ -1,5 +1,5 @@
 #![allow(dead_code, unused_imports)]
-#![feature(once_cell, const_fn_fn_ptr_basics, const_mut_refs, const_fn_trait_bound)]
+#![feature(once_cell, const_mut_refs)]
 #![feature(thread_id_value)]
 #![feature(bench_black_box)]
 #![allow(unused_mut)]

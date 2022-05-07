@@ -11,4 +11,4 @@ serde_json = "1.0.80"
 paste = "1.0.7"
 lazy_static = "1.4.0"
 sha2 = "0.10.2"
-catalog = { version = "0.1.0", path = "../catalog" }
+catalog = { path = "../catalog" }

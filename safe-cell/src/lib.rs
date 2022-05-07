@@ -1,7 +1,5 @@
 #![feature(default_free_fn)]
 #![allow(unused_imports)]
-#![feature(const_fn_trait_bound)]
-#![feature(const_fn_fn_ptr_basics)]
 
 use std::borrow::Borrow;
 use std::cell::{Cell, UnsafeCell};

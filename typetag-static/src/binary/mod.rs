@@ -6,7 +6,7 @@ use serde::{Serializer, Serialize, Deserializer, Deserialize};
 use std::fmt::{Display, Debug, Formatter};
 use serde::ser::{SerializeSeq, SerializeTuple, SerializeTupleStruct, SerializeTupleVariant, SerializeMap, SerializeStruct, SerializeStructVariant};
 use std::ops::Range;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, ErrorKind, Read};
 use serde::de::{Visitor, SeqAccess, MapAccess, EnumAccess, IntoDeserializer, VariantAccess};
 use std::io;
 use std::string::FromUtf8Error;
@@ -15,6 +15,7 @@ use crate::tag::{TypeTag, TypeTagHash};
 use crate::binary::ser::BinarySerializer;
 use crate::binary::de::BinaryDeserializer;
 use std::any::TypeId;
+use std::f32::consts::E;
 
 pub use any::IMPLS;
 
@@ -69,7 +70,7 @@ impl Display for Error {
             Error::Unsupported => write!(f, "Unsupported operation"),
             Error::MissingSerialize(id) => write!(f, "Missing `impl_any_binary!` for type with {:?}", id),
             Error::BadType => write!(f, "Bad AnySerialize"),
-            Error::BadLength => write!(f,"Bad length"),
+            Error::BadLength => write!(f, "Bad length"),
         }
     }
 }
@@ -95,7 +96,20 @@ impl From<FromUtf8Error> for Error {
     fn from(fue: FromUtf8Error) -> Self { Error::FromUtf8(Some(fue)) }
 }
 
-pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>> {
+impl From<Error> for io::Error {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::Custom(e) => io::Error::new(ErrorKind::Other, e),
+            Error::Io(Some(e)) => e,
+            Error::Io(None) => io::Error::new(ErrorKind::Other, "io error"),
+            Error::FromUtf8(Some(e)) => io::Error::new(ErrorKind::Other, e),
+            Error::FromUtf8(None) => io::Error::new(ErrorKind::Other, "utf8 error"),
+            Error::MissingSerialize(_) | Error::BadChar | Error::Unsupported | Error::BadType | Error::BadLength => io::Error::new(ErrorKind::Other, format!("{}", e)),
+        }
+    }
+}
+
+pub fn serialize<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>> {
     let mut vec = vec![];
     value.serialize(BinarySerializer::new(&mut vec))?;
     Ok(vec)

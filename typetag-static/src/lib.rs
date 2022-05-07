@@ -1,29 +1,25 @@
-#![feature(specialization, never_type, const_fn_fn_ptr_basics)]
+#![feature(specialization, never_type)]
 #![feature(coerce_unsized)]
 #![feature(seek_stream_len)]
 #![allow(incomplete_features, unused_variables, dead_code, unused_imports, unused_macros, unused_mut)]
 #![deny(unused_must_use)]
+#![feature(once_cell)]
 
 //! A crate that allows `Box<dyn Any>` to be serialized and deserialized using [`serde`].
 //! ```
+//! # #![feature(once_cell)]
 //! # use serde::{Serialize, Deserialize};
 //! # use std::marker::PhantomData;
 //! use typetag_static::impl_any_serde;
 //! use typetag_static::{json, BoxAnySerde};
-//! use registry::registry;
+//! use catalog::register;
 //!
 //! // Implement a normal struct with serde support.
 //! #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
 //! pub struct MyStruct { foo: u32 }
 //!
 //! // Give a stable globally unique name to identify MyStruct.
-//! impl_any_serde!(MyStruct, "typetag_static::docs::MyStruct");
-//! // Register an implementation for MyStruct that supports JSON.
-//! registry! {
-//!     require typetag_static;
-//!     type typetag_static::json::IMPLS => MyStruct;
-//! }
-//! REGISTRY.build();
+//! impl_any_serde!(MyStruct, "typetag_static::docs::MyStruct", typetag_static::json::IMPLS);
 //!
 //! let input: BoxAnySerde = Box::new(MyStruct { foo: 10 });
 //! let encoded = json::serialize(&input).unwrap();
@@ -39,7 +35,7 @@ use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use std::borrow::{Borrow, BorrowMut};
 use std::sync::Arc;
 use std::fmt::Debug;
-use registry::registry;
+use catalog::register;
 
 #[macro_use]
 mod macros;
@@ -49,10 +45,14 @@ pub mod tag;
 pub mod json;
 /// A serialization format similar to [`bincode`](https://crates.io/crates/bincode) that supports [`AnySerde`](crate::AnySerde).
 pub mod binary;
+
 // #[doc(hidden)]
 // pub mod util;
 #[doc(hidden)]
-pub mod reexport;
+pub mod reexport {
+    pub use catalog;
+}
+
 mod impls;
 
 pub trait AnySerde: Any + Send + Sync + Debug + 'static {
@@ -106,7 +106,7 @@ impl Serialize for BoxAnySerde {
     }
 }
 
-impl Serialize for &dyn AnySerde {
+impl<'a> Serialize for &'a dyn AnySerde {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         serializer.serialize_dyn(*self)
     }
@@ -154,7 +154,7 @@ pub trait AnySerializer: Serializer {
 
 impl<T: Serializer> AnySerializerDefault for T {
     default fn serialize_dyn(self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error> {
-        todo!()
+        panic!("AnySerializer not implemented for {:?}", type_name::<T>());
     }
 }
 
@@ -170,7 +170,3 @@ pub trait JsonNopTrait { fn nop(); }
 
 #[doc(hidden)]
 pub trait BinaryNopTrait { fn nop(); }
-
-registry! {
-    require impls;
-}

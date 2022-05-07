@@ -13,7 +13,7 @@ use serde_json::de::SliceRead;
 use serde::Serializer;
 use serde::ser::SerializeMap;
 use std::marker::PhantomData;
-use registry::{Registry, Builder, BuilderFrom};
+use catalog::{Registry, Builder, BuilderFrom};
 //use crate::util::AnySingleton;
 
 /// A struct created by [`AnySerde`](crate::AnySerde) when deserializing a JSON value with

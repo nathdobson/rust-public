@@ -14,7 +14,7 @@ use serde::de;
 //use crate::util::AnySingleton;
 use std::fmt::{Debug, Formatter};
 use std::io::Seek;
-use registry::{Registry, Builder, BuilderFrom};
+use catalog::{Registry, Builder, BuilderFrom};
 use std::marker::PhantomData;
 
 impl<'a> AnySerializerDefault for BinarySerializer<'a> {

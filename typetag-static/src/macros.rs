@@ -6,15 +6,13 @@
 /// change, even if the original type moves or changes names.
 #[macro_export]
 macro_rules! impl_any_serde {
-    ($ty:ty, $($name:tt)*) => {
+    ($ty:ty, $name:tt, $($registry:path),*) => {
         impl $crate::tag::HasTypeTag for $ty {
             fn type_tag() -> &'static $crate::tag::TypeTag {
                 #[allow(non_upper_case_globals, non_snake_case)]
                 mod  internal  {
-                    use lazy_static::lazy_static;
-                    lazy_static! {
-                        pub static ref TYPE_TAG: $crate::tag::TypeTag = $crate::tag::TypeTag::new($($name)*);
-                    }
+                    pub static TYPE_TAG: ::std::lazy::SyncLazy<$crate::tag::TypeTag>
+                        = ::std::lazy::SyncLazy::new(|| $crate::tag::TypeTag::new($name));
                 }
                 &*internal::TYPE_TAG
             }
@@ -27,5 +25,11 @@ macro_rules! impl_any_serde {
                 ::std::any::type_name::<Self>()
             }
         }
+        $(
+            const _ : () = {
+                #[$crate::reexport::catalog::register($registry,crate=$crate::reexport::catalog)]
+                fn a() -> &'static ::std::marker::PhantomData<$ty> { &::std::marker::PhantomData }
+            };
+        )*
     }
 }
