@@ -113,7 +113,7 @@ impl Cancel {
         }
     }
 
-    // Spawn a remote task governed by this Cancel. Dropping the returned future will trigger cancel.
+    // Spawn a plankton task governed by this Cancel. Dropping the returned future will trigger cancel.
     // This effectively wraps an asynchronously canceled future as a synchronously canceled future.
     pub fn spawn<F, S>(
         &self,
