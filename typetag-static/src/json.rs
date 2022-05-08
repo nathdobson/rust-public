@@ -2,7 +2,7 @@ use std::any::{TypeId, Any, type_name};
 use serde::{ser, Deserialize};
 use serde::de;
 use serde::{Serialize, Deserializer};
-use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, AnySerde};
+use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, AnySerde, ArcAnySerde};
 use std::fmt;
 use std::fmt::Formatter;
 use serde::de::{Visitor, MapAccess, DeserializeSeed, Error};
@@ -13,6 +13,7 @@ use serde_json::de::SliceRead;
 use serde::Serializer;
 use serde::ser::SerializeMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use catalog::{Registry, Builder, BuilderFrom};
 //use crate::util::AnySingleton;
 
@@ -43,30 +44,48 @@ impl<'a, 'b> AnySerializerDefault for &'a mut JsonSerializer<'b> {
 }
 
 trait AnyJsonDeserializer<'de>: Deserializer<'de> {
-    fn deserialize_dyn_json(self, imp: &'static dyn AnyJson) -> Result<BoxAnySerde, Self::Error>;
+    fn deserialize_box_json(self, imp: &'static dyn AnyJson) -> Result<BoxAnySerde, Self::Error>;
+    fn deserialize_arc_json(self, imp: &'static dyn AnyJson) -> Result<ArcAnySerde, Self::Error>;
 }
 
 impl<'de, T: Deserializer<'de>> AnyJsonDeserializer<'de> for T {
-    default fn deserialize_dyn_json(self, imp: &'static dyn AnyJson) -> Result<BoxAnySerde, Self::Error> {
+    default fn deserialize_box_json(self, imp: &'static dyn AnyJson) -> Result<BoxAnySerde, Self::Error> {
+        panic!("Missing impl of AnyJsonDeserializer for {}", type_name::<T>());
+    }
+    default fn deserialize_arc_json(self, imp: &'static dyn AnyJson) -> Result<ArcAnySerde, Self::Error> {
         panic!("Missing impl of AnyJsonDeserializer for {}", type_name::<T>());
     }
 }
 
 impl<'a, 'de> AnyJsonDeserializer<'de> for &'a mut JsonDeserializer<'de> {
-    fn deserialize_dyn_json(self, imp: &'static dyn AnyJson) -> Result<BoxAnySerde, Self::Error> {
-        imp.deserialize_json(self)
+    fn deserialize_box_json(self, imp: &'static dyn AnyJson) -> Result<BoxAnySerde, Self::Error> {
+        imp.deserialize_box_json(self)
+    }
+    fn deserialize_arc_json(self, imp: &'static dyn AnyJson) -> Result<ArcAnySerde, Self::Error> {
+        imp.deserialize_arc_json(self)
     }
 }
 
-impl<'de> DeserializeSeed<'de> for &'static dyn AnyJson {
+struct SeedBox(&'static dyn AnyJson);
+
+struct SeedArc(&'static dyn AnyJson);
+
+impl<'de> DeserializeSeed<'de> for SeedBox {
     type Value = BoxAnySerde;
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error> where D: Deserializer<'de> {
-        deserializer.deserialize_dyn_json(self)
+        deserializer.deserialize_box_json(self.0)
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for SeedArc {
+    type Value = ArcAnySerde;
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error> where D: Deserializer<'de> {
+        deserializer.deserialize_arc_json(self.0)
     }
 }
 
 impl<'a, 'de> AnyDeserializer<'de> for &'a mut JsonDeserializer<'de> {
-    fn deserialize_dyn_impl(self) -> Result<BoxAnySerde, Self::Error> {
+    fn deserialize_box_impl(self) -> Result<BoxAnySerde, Self::Error> {
         struct Vis;
         impl<'de> Visitor<'de> for Vis {
             type Value = BoxAnySerde;
@@ -76,9 +95,30 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut JsonDeserializer<'de> {
             fn visit_map<A: MapAccess<'de>>(self, mut seq: A) -> Result<BoxAnySerde, A::Error> {
                 let typ = seq.next_key::<&'de str>()?.ok_or(<A::Error as de::Error>::custom("missing key"))?;
                 if let Some(imp) = IMPLS.by_type_tag_name.get(typ) {
-                    seq.next_value_seed(&**imp)
+                    seq.next_value_seed(SeedBox(&**imp))
                 } else {
                     Ok(Box::new(UnknownJson {
+                        tag: typ.to_string(),
+                        value: seq.next_value::<serde_json::Value>()?,
+                    }))
+                }
+            }
+        }
+        self.deserialize_map(Vis)
+    }
+    fn deserialize_arc_impl(self) -> Result<ArcAnySerde, Self::Error> {
+        struct Vis;
+        impl<'de> Visitor<'de> for Vis {
+            type Value = ArcAnySerde;
+            fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
+                write!(formatter, "a map with a typetag name key and dynamic value")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut seq: A) -> Result<ArcAnySerde, A::Error> {
+                let typ = seq.next_key::<&'de str>()?.ok_or(<A::Error as de::Error>::custom("missing key"))?;
+                if let Some(imp) = IMPLS.by_type_tag_name.get(typ) {
+                    seq.next_value_seed(SeedArc(&**imp))
+                } else {
+                    Ok(ArcAnySerde::new(UnknownJson {
                         tag: typ.to_string(),
                         value: seq.next_value::<serde_json::Value>()?,
                     }))
@@ -93,7 +133,8 @@ pub trait AnyJson: 'static + Send + Sync {
     fn inner_type_tag(&self) -> &'static TypeTag;
     fn inner_type_id(&self) -> TypeId;
     fn serialize_json<'a, 'b>(&self, serializer: &'a mut JsonSerializer<'b>, value: &dyn AnySerde) -> Result<(), serde_json::Error>;
-    fn deserialize_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<BoxAnySerde, serde_json::Error>;
+    fn deserialize_box_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<BoxAnySerde, serde_json::Error>;
+    fn deserialize_arc_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<ArcAnySerde, serde_json::Error>;
 }
 
 impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde> AnyJson for PhantomData<T> {
@@ -106,8 +147,11 @@ impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde>
         struc.end()?;
         Ok(())
     }
-    fn deserialize_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<BoxAnySerde, serde_json::Error> {
+    fn deserialize_box_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<BoxAnySerde, serde_json::Error> {
         Ok(Box::new(T::deserialize(deserializer)?))
+    }
+    fn deserialize_arc_json<'a, 'de>(&self, deserializer: &'a mut JsonDeserializer<'de>) -> Result<ArcAnySerde, serde_json::Error> {
+        Ok(ArcAnySerde::new(T::deserialize(deserializer)?))
     }
 }
 
@@ -154,8 +198,8 @@ impl Builder for Impls {
 
 impl BuilderFrom<&'static dyn AnyJson> for Impls {
     fn insert(&mut self, element: &'static dyn AnyJson) {
-        self.by_type_id.insert(element.inner_type_id(), element);
-        self.by_type_tag_name.insert(element.inner_type_tag().name, element);
+        assert!(self.by_type_id.insert(element.inner_type_id(), element).is_none());
+        assert!(self.by_type_tag_name.insert(element.inner_type_tag().name, element).is_none());
     }
 }
 

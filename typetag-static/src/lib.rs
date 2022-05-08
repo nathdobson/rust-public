@@ -71,9 +71,23 @@ pub fn downcast_box<T: AnySerde>(b: Box<dyn AnySerde>) -> Result<Box<T>, Box<dyn
     }
 }
 
+pub fn downcast_arc<T: AnySerde>(b: Arc<dyn AnySerde>) -> Result<Arc<T>, Arc<dyn AnySerde>> {
+    if b.deref().is::<T>() {
+        unsafe {
+            let raw: *const dyn AnySerde = Arc::into_raw(b);
+            Ok(Arc::from_raw(raw as *mut T))
+        }
+    } else {
+        Err(b)
+    }
+}
+
 /// A wrapper around [`Box<dyn Any>`] that implements [`Serialize`] and [`Deserialize`].
 
 pub type BoxAnySerde = Box<dyn AnySerde>;
+
+#[derive(Clone, Debug)]
+pub struct ArcAnySerde(pub Arc<dyn AnySerde>);
 
 impl dyn AnySerde {
     pub fn is<T: Any>(&self) -> bool {
@@ -106,6 +120,12 @@ impl Serialize for BoxAnySerde {
     }
 }
 
+impl Serialize for ArcAnySerde {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        serializer.serialize_dyn(&**self)
+    }
+}
+
 impl<'a> Serialize for &'a dyn AnySerde {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         serializer.serialize_dyn(*self)
@@ -118,28 +138,54 @@ impl Clone for BoxAnySerde {
 
 impl<'de> Deserialize<'de> for BoxAnySerde {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
-        deserializer.deserialize_dyn()
+        deserializer.deserialize_box()
     }
 }
 
+impl<'de> Deserialize<'de> for ArcAnySerde {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        deserializer.deserialize_arc()
+    }
+}
+
+impl ArcAnySerde {
+    pub fn new<T: AnySerde>(x: T) -> Self {
+        ArcAnySerde(Arc::new(x))
+    }
+}
+
+impl Deref for ArcAnySerde {
+    type Target = dyn AnySerde;
+    fn deref(&self) -> &Self::Target { &*self.0 }
+}
+
 pub(crate) trait AnyDeserializerDefault<'de>: Deserializer<'de> {
-    fn deserialize_dyn(self) -> Result<BoxAnySerde, Self::Error>;
+    fn deserialize_box(self) -> Result<BoxAnySerde, Self::Error>;
+    fn deserialize_arc(self) -> Result<ArcAnySerde, Self::Error>;
 }
 
 /// A trait that extends [`Deserializer`] with the ability to produce [`AnySerde`].
 pub trait AnyDeserializer<'de>: Deserializer<'de> {
-    fn deserialize_dyn_impl(self) -> Result<BoxAnySerde, Self::Error>;
+    fn deserialize_box_impl(self) -> Result<BoxAnySerde, Self::Error>;
+    fn deserialize_arc_impl(self) -> Result<ArcAnySerde, Self::Error>;
 }
 
 impl<'de, D: Deserializer<'de>> AnyDeserializerDefault<'de> for D {
-    default fn deserialize_dyn(self) -> Result<BoxAnySerde, D::Error> {
+    default fn deserialize_box(self) -> Result<BoxAnySerde, D::Error> {
+        panic!("Missing AnyDeserializerImpl impl for {}", type_name::<D>());
+    }
+    default fn deserialize_arc(self) -> Result<ArcAnySerde, D::Error> {
         panic!("Missing AnyDeserializerImpl impl for {}", type_name::<D>());
     }
 }
 
 impl<'de, D: AnyDeserializer<'de>> AnyDeserializerDefault<'de> for D {
-    fn deserialize_dyn(self) -> Result<BoxAnySerde, D::Error> {
-        self.deserialize_dyn_impl()
+    fn deserialize_box(self) -> Result<BoxAnySerde, D::Error> {
+        self.deserialize_box_impl()
+    }
+
+    fn deserialize_arc(self) -> Result<ArcAnySerde, Self::Error> {
+        self.deserialize_arc_impl()
     }
 }
 
