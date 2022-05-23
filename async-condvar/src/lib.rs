@@ -1,5 +1,6 @@
 #![feature(negative_impls)]
 #![feature(future_poll_fn)]
+#![feature(bool_to_option)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
@@ -12,7 +13,6 @@ use core::mem;
 use std::ptr::null;
 use std::collections::VecDeque;
 use std::task::{Waker, Poll, Context};
-use std::cell::UnsafeCell;
 use std::future::poll_fn;
 use std::pin::Pin;
 use std::thread;
@@ -140,6 +140,7 @@ impl Condvar {
             }),
         }
     }
+    #[must_use]
     pub fn wait<'a, T: Send>(
         &'a self,
         waker: WakerGuard,
@@ -162,20 +163,33 @@ impl Condvar {
             index: index,
         }
     }
-    #[must_use]
     pub fn notify<'a, T>(&self, guard: &mut MutexGuard<'a, T>, count: usize) {
         let mutex: &'a Mutex<T> = MutexGuard::mutex(&guard);
         let mut state = self.state.try_lock().unwrap();
         state.check_mutex(mutex);
         state.notify(count);
     }
-    pub fn notify_one<'a, T>(&self, guard: &mut MutexGuard<'a, T>, count: usize) -> Notifier {
+    pub fn notify_one_with<'a, T>(&self, guard: &mut MutexGuard<'a, T>) -> Notifier {
         let mutex: &'a Mutex<T> = MutexGuard::mutex(&guard);
         let mut state = self.state.try_lock().unwrap();
         state.check_mutex(mutex);
         state.notify_one()
     }
-    pub fn lock_when<'a, T: Send, O: Send, F: 'a + Send + FnMut(&mut T) -> Option<O>>(
+    pub fn notify_one<'a, T>(&self, mut guard: MutexGuard<'a, T>) {
+        let notifier = self.notify_one_with(&mut guard);
+        mem::drop(guard);
+        notifier.notify();
+    }
+    pub fn lock_when<'a, T: Send, F: 'a + Send + FnMut(&mut T) -> bool>(
+        &'a self,
+        mutex: &'a Mutex<T>,
+        mut cond: F,
+    ) -> impl Future<Output=MutexGuard<'a, T>> + Send + 'a {
+        async move {
+            self.lock_when_some(mutex, move |state| cond(state).then_some(())).await.0
+        }
+    }
+    pub fn lock_when_some<'a, T: Send, O: Send, F: 'a + Send + FnMut(&mut T) -> Option<O>>(
         &'a self,
         mutex: &'a Mutex<T>,
         mut cond: F,
@@ -223,14 +237,14 @@ mod test {
                 let p = p.clone();
                 async move {
                     for i in 0..5 {
-                        let mut lock = p.1.lock_when(&p.0, |x| (*x) % 2 == 0).await;
+                        let (mut lock, _) = p.1.lock_when(&p.0, |x| if (*x) % 2 == 0 { Some(()) } else { None }).await;
                         *lock += 1;
                         p.1.notify(&mut lock, 1);
                     }
                 }
             });
             for i in 0..5 {
-                let mut lock = p.1.lock_when(&p.0, |x| (*x) % 2 == 1).await;
+                let (mut lock, _) = p.1.lock_when(&p.0, |x| if (*x) % 2 == 1 { Some(()) } else { None }).await;
                 *lock += 1;
                 p.1.notify(&mut lock, 1);
             }
