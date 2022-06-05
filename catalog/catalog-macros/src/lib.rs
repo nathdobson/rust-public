@@ -32,10 +32,10 @@ fn ctor(crat: &Path, name: &Ident, body: &TokenStream2) -> TokenStream2 {
     name.span().end().column.hash(&mut hasher);
     let hash = format!("{:016X}", hasher.finish());
     let pub_ident_fn =
-        syn::parse_str::<syn::Ident>(format!("rust_registry___registry___{}", hash).as_ref())
+        syn::parse_str::<syn::Ident>(format!("rust_registry___registry___{}_{}", name, hash).as_ref())
             .expect("Unable to create identifier");
     let pub_ident_static =
-        syn::parse_str::<syn::Ident>(format!("RUST_REGISTRY___REGISTRY___{}", hash).as_ref())
+        syn::parse_str::<syn::Ident>(format!("RUST_REGISTRY___REGISTRY___{}_{}", name, hash).as_ref())
             .expect("Unable to create identifier");
     let bytes = format!("{} ", pub_ident_fn).into_bytes();
     let bytes = LitByteStr::new(&bytes, Span::call_site());

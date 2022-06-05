@@ -3,6 +3,9 @@
 #![feature(thread_id_value)]
 #![feature(bench_black_box)]
 #![allow(unused_mut)]
+#![feature(const_fn_fn_ptr_basics)]
+#![feature(const_fn_trait_bound)]
+
 //! An alternative to [ctor](https://crates.io/crates/ctor) and [inventory](https://crates.io/crates/inventory) that supports WASM.
 //! ```
 //! use registry::Registry;
@@ -48,10 +51,13 @@
 //! assert_eq!(*IMPLS, vec!["native", "external", "internal"].into_iter().collect());
 //! ```
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use parking_lot::Mutex;
 use std::ops::Deref;
 use std::sync::{Once};
 use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
 use std::hint::black_box;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
@@ -152,4 +158,19 @@ impl<B: Builder> Debug for Registry<B> where B::Output: Debug {
             .field("output", self.deref())
             .finish_non_exhaustive()
     }
+}
+
+impl<A: Eq + Hash + Debug, B> BuilderFrom<(A, B)> for HashMap<A, B> {
+    fn insert(&mut self, (k, v): (A, B)) {
+        match self.entry(k) {
+            Entry::Occupied(e) => panic!("{:?}", e.key()),
+            Entry::Vacant(e) => { e.insert(v); }
+        }
+    }
+}
+
+impl<A, B> Builder for HashMap<A, B> {
+    type Output = Self;
+    fn new() -> Self { HashMap::new() }
+    fn build(self) -> Self::Output { self }
 }

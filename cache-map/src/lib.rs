@@ -39,8 +39,8 @@ impl<K, V> CacheMap<K, V> {
 }
 
 impl<K: Hash + Eq, V> CacheMap<K, V> {
-    pub fn try_insert(&mut self, k: K, v: V) -> Result<(), InsertError> {
-        self.0.with_mut(|all| Self::try_insert_impl(all.arena, all.map, k, v))
+    pub fn try_insert(&self, k: K, v: V) -> Result<(), InsertError> {
+        self.0.with(|all| Self::try_insert_impl(all.arena, all.map, k, v))
     }
     fn try_insert_impl<'arena>(arena: &'arena Arena<V>, map: &Mutex<HashMap<K, &'arena V>>, k: K, v: V) -> Result<(), InsertError> {
         match map.lock().entry(k) {
