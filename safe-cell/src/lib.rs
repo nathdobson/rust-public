@@ -1,6 +1,4 @@
 #![feature(default_free_fn)]
-#![feature(const_fn_fn_ptr_basics)]
-#![feature(const_fn_trait_bound)]
 #![allow(unused_imports)]
 
 use std::borrow::Borrow;

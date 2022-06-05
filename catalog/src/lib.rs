@@ -3,8 +3,6 @@
 #![feature(thread_id_value)]
 #![feature(bench_black_box)]
 #![allow(unused_mut)]
-#![feature(const_fn_fn_ptr_basics)]
-#![feature(const_fn_trait_bound)]
 
 //! An alternative to [ctor](https://crates.io/crates/ctor) and [inventory](https://crates.io/crates/inventory) that supports WASM.
 //! ```
