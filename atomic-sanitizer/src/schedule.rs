@@ -1,13 +1,13 @@
+use std::borrow::BorrowMut;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use std::thread::JoinHandle;
-use std::thread;
-use std::borrow::BorrowMut;
-use std::cell::Cell;
-use std::sync::{Arc, Barrier};
-use futures::executor::ThreadPool;
-use std::cell::RefCell;
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::thread::JoinHandle;
+
+use futures::executor::ThreadPool;
 
 // lazy_static! {
 //     static ref NEXT_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
@@ -24,7 +24,6 @@ struct ThreadData {
 
 struct SeqThreadPool {
     pool: ThreadPool,
-
 }
 
 impl SeqThreadPool {

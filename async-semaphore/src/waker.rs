@@ -1,8 +1,9 @@
 use std::cell::UnsafeCell;
-use std::task::{Waker};
-use std::sync::atomic::Ordering::{Acquire};
-use crate::waker::Flag::{Sleeping, Storing, Finished, Cancelled, Loading};
+use std::sync::atomic::Ordering::Acquire;
+use std::task::Waker;
+
 use crate::atomic::{Atomic, Packable};
+use crate::waker::Flag::{Cancelled, Finished, Loading, Sleeping, Storing};
 
 #[derive(Copy, Clone, Eq, PartialOrd, PartialEq, Ord, Debug)]
 enum Flag {
@@ -18,7 +19,9 @@ pub struct AtomicWaker {
     waker: UnsafeCell<Option<Waker>>,
 }
 
-impl Packable for Flag { type Raw = u8; }
+impl Packable for Flag {
+    type Raw = u8;
+}
 
 pub enum PollResult {
     Pending,
@@ -62,9 +65,7 @@ impl AtomicWaker {
                                     PollResult::Pending
                                 }
                                 Loading => unreachable!(),
-                                Finished => {
-                                    PollResult::FinishedFree
-                                }
+                                Finished => PollResult::FinishedFree,
                                 Cancelled => panic!("Poll after cancel"),
                             })
                         })
@@ -99,7 +100,7 @@ impl AtomicWaker {
                                     FinishResult::Finished
                                 }
                                 Finished => FinishResult::FinishedFree,
-                                Cancelled => FinishResult::Cancelled
+                                Cancelled => FinishResult::Cancelled,
                             })
                         })
                     }
@@ -135,7 +136,5 @@ impl AtomicWaker {
         })
     }
 
-    pub fn is_cancelled(&self) -> bool {
-        self.state.load(Acquire) == Cancelled
-    }
+    pub fn is_cancelled(&self) -> bool { self.state.load(Acquire) == Cancelled }
 }

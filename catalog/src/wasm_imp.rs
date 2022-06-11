@@ -1,12 +1,13 @@
-pub mod reexport {
-    pub use wasm_bindgen;
-}
-
 use std::sync::Once;
 
 use js_sys::Uint8Array;
 use js_sys::WebAssembly::Module;
 use wasm_bindgen::JsCast;
+
+pub mod reexport {
+    pub use wasm_bindgen;
+}
+
 pub fn init() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {

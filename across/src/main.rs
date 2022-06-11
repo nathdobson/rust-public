@@ -6,9 +6,6 @@
 #![feature(map_first_last)]
 #![feature(option_result_contains)]
 
-pub mod puzzle;
-pub mod view;
-
 use std::env::args;
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
@@ -23,6 +20,9 @@ use util::mutrc::MutRc;
 
 use crate::puzzle::Puzzle;
 use crate::view::PuzzleDiv;
+
+pub mod puzzle;
+pub mod view;
 
 fn main() {
     run_local(|tree| {

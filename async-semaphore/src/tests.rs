@@ -1,12 +1,14 @@
-use futures::executor::{LocalPool, ThreadPool, block_on};
-use futures::task::{LocalSpawnExt, SpawnExt};
-use std::sync::{Arc, Mutex};
-use std::rc::Rc;
 use std::mem;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
 use async_std::future::timeout;
-use crate::{Semaphore, SemaphoreGuard};
+use futures::executor::{block_on, LocalPool, ThreadPool};
+use futures::task::{LocalSpawnExt, SpawnExt};
 use rand::{thread_rng, Rng};
+
+use crate::{Semaphore, SemaphoreGuard};
 
 #[test]
 fn test_simple() {
@@ -17,17 +19,19 @@ fn test_simple() {
     println!("C");
     let spawner = pool.spawner();
     println!("D");
-    spawner.spawn_local({
-        println!("E");
-        let semaphore = semaphore.clone();
-        async move {
-            println!("F");
-            semaphore.acquire(10).await.forget();
-            println!("G");
-            semaphore.acquire(10).await.forget();
-            println!("H");
-        }
-    }).unwrap();
+    spawner
+        .spawn_local({
+            println!("E");
+            let semaphore = semaphore.clone();
+            async move {
+                println!("F");
+                semaphore.acquire(10).await.forget();
+                println!("G");
+                semaphore.acquire(10).await.forget();
+                println!("H");
+            }
+        })
+        .unwrap();
     println!("I");
     pool.run_until_stalled();
     println!("J");
@@ -86,39 +90,43 @@ fn test_multicore_impl() {
     let capacity = 100;
     let semaphore = Arc::new(CheckedSemaphore::new(capacity));
     let pool = ThreadPool::builder().pool_size(10).create().unwrap();
-    (0..100).map(|_thread|
-        pool.spawn_with_handle({
-            let semaphore = semaphore.clone();
-            async move {
-                //let indent = " ".repeat(thread * 10);
-                let mut owned = 0;
-                for _i in 0..1000 {
-                    //println!("{:?}", semaphore.semaphore);
-                    if owned == 0 {
-                        owned = thread_rng().gen_range(0, capacity + 1);
-                        //println!("{} : acquiring {}", thread, owned);
-                        let dur = Duration::from_millis(thread_rng().gen_range(0, 10));
-                        if let Ok(guard) =
-                        timeout(dur, semaphore.acquire(owned)).await {
-                            guard.forget();
+    (0..100)
+        .map(|_thread| {
+            pool.spawn_with_handle({
+                let semaphore = semaphore.clone();
+                async move {
+                    //let indent = " ".repeat(thread * 10);
+                    let mut owned = 0;
+                    for _i in 0..1000 {
+                        //println!("{:?}", semaphore.semaphore);
+                        if owned == 0 {
+                            owned = thread_rng().gen_range(0, capacity + 1);
+                            //println!("{} : acquiring {}", thread, owned);
+                            let dur = Duration::from_millis(thread_rng().gen_range(0, 10));
+                            if let Ok(guard) = timeout(dur, semaphore.acquire(owned)).await {
+                                guard.forget();
+                            } else {
+                                owned = 0;
+                            }
                         } else {
-                            owned = 0;
+                            let mut rng = thread_rng();
+                            let r = if rng.gen_bool(0.5) {
+                                owned
+                            } else {
+                                rng.gen_range(1, owned + 1)
+                            };
+                            owned -= r;
+                            semaphore.release(r);
                         }
-                    } else {
-                        let mut rng = thread_rng();
-                        let r = if rng.gen_bool(0.5) {
-                            owned
-                        } else {
-                            rng.gen_range(1, owned + 1)
-                        };
-                        owned -= r;
-                        semaphore.release(r);
                     }
+                    semaphore.release(owned);
                 }
-                semaphore.release(owned);
-            }
-        }).unwrap()
-    ).collect::<Vec<_>>().into_iter().for_each(block_on);
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(block_on);
     mem::drop(pool);
     assert_eq!(Arc::strong_count(&semaphore), 1);
 }

@@ -1,34 +1,34 @@
+use std::backtrace::Backtrace;
 use std::cmp::{Ordering, Reverse};
-use std::collections::{BinaryHeap, BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::fmt::Debug;
-use std::future::Future;
+use std::future::{poll_fn, Future};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::mem;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, Weak};
-use std::sync::atomic::{AtomicUsize, AtomicBool};
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
-use std::task::{Context, Poll, Waker, Wake};
-use std::future::poll_fn;
-use by_address::ByAddress;
-use tokio::sync::{mpsc, oneshot, Barrier};
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::task::yield_now;
-use util::mutrc::MutRc;
-use std::backtrace::Backtrace;
-use tokio_stream::Stream;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::{Arc, Mutex, Weak};
+use std::task::{Context, Poll, Wake, Waker};
 
-use crate::waker::AtomicWaker;
+use by_address::ByAddress;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::{mpsc, oneshot, Barrier};
+use tokio::task::yield_now;
+use tokio_stream::Stream;
+use util::mutrc::MutRc;
+
+use crate::futureext::FutureExt;
 use crate::join::{remote, RemoteJoinHandle};
 use crate::spawn::Spawn;
-use crate::futureext::FutureExt;
+use crate::waker::AtomicWaker;
 
 pub trait Priority: Send + Sync + Ord + 'static + Debug + Clone {}
 
 impl<T: Send + Sync + Ord + 'static + Debug + Clone> Priority for T {}
 
-pub type BoxFuture = Pin<Box<dyn 'static + Send + Future<Output=()>>>;
+pub type BoxFuture = Pin<Box<dyn 'static + Send + Future<Output = ()>>>;
 
 #[derive(Debug)]
 struct Task<P: Priority> {
@@ -57,7 +57,6 @@ pub struct PrioritySpawn<P: Priority> {
     priority: P,
 }
 
-
 pub struct PriorityRunner<P: Priority> {
     receiver: mpsc::UnboundedReceiver<(P, usize, BoxFuture)>,
     state: Arc<Mutex<WakeState<P>>>,
@@ -70,14 +69,17 @@ pub fn channel<P: Priority>() -> (PriorityPool<P>, PriorityRunner<P>) {
         queue: BTreeSet::new(),
         waker: None,
     }));
-    (PriorityPool {
-        sender,
-        next_id: Arc::new(AtomicUsize::new(0)),
-    }, PriorityRunner {
-        receiver,
-        state,
-        futures: Default::default(),
-    })
+    (
+        PriorityPool {
+            sender,
+            next_id: Arc::new(AtomicUsize::new(0)),
+        },
+        PriorityRunner {
+            receiver,
+            state,
+            futures: Default::default(),
+        },
+    )
 }
 
 impl<P: Priority> Unpin for PriorityRunner<P> {}
@@ -137,68 +139,65 @@ impl<P: Priority> Future for PriorityRunner<P> {
 }
 
 impl<P: Priority> PriorityPool<P> {
-    fn spawn(&self, priority: P, fut: impl Future<Output=()> + Send + 'static) {
-        self.sender.send((
-            priority,
-            self.next_id.fetch_add(1, Relaxed),
-            Box::pin(fut))).ok();
+    fn spawn(&self, priority: P, fut: impl Future<Output = ()> + Send + 'static) {
+        self.sender
+            .send((priority, self.next_id.fetch_add(1, Relaxed), Box::pin(fut)))
+            .ok();
     }
-    fn spawn_with_handle<T: Send + 'static>(&self, priority: P, fut: impl Future<Output=T> + Send + 'static) -> RemoteJoinHandle<T> {
+    fn spawn_with_handle<T: Send + 'static>(
+        &self,
+        priority: P,
+        fut: impl Future<Output = T> + Send + 'static,
+    ) -> RemoteJoinHandle<T> {
         let (fut, handle) = remote(fut);
         self.spawn(priority, fut);
         handle
     }
     pub fn with_priority(&self, priority: P) -> PrioritySpawn<P> {
-        PrioritySpawn { pool: self.clone(), priority }
+        PrioritySpawn {
+            pool: self.clone(),
+            priority,
+        }
     }
 }
 
 impl<P: Priority> Spawn for PrioritySpawn<P> {
     type JoinHandle<T: 'static + Send> = RemoteJoinHandle<T>;
-    fn spawn_with_handle<F: 'static + Send + Future>(&self, fut: F) -> Self::JoinHandle<F::Output> where F::Output: Send {
+    fn spawn_with_handle<F: 'static + Send + Future>(&self, fut: F) -> Self::JoinHandle<F::Output>
+    where
+        F::Output: Send,
+    {
         self.pool.spawn_with_handle(self.priority.clone(), fut)
     }
-    fn spawn<F: 'static + Send + Future<Output=()>>(&self, fut: F) {
+    fn spawn<F: 'static + Send + Future<Output = ()>>(&self, fut: F) {
         self.pool.spawn(self.priority.clone(), fut);
     }
 }
 
 impl<P: Priority> ArcTask<P> {
-    fn key(&self) -> (&P, usize) {
-        (&self.0.priority, self.0.id)
-    }
+    fn key(&self) -> (&P, usize) { (&self.0.priority, self.0.id) }
 }
 
 impl<P: Priority> Ord for ArcTask<P> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.key().cmp(&other.key())
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.key().cmp(&other.key()) }
 }
 
 impl<P: Priority> PartialOrd for ArcTask<P> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.key().partial_cmp(&other.key())
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.key().partial_cmp(&other.key()) }
 }
 
 impl<P: Priority> Eq for ArcTask<P> {}
 
 impl<P: Priority> PartialEq for ArcTask<P> {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
-    }
+    fn eq(&self, other: &Self) -> bool { Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0) }
 }
 
 impl<P: Priority> Hash for ArcTask<P> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Arc::as_ptr(&self.0).hash(state)
-    }
+    fn hash<H: Hasher>(&self, state: &mut H) { Arc::as_ptr(&self.0).hash(state) }
 }
 
 impl<P: Priority> Clone for ArcTask<P> {
-    fn clone(&self) -> Self {
-        ArcTask(self.0.clone())
-    }
+    fn clone(&self) -> Self { ArcTask(self.0.clone()) }
 }
 
 impl<P: Priority> Wake for Task<P> {
@@ -214,8 +213,9 @@ impl<P: Priority> Wake for Task<P> {
 }
 
 pub fn priority_join2<'a>(
-    x: impl Future<Output=()> + Send + 'static,
-    y: impl Future<Output=()> + Send + 'static) -> impl Future<Output=()> {
+    x: impl Future<Output = ()> + Send + 'static,
+    y: impl Future<Output = ()> + Send + 'static,
+) -> impl Future<Output = ()> {
     let (spawner, runner) = channel::<usize>();
     spawner.spawn(0, x);
     spawner.spawn(1, y);
@@ -228,7 +228,7 @@ impl<P: Priority> Drop for Task<P> {
 }
 
 impl FromIterator<BoxFuture> for PriorityRunner<usize> {
-    fn from_iter<T: IntoIterator<Item=BoxFuture>>(iter: T) -> Self {
+    fn from_iter<T: IntoIterator<Item = BoxFuture>>(iter: T) -> Self {
         let (spawner, runner) = channel::<usize>();
         for (i, fut) in iter.into_iter().enumerate() {
             spawner.spawn(i, fut);
@@ -242,34 +242,38 @@ async fn test() {
     let (sender, receiver) = oneshot::channel();
     let state1 = Arc::new(AtomicBool::new(false));
     let state2 = state1.clone();
-    priority_join2(async move {
-        println!("A1");
-        assert_eq!(Some(1), receiver.await.ok());
-        println!("A2");
-        state1.store(true, SeqCst);
-        println!("A3");
-    }, async move {
-        println!("B1");
-        sender.send(1).unwrap();
-        println!("B2");
-        yield_now().await;
-        println!("B3");
-        assert!(state2.load(SeqCst));
-        println!("B4");
-    }).await;
+    priority_join2(
+        async move {
+            println!("A1");
+            assert_eq!(Some(1), receiver.await.ok());
+            println!("A2");
+            state1.store(true, SeqCst);
+            println!("A3");
+        },
+        async move {
+            println!("B1");
+            sender.send(1).unwrap();
+            println!("B2");
+            yield_now().await;
+            println!("B3");
+            assert!(state2.load(SeqCst));
+            println!("B4");
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn test_cascade() {
-    use rand::{thread_rng, Rng};
+    use rand::{thread_rng, Rng, SeedableRng};
     use rand_xorshift::XorShiftRng;
-    use rand::SeedableRng;
 
     for seed in 1..=100 {
         const SIZE: usize = 30;
         const COUNT: usize = 30;
-        let (senders, receivers): (Vec<_>, Vec<_>) =
-            (0..SIZE).map(|_| async_channel::unbounded::<Box<dyn FnOnce() + 'static + Send>>()).unzip();
+        let (senders, receivers): (Vec<_>, Vec<_>) = (0..SIZE)
+            .map(|_| async_channel::unbounded::<Box<dyn FnOnce() + 'static + Send>>())
+            .unzip();
         let receivers = MutRc::new(receivers);
         let (spawner, runner) = channel::<usize>();
         for i in 0..SIZE {
@@ -279,12 +283,8 @@ async fn test_cascade() {
                 poll_fn(move |cx| {
                     let mut receivers = receivers.write();
                     match Pin::new(&mut receivers[i]).poll_next(cx) {
-                        Poll::Pending => {
-                            Poll::Pending
-                        }
-                        Poll::Ready(None) => {
-                            Poll::Ready(())
-                        }
+                        Poll::Pending => Poll::Pending,
+                        Poll::Ready(None) => Poll::Ready(()),
                         Poll::Ready(Some(event)) => {
                             for k in 0..i {
                                 match receivers[k].try_recv() {
@@ -307,12 +307,17 @@ async fn test_cascade() {
             let p2 = rng.gen_range(0..SIZE);
             let sender2 = senders[p2].clone();
             println!("A {:?} {:?} {:?}", i, p1, p2);
-            senders[p1].try_send(box move || {
-                println!("B {:?} {:?} {:?}", i, p1, p2);
-                sender2.try_send(box move || {
-                    println!("C {:?} {:?} {:?}", i, p1, p2);
-                }).unwrap();
-            }).ok().unwrap();
+            senders[p1]
+                .try_send(box move || {
+                    println!("B {:?} {:?} {:?}", i, p1, p2);
+                    sender2
+                        .try_send(box move || {
+                            println!("C {:?} {:?} {:?}", i, p1, p2);
+                        })
+                        .unwrap();
+                })
+                .ok()
+                .unwrap();
         }
         mem::drop(senders);
         runner.await;

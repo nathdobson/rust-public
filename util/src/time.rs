@@ -1,11 +1,13 @@
-use std::time::{Instant, SystemTime, Duration, UNIX_EPOCH};
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use lazy_static::lazy_static;
-use std::ops::{Deref, Sub, Add};
-use std::{thread, mem, iter};
-use crate::shared::ObjectInner;
-use ondrop::OnDrop;
 use std::cell::Cell;
+use std::ops::{Add, Deref, Sub};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{iter, mem, thread};
+
+use lazy_static::lazy_static;
+use ondrop::OnDrop;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::shared::ObjectInner;
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
 pub struct SerialInstant(Instant);
@@ -33,7 +35,10 @@ pub fn serial_scope() -> impl Drop {
 }
 
 impl Serialize for SerialInstant {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         let origin = ORIGIN.with(|origin| origin.get().expect("Time origin must be defined"));
         let diff;
         if self.0 < origin {
@@ -46,8 +51,10 @@ impl Serialize for SerialInstant {
 }
 
 impl<'de> Deserialize<'de> for SerialInstant {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where
-        D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let origin = ORIGIN.with(|origin| origin.get().unwrap());
         let diff = i128::deserialize(deserializer)?;
         Ok(SerialInstant(if diff < 0 {
@@ -61,17 +68,13 @@ impl<'de> Deserialize<'de> for SerialInstant {
 impl Sub for SerialInstant {
     type Output = Duration;
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.0 - rhs.0
-    }
+    fn sub(self, rhs: Self) -> Self::Output { self.0 - rhs.0 }
 }
 
 impl Add<Duration> for SerialInstant {
     type Output = SerialInstant;
 
-    fn add(self, rhs: Duration) -> Self::Output {
-        SerialInstant(self.0 + rhs)
-    }
+    fn add(self, rhs: Duration) -> Self::Output { SerialInstant(self.0 + rhs) }
 }
 
 #[test]

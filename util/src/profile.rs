@@ -1,9 +1,9 @@
 use std::backtrace::Backtrace;
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::{fmt, fs};
 use std::path::PathBuf;
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
+use std::{fmt, fs};
 
 #[derive(Default)]
 struct ProfileNode {
@@ -21,19 +21,20 @@ pub struct Profile(Arc<Mutex<ProfileInner>>);
 
 impl Profile {
     pub fn new(filename: PathBuf) -> Self {
-        Profile(
-            Arc::new(Mutex::new(ProfileInner {
-                filename,
-                root: ProfileNode::default(),
-            }))
-        )
+        Profile(Arc::new(Mutex::new(ProfileInner {
+            filename,
+            root: ProfileNode::default(),
+        })))
     }
     pub fn add(&mut self, value: usize) {
         let mut lock = self.0.lock().unwrap();
         let mut node = &mut lock.root;
         for line in Backtrace::capture().to_string().rsplit("\n") {
             let line = line.splitn(2, ":").nth(1).unwrap_or("???");
-            node = node.children.entry(line.to_string()).or_insert(ProfileNode::default());
+            node = node
+                .children
+                .entry(line.to_string())
+                .or_insert(ProfileNode::default());
         }
         node.value += value;
     }
@@ -54,7 +55,5 @@ impl ProfileNode {
 }
 
 impl Display for ProfileInner {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.root.render(f, "")
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { self.root.render(f, "") }
 }

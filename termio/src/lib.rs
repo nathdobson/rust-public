@@ -24,17 +24,17 @@
     incomplete_features
 )]
 
-use std::iter::FromIterator;
-use std::ops::DerefMut;
-
-#[macro_use]
-extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
-extern crate util;
+extern crate serde_derive;
 #[macro_use]
 extern crate strum_macros;
+#[macro_use]
+extern crate util;
+
+use std::iter::FromIterator;
+use std::ops::DerefMut;
 
 pub mod advance;
 pub mod canvas;

@@ -1,9 +1,10 @@
-use std::io::{Write, IoSlice, BufWriter};
-use std::{io, mem};
 use std::fmt::Arguments;
-use std::sync::{Mutex, Arc};
-use crate::shared::Shared;
+use std::io::{BufWriter, IoSlice, Write};
+use std::sync::{Arc, Mutex};
+use std::{io, mem};
+
 use crate::profile::Profile;
+use crate::shared::Shared;
 
 pub struct Pipeline {
     outgoing: Vec<Vec<u8>>,
@@ -24,38 +25,40 @@ pub struct PipelineFlusher {
 //2. flush PipelineWriter (non-blocking)
 //3. flush PipelineFlusher (blocking)
 pub fn pipeline() -> (PipelineWriter, PipelineFlusher) {
-    let shared1 = Arc::new(Mutex::new(Pipeline { outgoing: Vec::new() }));
+    let shared1 = Arc::new(Mutex::new(Pipeline {
+        outgoing: Vec::new(),
+    }));
     let shared2 = shared1.clone();
-    (PipelineWriter { buffer: vec![], shared: shared1 },
-     PipelineFlusher { shared: shared2 })
+    (
+        PipelineWriter {
+            buffer: vec![],
+            shared: shared1,
+        },
+        PipelineFlusher { shared: shared2 },
+    )
 }
 
 impl Write for PipelineWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.buffer.write(buf)
-    }
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> { self.buffer.write(buf) }
     fn write_vectored(&mut self, bufs: &[IoSlice]) -> io::Result<usize> {
         self.buffer.write_vectored(bufs)
     }
-    fn is_write_vectored(&self) -> bool {
-        self.buffer.is_write_vectored()
-    }
+    fn is_write_vectored(&self) -> bool { self.buffer.is_write_vectored() }
     fn flush(&mut self) -> io::Result<()> {
         if self.buffer.len() > 0 {
-            self.shared.lock().unwrap().outgoing.push(
-                mem::replace(&mut self.buffer, vec![]));
+            self.shared
+                .lock()
+                .unwrap()
+                .outgoing
+                .push(mem::replace(&mut self.buffer, vec![]));
         }
         Ok(())
     }
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.buffer.write_all(buf)
-    }
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> { self.buffer.write_all(buf) }
     fn write_all_vectored(&mut self, bufs: &mut [IoSlice]) -> io::Result<()> {
         self.buffer.write_all_vectored(bufs)
     }
-    fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()> {
-        self.buffer.write_fmt(fmt)
-    }
+    fn write_fmt(&mut self, fmt: Arguments) -> io::Result<()> { self.buffer.write_fmt(fmt) }
 }
 
 impl PipelineFlusher {
@@ -72,11 +75,8 @@ impl PipelineFlusher {
 }
 
 impl PipelineFlusher {
-    pub fn safe_flush<W: SafeWrite>(&mut self, output: &mut W) {
-        self.flush(output).unwrap()
-    }
+    pub fn safe_flush<W: SafeWrite>(&mut self, output: &mut W) { self.flush(output).unwrap() }
 }
-
 
 #[macro_export]
 macro_rules! swrite {
@@ -84,18 +84,10 @@ macro_rules! swrite {
 }
 
 pub trait SafeWrite: Write {
-    fn safe_write_fmt(&mut self, args: Arguments) {
-        Write::write_fmt(self, args).unwrap()
-    }
-    fn safe_write(&mut self, buf: &[u8]) -> usize {
-        Write::write(self, buf).unwrap()
-    }
-    fn safe_write_all(&mut self, buf: &[u8]) {
-        Write::write_all(self, buf).unwrap()
-    }
-    fn safe_flush(&mut self) {
-        Write::flush(self).unwrap()
-    }
+    fn safe_write_fmt(&mut self, args: Arguments) { Write::write_fmt(self, args).unwrap() }
+    fn safe_write(&mut self, buf: &[u8]) -> usize { Write::write(self, buf).unwrap() }
+    fn safe_write_all(&mut self, buf: &[u8]) { Write::write_all(self, buf).unwrap() }
+    fn safe_flush(&mut self) { Write::flush(self).unwrap() }
 }
 
 impl SafeWrite for Vec<u8> {}
@@ -130,12 +122,7 @@ impl<W: Write> Write for ProfiledWrite<W> {
 }
 
 impl<W: Write> ProfiledWrite<W> {
-    pub fn new(inner: W, profile: Profile) -> Self {
-        ProfiledWrite {
-            profile,
-            inner,
-        }
-    }
+    pub fn new(inner: W, profile: Profile) -> Self { ProfiledWrite { profile, inner } }
 }
 
 impl<W: SafeWrite> SafeWrite for ProfiledWrite<W> {}

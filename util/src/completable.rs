@@ -1,6 +1,6 @@
-use std::sync::{Condvar, Mutex, Arc};
-use std::sync::mpsc::RecvError;
 use std::mem;
+use std::sync::mpsc::RecvError;
+use std::sync::{Arc, Condvar, Mutex};
 
 #[doc(hidden)]
 pub enum State<T> {
@@ -12,7 +12,7 @@ pub enum State<T> {
 #[doc(hidden)]
 pub type Inner<T> = Arc<(Mutex<State<T>>, Condvar)>;
 
-pub struct Sender<T> (Option<Inner<T>>);
+pub struct Sender<T>(Option<Inner<T>>);
 
 pub enum Receiver<T> {
     #[doc(hidden)]
@@ -93,14 +93,9 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     (Sender(Some(inner1)), Receiver::Waiting(inner2))
 }
 
-pub fn success<T>(x: T) -> Receiver<T> {
-    Receiver::Ok(x)
-}
+pub fn success<T>(x: T) -> Receiver<T> { Receiver::Ok(x) }
 
-pub fn failure<T>() -> Receiver<T> {
-    Receiver::Err
-}
-
+pub fn failure<T>() -> Receiver<T> { Receiver::Err }
 
 #[test]
 fn test_completable_ok() {

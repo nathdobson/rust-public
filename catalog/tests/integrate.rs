@@ -2,7 +2,6 @@
 #![feature(once_cell)]
 #![deny(unused_must_use)]
 #![allow(unused_mut)]
-wasm_bindgen_test_configure!(run_in_browser);
 
 use std::collections::{HashMap, HashSet};
 use std::lazy::SyncOnceCell;
@@ -10,6 +9,8 @@ use std::lazy::SyncOnceCell;
 use registry::{Builder, BuilderFrom, Registry};
 use registry_macros::register;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
+
+wasm_bindgen_test_configure!(run_in_browser);
 
 struct TestRegistry(HashMap<&'static str, &'static str>);
 

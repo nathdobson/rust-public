@@ -1,18 +1,17 @@
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 use std::pin::Pin;
-use std::{io, mem};
-use std::task::{Waker, Context};
-use util::slice::{SlicePair, vec_as_slice_raw, raw_split_at_mut, raw_split_at, Slice};
-use std::sync::atomic::{AtomicUsize, AtomicBool};
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use crate::waker::AtomicWaker;
-use std::task::Poll;
-use tokio::io::{AsyncRead, ReadBuf, AsyncWriteExt, AsyncReadExt};
-use tokio::io::AsyncWrite;
-use tokio::join;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
+use std::{io, mem};
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::task::yield_now;
-use tokio::try_join;
+use tokio::{join, try_join};
+use util::slice::{raw_split_at, raw_split_at_mut, vec_as_slice_raw, Slice, SlicePair};
+
+use crate::waker::AtomicWaker;
 
 struct Inner {
     memory: Vec<u8>,
@@ -40,7 +39,16 @@ pub fn pipe(capacity: usize) -> (PipeWrite, PipeRead) {
         reader: AtomicWaker::new(),
         writer: AtomicWaker::new(),
     });
-    (PipeWrite { inner: inner.clone(), write_head: 0 }, PipeRead { inner, read_head: 0 })
+    (
+        PipeWrite {
+            inner: inner.clone(),
+            write_head: 0,
+        },
+        PipeRead {
+            inner,
+            read_head: 0,
+        },
+    )
 }
 
 impl Unpin for PipeWrite {}
@@ -48,27 +56,31 @@ impl Unpin for PipeWrite {}
 impl Unpin for PipeRead {}
 
 impl PipeRead {
-    pub fn capacity(&self) -> usize {
-        self.inner.memory.len()
-    }
+    pub fn capacity(&self) -> usize { self.inner.memory.len() }
 }
 
 impl PipeWrite {
-    pub fn capacity(&self) -> usize {
-        self.inner.memory.len()
-    }
+    pub fn capacity(&self) -> usize { self.inner.memory.len() }
 }
 
 impl AsyncRead for PipeRead {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf) -> Poll<io::Result<()>> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         unsafe {
             let mut length = self.inner.length.load(Acquire);
             if length == 0 {
-                if self.inner.closed.load(Relaxed) { return Poll::Ready(Ok(())); }
+                if self.inner.closed.load(Relaxed) {
+                    return Poll::Ready(Ok(()));
+                }
                 self.inner.reader.register(cx.waker());
                 length = self.inner.length.load(Acquire);
                 if length == 0 {
-                    if self.inner.closed.load(Relaxed) { return Poll::Ready(Ok(())); }
+                    if self.inner.closed.load(Relaxed) {
+                        return Poll::Ready(Ok(()));
+                    }
                     return Poll::Pending;
                 }
             }
@@ -87,7 +99,11 @@ impl AsyncRead for PipeRead {
 }
 
 impl AsyncWrite for PipeWrite {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         unsafe {
             let mut length = self.inner.length.load(Acquire);
             if length == self.inner.memory.len() {
@@ -151,17 +167,26 @@ async fn test() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_parallel() {
-    use rand::{thread_rng, Rng};
     use rand::distributions::Alphanumeric;
+    use rand::{thread_rng, Rng};
 
     let (mut write, mut read) = pipe(64);
-    let expected = Arc::new(thread_rng().sample_iter(Alphanumeric).take(100000).collect::<Vec<_>>());
+    let expected = Arc::new(
+        thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(100000)
+            .collect::<Vec<_>>(),
+    );
     let writer = tokio::spawn({
         let expected = expected.clone();
         async move {
             let mut iter = expected.iter();
             loop {
-                let buf = iter.by_ref().take(thread_rng().gen_range(1..256)).cloned().collect::<Vec<_>>();
+                let buf = iter
+                    .by_ref()
+                    .take(thread_rng().gen_range(1..256))
+                    .cloned()
+                    .collect::<Vec<_>>();
                 if buf.is_empty() {
                     break;
                 }

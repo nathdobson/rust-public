@@ -1,7 +1,3 @@
-pub mod any;
-mod de;
-pub mod ser;
-
 use std::any::TypeId;
 use std::f32::consts::E;
 use std::fmt::{Debug, Display, Formatter};
@@ -23,6 +19,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::binary::de::BinaryDeserializer;
 use crate::binary::ser::BinarySerializer;
 use crate::tag::{TypeTag, TypeTagHash};
+
+pub mod any;
+mod de;
+pub mod ser;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Error {

@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Layout, AllocError};
+use std::alloc::{AllocError, Allocator, Layout};
 use std::ptr::NonNull;
 
 struct NoopAllocator;
@@ -11,4 +11,3 @@ unsafe impl Allocator for NoopAllocator {
 pub unsafe fn call_once_raw<T: FnOnce() + ?Sized>(ptr: *mut T) {
     (Box::from_raw_in(ptr, NoopAllocator))()
 }
-

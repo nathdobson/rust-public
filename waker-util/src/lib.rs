@@ -1,10 +1,16 @@
 #![allow(unused_imports)]
 
+use std::hash::{Hash, Hasher};
+use std::mem::size_of;
+use std::ptr::{null, null_mut};
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::AtomicPtr;
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::atomic::Ordering::*;
 use std::task::{RawWaker, RawWakerVTable, Waker};
+use std::{cmp, mem};
 
 #[cfg(loom)]
 pub(crate) use loom::sync::atomic::AtomicPtr;
@@ -27,13 +33,6 @@ pub fn noop_waker_ref() -> &'static Waker {
     static NOOP_WAKER: SyncRawWaker = SyncRawWaker(noop_raw_waker());
     unsafe { mem::transmute::<&SyncRawWaker, &Waker>(&NOOP_WAKER) }
 }
-
-use std::hash::{Hash, Hasher};
-use std::mem::size_of;
-use std::ptr::{null, null_mut};
-use std::sync::atomic::Ordering;
-use std::sync::atomic::Ordering::*;
-use std::{cmp, mem};
 
 pub struct AtomicWaker {
     state: AtomicUsize,

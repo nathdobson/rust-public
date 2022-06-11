@@ -1,14 +1,13 @@
 use std::sync::mpsc::RecvError;
-use crate::watch::{Watchable, Watch};
+
+use crate::watch::{Watch, Watchable};
 
 pub struct Sender<T: Send>(Watchable<Option<T>>);
 
 pub struct Receiver<T: Send>(Watch<Option<T>>);
 
 impl<T: Send> Sender<T> {
-    pub fn send(&self, value: T) {
-        **self.0.lock().unwrap() = Some(value);
-    }
+    pub fn send(&self, value: T) { **self.0.lock().unwrap() = Some(value); }
 }
 
 impl<T: Send> Receiver<T> {
@@ -21,11 +20,9 @@ impl<T: Send> Receiver<T> {
     }
 }
 
-impl<T:Send> Iterator for Receiver<T>{
+impl<T: Send> Iterator for Receiver<T> {
     type Item = T;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.recv().ok()
-    }
+    fn next(&mut self) -> Option<Self::Item> { self.recv().ok() }
 }
 
 pub fn channel<T: Send>() -> (Sender<T>, Receiver<T>) {

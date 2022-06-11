@@ -1,13 +1,11 @@
-use libc::ucontext_t;
-use libc::setcontext;
-use libc::getcontext;
-use libc::makecontext;
-use libc::swapcontext;
-use std::mem;
-use crate::heap::Heap;
-use std::sync::Arc;
 use std::ffi::c_void;
+use std::mem;
 use std::raw::TraitObject;
+use std::sync::Arc;
+
+use libc::{getcontext, makecontext, setcontext, swapcontext, ucontext_t};
+
+use crate::heap::Heap;
 
 struct Fiber {
     context: ucontext_t,
@@ -19,7 +17,7 @@ struct Fiber {
 //     f()
 // }
 
-extern fn foo(data: *mut (), vtable: *mut ()) {
+extern "C" fn foo(data: *mut (), vtable: *mut ()) {
     unsafe {
         (mem::transmute::<_, Box<dyn FnOnce()>>(TraitObject { data, vtable }))();
     }
@@ -34,8 +32,13 @@ impl Fiber {
             context.uc_stack.ss_sp = stack.as_mut_ptr() as *mut c_void;
             context.uc_stack.ss_size = stack.len();
             let f = mem::transmute::<_, TraitObject>(f);
-            makecontext(&mut context,
-                        mem::transmute(foo as extern "C" fn(*mut (), *mut ())), 2, f.data, f.vtable);
+            makecontext(
+                &mut context,
+                mem::transmute(foo as extern "C" fn(*mut (), *mut ())),
+                2,
+                f.data,
+                f.vtable,
+            );
             Fiber {
                 context,
                 stack,
@@ -49,15 +52,17 @@ impl Fiber {
             swapcontext(&mut poll_ctx, &mut self.context);
         }
     }
-
 }
 
 #[test]
 fn test() {
     let foo = String::new();
-    let mut fiber = Fiber::new(Arc::new(Heap::new()), Box::new(move || {
-        println!("Hello! {:?}", foo);
-    }));
+    let mut fiber = Fiber::new(
+        Arc::new(Heap::new()),
+        Box::new(move || {
+            println!("Hello! {:?}", foo);
+        }),
+    );
     fiber.poll();
     // unsafe {
     //     let mut context = std::mem::zeroed();

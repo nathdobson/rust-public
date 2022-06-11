@@ -1,12 +1,12 @@
 #![allow(deprecated)]
 
-use std::any::{Any, type_name, TypeId};
-use std::{result, fmt, error, mem, sync, rc};
-use std::marker::{Unsize, PhantomData};
+use std::any::{type_name, Any, TypeId};
+use std::marker::{PhantomData, Unsize};
 use std::ops::{CoerceUnsized, Deref};
 use std::ptr::{null, null_mut};
-use std::sync::Arc;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::{error, fmt, mem, rc, result, sync};
 
 pub struct Error<T> {
     pub unused: T,
@@ -21,9 +21,7 @@ impl<T> fmt::Display for Error<T> {
 }
 
 impl<T> fmt::Debug for Error<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", self) }
 }
 
 impl<T> error::Error for Error<T> {}
@@ -34,31 +32,43 @@ impl<T: ?Sized> Vtable<T> {
     unsafe fn new(x: *mut ()) -> Self { Vtable(x, PhantomData) }
     fn null(&self) -> *const T {
         unsafe {
-            mem::transmute_copy(&TraitObject { data: null_mut(), vtable: self.0 })
+            mem::transmute_copy(&TraitObject {
+                data: null_mut(),
+                vtable: self.0,
+            })
         }
     }
-    unsafe fn unwrap<P: Pointy<Target=T>>(x: &P) -> (*mut (), Self) {
+    unsafe fn unwrap<P: Pointy<Target = T>>(x: &P) -> (*mut (), Self) {
         assert_eq!(mem::size_of::<P>(), mem::size_of::<TraitObject>());
         let object: TraitObject = mem::transmute_copy(x);
         (object.data, Vtable::new(object.vtable))
     }
-    fn type_info(&self) -> TypeInfo where T: RawAny {
+    fn type_info(&self) -> TypeInfo
+    where
+        T: RawAny,
+    {
         RawAny::raw_type_info(self.null())
     }
 }
 
 impl<T: ?Sized> Clone for Vtable<T> {
-    fn clone(&self) -> Self {
-        Vtable(self.0, PhantomData)
-    }
+    fn clone(&self) -> Self { Vtable(self.0, PhantomData) }
 }
 
 impl<T: ?Sized> Copy for Vtable<T> {}
 
-pub struct TypeInfo { id: TypeId, name: &'static str }
+pub struct TypeInfo {
+    id: TypeId,
+    name: &'static str,
+}
 
 impl TypeInfo {
-    pub fn of<T: 'static + ?Sized>() -> Self { TypeInfo { id: TypeId::of::<T>(), name: type_name::<T>() } }
+    pub fn of<T: 'static + ?Sized>() -> Self {
+        TypeInfo {
+            id: TypeId::of::<T>(),
+            name: type_name::<T>(),
+        }
+    }
 }
 
 pub unsafe trait RawAny: 'static {
@@ -78,7 +88,13 @@ trait Downcast1<T>: Sized {
 }
 
 impl<T, U> Downcast1<T> for U {
-    default fn downcast1(self) -> Result<T, Error<Self>> { return Err(Error { unused: self, from: "?", to: "?" }); }
+    default fn downcast1(self) -> Result<T, Error<Self>> {
+        return Err(Error {
+            unused: self,
+            from: "?",
+            to: "?",
+        });
+    }
 }
 
 pub trait TypeEquals {
@@ -89,7 +105,10 @@ impl<T: ?Sized> TypeEquals for T {
     type Other = Self;
 }
 
-impl<T, U> Downcast1<T> for U where T: TypeEquals<Other=U> {
+impl<T, U> Downcast1<T> for U
+where
+    T: TypeEquals<Other = U>,
+{
     fn downcast1(self) -> Result<T, Error<Self>> {
         unsafe {
             let result = mem::transmute_copy(&self);
@@ -104,24 +123,26 @@ pub trait Downcast<T>: Sized {
 }
 
 impl<T, U> Downcast<T> for U {
-    default fn downcast(self) -> Result<T, Error<Self>> {
-        Downcast1::downcast1(self)
-    }
+    default fn downcast(self) -> Result<T, Error<Self>> { Downcast1::downcast1(self) }
 }
 
 impl<T, U> Downcast<T> for U
-    where T: CoerceUnsized<U> + Pointy,
-          T::Target: Sized + 'static,
-          U: Pointy,
-          U::Target: RawAny {
+where
+    T: CoerceUnsized<U> + Pointy,
+    T::Target: Sized + 'static,
+    U: Pointy,
+    U::Target: RawAny,
+{
     fn downcast(self) -> Result<T, Error<Self>> { downcast_sized(self) }
 }
 
 pub fn downcast_sized<U, T>(this: U) -> Result<T, Error<U>>
-    where T: CoerceUnsized<U> + Pointy,
-          T::Target: Sized + 'static,
-          U: Pointy,
-          U::Target: RawAny {
+where
+    T: CoerceUnsized<U> + Pointy,
+    T::Target: Sized + 'static,
+    U: Pointy,
+    U::Target: RawAny,
+{
     unsafe {
         assert_eq!(mem::size_of::<T>(), mem::size_of::<*mut ()>());
         let (data, actual_vtable): (*mut (), Vtable<U::Target>) = Vtable::unwrap(&this);
@@ -131,7 +152,11 @@ pub fn downcast_sized<U, T>(this: U) -> Result<T, Error<U>>
             mem::forget(this);
             Ok(mem::transmute_copy::<_, T>(&data))
         } else {
-            Err(Error { unused: this, from: actual_type.name, to: expected_type.name })
+            Err(Error {
+                unused: this,
+                from: actual_type.name,
+                to: expected_type.name,
+            })
         }
     }
 }
@@ -145,10 +170,15 @@ trait Upcast1<U> {
 }
 
 impl<T, U> Upcast1<U> for T {
-    default fn upcast1(self) -> U { panic!("Bad upcast"); }
+    default fn upcast1(self) -> U {
+        panic!("Bad upcast");
+    }
 }
 
-impl<T, U> Upcast1<U> for T where U: TypeEquals<Other=T> {
+impl<T, U> Upcast1<U> for T
+where
+    U: TypeEquals<Other = T>,
+{
     default fn upcast1(self) -> U {
         unsafe {
             let result = mem::transmute_copy(&self);
@@ -162,27 +192,48 @@ impl<T, U> Upcast<U> for T {
     default fn upcast(self) -> U { Upcast1::upcast1(self) }
 }
 
-impl<T, U> Upcast<U> for T where T: CoerceUnsized<U> {
+impl<T, U> Upcast<U> for T
+where
+    T: CoerceUnsized<U>,
+{
     fn upcast(self) -> U { self }
 }
 
-unsafe impl<'a, T: ?Sized> Pointy for &'a T { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for &'a T {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for &'a mut T { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for &'a mut T {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for *const T { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for *const T {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for *mut T { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for *mut T {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for Arc<T> { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for Arc<T> {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for Rc<T> { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for Rc<T> {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for sync::Weak<T> { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for sync::Weak<T> {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for rc::Weak<T> { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for rc::Weak<T> {
+    type Target = T;
+}
 
-unsafe impl<'a, T: ?Sized> Pointy for Box<T> { type Target = T; }
+unsafe impl<'a, T: ?Sized> Pointy for Box<T> {
+    type Target = T;
+}
 
 #[test]
 fn test_pointy() {
@@ -220,9 +271,7 @@ fn test_pointy2() {
     impl X for A {}
     impl X for B {}
     unsafe impl RawAny for F<dyn X> {
-        fn raw_type_info(self: *const Self) -> TypeInfo {
-            self.x_type_info()
-        }
+        fn raw_type_info(self: *const Self) -> TypeInfo { self.x_type_info() }
     }
 
     let a: F<A> = F(1, A);
@@ -230,8 +279,14 @@ fn test_pointy2() {
 
     assert_eq!(&a, downcast_sized::<&F<dyn X>, &F<A>>(x).unwrap());
     let err = downcast_sized::<&F<dyn X>, &F<B>>(x).unwrap_err();
-    assert_eq!(err.from, "util::any::test_pointy2::F<util::any::test_pointy2::A>");
-    assert_eq!(err.to, "util::any::test_pointy2::F<util::any::test_pointy2::B>");
+    assert_eq!(
+        err.from,
+        "util::any::test_pointy2::F<util::any::test_pointy2::A>"
+    );
+    assert_eq!(
+        err.to,
+        "util::any::test_pointy2::F<util::any::test_pointy2::B>"
+    );
 }
 
 #[test]
@@ -257,4 +312,3 @@ fn test_pointy_ref() {
         assert_eq!(err.from, "i32");
     }
 }
-

@@ -1,8 +1,7 @@
-use std::thread;
-use crate::watch::Watchable;
-
 use std::ops::{Deref, DerefMut};
-use std::mem;
+use std::{mem, thread};
+
+use crate::watch::Watchable;
 
 pub struct Dirty<T: ?Sized> {
     dirty: bool,
@@ -10,22 +9,21 @@ pub struct Dirty<T: ?Sized> {
 }
 
 impl<T: ?Sized> Dirty<T> {
-    pub fn new(value: T) -> Self where T: Sized {
+    pub fn new(value: T) -> Self
+    where
+        T: Sized,
+    {
         Dirty {
             dirty: false,
             value,
         }
     }
-    pub fn check_dirty(&mut self) -> bool {
-        mem::replace(&mut self.dirty, false)
-    }
+    pub fn check_dirty(&mut self) -> bool { mem::replace(&mut self.dirty, false) }
 }
 
 impl<T: ?Sized> Deref for Dirty<T> {
     type Target = T;
-    fn deref(&self) -> &T {
-        &self.value
-    }
+    fn deref(&self) -> &T { &self.value }
 }
 
 impl<T: ?Sized> DerefMut for Dirty<T> {
@@ -35,7 +33,10 @@ impl<T: ?Sized> DerefMut for Dirty<T> {
     }
 }
 
-pub fn dirty_loop<T: Send + 'static>(value: T, mut callback: Box<dyn FnMut(&mut T) + 'static + Send>) -> Watchable<T> {
+pub fn dirty_loop<T: Send + 'static>(
+    value: T,
+    mut callback: Box<dyn FnMut(&mut T) + 'static + Send>,
+) -> Watchable<T> {
     let watch = Watchable::new(value);
     let mut reader = watch.watch();
     thread::spawn(move || {
@@ -48,15 +49,17 @@ pub fn dirty_loop<T: Send + 'static>(value: T, mut callback: Box<dyn FnMut(&mut 
 
 #[test]
 fn test_dirty() {
-    use std::sync::Barrier;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier};
 
     let b1 = Arc::new(Barrier::new(2));
     let b2 = b1.clone();
-    let dirty = dirty_loop((), Box::new(move |&mut ()| {
-        b2.wait();
-        b2.wait();
-    }));
+    let dirty = dirty_loop(
+        (),
+        Box::new(move |&mut ()| {
+            b2.wait();
+            b2.wait();
+        }),
+    );
     let _ = dirty.lock().unwrap();
     b1.wait();
     let _ = dirty.lock().unwrap();

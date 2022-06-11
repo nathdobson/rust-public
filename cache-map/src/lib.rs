@@ -13,6 +13,7 @@ use colosseum::sync::Arena;
 use ouroboros::self_referencing;
 use ouroboros_impl_cache_map_inner::BorrowedFields;
 use parking_lot::Mutex;
+
 #[self_referencing]
 pub struct CacheMapInner<K: 'static, V: 'static> {
     arena: Arena<V>,

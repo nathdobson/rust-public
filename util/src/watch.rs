@@ -1,5 +1,5 @@
 use std::ops::{Deref, DerefMut};
-use std::sync::{Mutex, Condvar, MutexGuard, Arc, LockResult, TryLockError, TryLockResult};
+use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, TryLockError, TryLockResult};
 
 pub struct State<T: ?Sized> {
     version: usize,
@@ -13,7 +13,7 @@ struct Inner<T: ?Sized> {
 }
 
 pub struct Watchable<T: ?Sized> {
-    inner: Arc<Inner<T>>
+    inner: Arc<Inner<T>>,
 }
 
 pub struct Watch<T: ?Sized> {
@@ -22,14 +22,19 @@ pub struct Watch<T: ?Sized> {
 }
 
 impl<T: ?Sized> Watchable<T> {
-    pub fn new(value: T) -> Self where T: Sized {
+    pub fn new(value: T) -> Self
+    where
+        T: Sized,
+    {
         Watchable {
-            inner: Arc::new(
-                Inner {
-                    mutex: Mutex::new(State { version: 1, value, writers: 1 }),
-                    condvar: Condvar::new(),
-                }
-            ),
+            inner: Arc::new(Inner {
+                mutex: Mutex::new(State {
+                    version: 1,
+                    value,
+                    writers: 1,
+                }),
+                condvar: Condvar::new(),
+            }),
         }
     }
     pub fn lock(&self) -> LockResult<MutexGuard<State<T>>> {
@@ -39,7 +44,10 @@ impl<T: ?Sized> Watchable<T> {
         Ok(lock)
     }
     pub fn watch(&self) -> Watch<T> {
-        Watch { inner: self.inner.clone(), version: 0 }
+        Watch {
+            inner: self.inner.clone(),
+            version: 0,
+        }
     }
 }
 
@@ -73,22 +81,18 @@ impl<T: ?Sized> Clone for Watchable<T> {
     fn clone(&self) -> Self {
         self.inner.mutex.lock().unwrap().writers += 1;
         Watchable {
-            inner: self.inner.clone()
+            inner: self.inner.clone(),
         }
     }
 }
 
 impl<T> Deref for State<T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
+    fn deref(&self) -> &Self::Target { &self.value }
 }
 
 impl<T> DerefMut for State<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.value
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.value }
 }
 
 impl<T> Clone for Watch<T> {

@@ -1,7 +1,7 @@
-use crate::Waiter;
 use crate::atomic::Packable;
-use crate::state::ReleaseMode::{Unlocked, Locked, LockedDirty};
 use crate::state::AcquireState::{Available, Queued};
+use crate::state::ReleaseMode::{Locked, LockedDirty, Unlocked};
+use crate::Waiter;
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 pub enum ReleaseMode {
@@ -26,11 +26,12 @@ impl Packable for ReleaseState {
     type Raw = usize;
 
     unsafe fn encode(val: Self) -> Self::Raw {
-        ((val.releasable << 2) | (match val.mode {
-            Unlocked => 0,
-            Locked => 1,
-            LockedDirty => 2,
-        })) as usize
+        ((val.releasable << 2)
+            | (match val.mode {
+                Unlocked => 0,
+                Locked => 1,
+                LockedDirty => 2,
+            })) as usize
     }
     unsafe fn decode(val: Self::Raw) -> Self {
         ReleaseState {
@@ -39,7 +40,7 @@ impl Packable for ReleaseState {
                 0 => Unlocked,
                 1 => Locked,
                 2 => LockedDirty,
-                _ => unreachable!()
+                _ => unreachable!(),
             },
         }
     }

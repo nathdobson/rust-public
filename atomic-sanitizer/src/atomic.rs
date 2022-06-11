@@ -1,11 +1,11 @@
 use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::Ordering::SeqCst;
-use std::thread;
 use std::sync::Mutex;
+use std::thread;
 use std::thread::ThreadId;
-use std::collections::HashMap;
-use std::cell::RefCell;
 
 struct Atomic<T: Copy + Eq> {
     inner: Mutex<AtomicInner<T>>,
@@ -34,8 +34,8 @@ thread_local! {
      });
 }
 
-impl<T:Copy+Eq> AtomicInner<T>{
-    fn acquire(&mut self){
+impl<T: Copy + Eq> AtomicInner<T> {
+    fn acquire(&mut self) {
         for (releaser, release) in inner.last_release {
             let sync = thread.last_sync.entry(releaser).or_insert(0);
             *sync = (*sync).max(release);
@@ -44,7 +44,13 @@ impl<T:Copy+Eq> AtomicInner<T>{
 }
 
 impl<T: Copy + Eq> Atomic<T> {
-    fn compare_exchange(&self, current: T, new: T, success: Ordering, failure: Ordering) -> Result<T, T> {
+    fn compare_exchange(
+        &self,
+        current: T,
+        new: T,
+        success: Ordering,
+        failure: Ordering,
+    ) -> Result<T, T> {
         THREAD.with(|thread| {
             let thread_id = thread::current().id();
             let mut thread = thread.borrow_mut();

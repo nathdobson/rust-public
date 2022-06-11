@@ -1,5 +1,4 @@
-use std::future::Future;
-use std::future::poll_fn;
+use std::future::{poll_fn, Future};
 use std::mem;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -7,16 +6,15 @@ use std::time::{Duration, Instant};
 
 use tokio::task::yield_now;
 use tokio::time::sleep;
-
 use util::dirty::Dirty;
 use util::mutrc::{MutRc, ReadGuard, WriteGuard};
 use util::time::SerialInstant;
 
-use crate::{dirty};
+use crate::dirty;
 use crate::dirty::Sender;
+use crate::spawn::Spawn;
 use crate::timer::poll_elapse;
 use crate::waker::AtomicWaker;
-use crate::spawn::Spawn;
 
 pub struct MutFuture<T: 'static> {
     inner: MutRc<T>,
@@ -24,33 +22,35 @@ pub struct MutFuture<T: 'static> {
 }
 
 impl<T: 'static> MutFuture<T> {
-    pub fn new(x: T, mut poller: impl FnMut(&mut T, &mut Context) -> Poll<()> + 'static) -> (Self, impl Future<Output=()>) {
+    pub fn new(
+        x: T,
+        mut poller: impl FnMut(&mut T, &mut Context) -> Poll<()> + 'static,
+    ) -> (Self, impl Future<Output = ()>) {
         let inner = MutRc::new(x);
         let waker = Arc::new(AtomicWaker::new());
         let waker2 = waker.clone();
         let weak = MutRc::downgrade(&inner);
-        (MutFuture { inner, waker }, poll_fn(move |cx| {
-            waker2.register(cx.waker());
-            if let Some(mut strong) = weak.upgrade() {
-                poller(&mut *strong.write(), cx)
-            } else {
-                Poll::Ready(())
-            }
-        }))
+        (
+            MutFuture { inner, waker },
+            poll_fn(move |cx| {
+                waker2.register(cx.waker());
+                if let Some(mut strong) = weak.upgrade() {
+                    poller(&mut *strong.write(), cx)
+                } else {
+                    Poll::Ready(())
+                }
+            }),
+        )
     }
     pub fn write(&mut self) -> WriteGuard<T> {
         self.waker.wake();
         self.inner.write()
     }
-    pub fn read(&self) -> ReadGuard<T> {
-        self.inner.read()
-    }
+    pub fn read(&self) -> ReadGuard<T> { self.inner.read() }
 }
 
 impl<T: 'static> Drop for MutFuture<T> {
-    fn drop(&mut self) {
-        self.waker.wake();
-    }
+    fn drop(&mut self) { self.waker.wake(); }
 }
 
 #[tokio::test]
@@ -74,7 +74,10 @@ async fn test() {
         }
     }
     let (spawner, runner) = priority::channel();
-    let state = State { count: 0, next: None };
+    let state = State {
+        count: 0,
+        next: None,
+    };
     let (mut state, state_runner) = MutFuture::new(state, State::poll_state);
     spawner.with_priority(0).spawn(state_runner);
     let delta = Duration::from_millis(100);

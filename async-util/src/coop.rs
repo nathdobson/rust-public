@@ -1,32 +1,30 @@
-use std::future::Future;
-use std::{io, mem, thread};
-use std::io::ErrorKind;
-use std::fmt::{Display, Formatter, Debug};
 use std::error::Error;
-use std::fmt;
-use ondrop::OnDrop;
-use std::panic::{AssertUnwindSafe, resume_unwind};
-use std::process::{exit, abort};
-use std::time::Duration;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::promise::Promise;
-use tokio::pin;
-use tokio::select;
-use tokio::time::sleep;
-use tokio::sync::oneshot;
-use crate::spawn::{Spawn};
-use tokio::task::yield_now;
-use tokio::sync::mpsc::channel;
-use tokio::runtime::Handle;
-use std::task::{Poll, Context};
-use std::future::poll_fn;
-use crate::futureext::FutureExt;
-use crate::join::{RemoteJoinHandle, Remote, JoinHandle};
+use std::fmt::{Debug, Display, Formatter};
+use std::future::{poll_fn, Future};
+use std::io::ErrorKind;
+use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::pin::Pin;
-use pin_project::pin_project;
+use std::process::{abort, exit};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use async_weighted_semaphore::Semaphore;
+use std::task::{Context, Poll};
+use std::time::Duration;
+use std::{fmt, io, mem, thread};
 
+use async_weighted_semaphore::Semaphore;
+use ondrop::OnDrop;
+use pin_project::pin_project;
+use tokio::runtime::Handle;
+use tokio::sync::mpsc::channel;
+use tokio::sync::oneshot;
+use tokio::task::yield_now;
+use tokio::time::sleep;
+use tokio::{pin, select};
+
+use crate::futureext::FutureExt;
+use crate::join::{JoinHandle, Remote, RemoteJoinHandle};
+use crate::promise::Promise;
+use crate::spawn::Spawn;
 
 pub struct CancelInner {
     semaphore: Semaphore,
@@ -76,9 +74,7 @@ impl Cancel {
     }
 
     /// Wait for cancel to be called.
-    pub async fn wait(&self) {
-        self.0.semaphore.acquire(1).await.unwrap_err();
-    }
+    pub async fn wait(&self) { self.0.semaphore.acquire(1).await.unwrap_err(); }
 
     pub fn on_cancel(&self, listener: impl 'static + Send + FnOnce()) {
         self.0.listeners.lock().unwrap().push(Box::new(listener));
@@ -101,7 +97,11 @@ impl Cancel {
 
     // Run f until a timeout after cancellation. This effectively puts a timeout on asynchronous
     // cancellation and uses synchronous cancellation after the timeout.
-    pub async fn checked_timeout<F: Future>(&self, duration: Duration, fut: F) -> Result<F::Output, Timeout> {
+    pub async fn checked_timeout<F: Future>(
+        &self,
+        duration: Duration,
+        fut: F,
+    ) -> Result<F::Output, Timeout> {
         let failure = async {
             self.wait().await;
             sleep(duration).await;
@@ -115,48 +115,52 @@ impl Cancel {
 
     // Spawn a plankton task governed by this Cancel. Dropping the returned future will trigger cancel.
     // This effectively wraps an asynchronously canceled future as a synchronously canceled future.
-    pub fn spawn<F, S>(
-        &self,
-        spawn: &S,
-        fut: F,
-    ) -> CoopJoinHandle<S::JoinHandle<F::Output>>
-        where F: Future + Send + 'static,
-              F::Output: Send,
-              S: Spawn {
-        CoopJoinHandle { inner: spawn.spawn_with_handle(fut), cancel: self.clone() }
+    pub fn spawn<F, S>(&self, spawn: &S, fut: F) -> CoopJoinHandle<S::JoinHandle<F::Output>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send,
+        S: Spawn,
+    {
+        CoopJoinHandle {
+            inner: spawn.spawn_with_handle(fut),
+            cancel: self.clone(),
+        }
     }
 
     pub fn cancel_on_control_c(&self) {
         let counter = AtomicUsize::new(0);
         let this = self.clone();
         let prefix = "\nReceived Ctrl-C";
-        ctrlc::set_handler(move || {
-            match counter.fetch_add(1, Ordering::SeqCst) {
-                0 => {
-                    eprintln!("{}: cancelling.", prefix);
-                    this.clone().cancel();
-                }
-                1 => eprintln!("{}: skip cancellation?", prefix),
-                2 => eprintln!("{}: skip cancellation??", prefix),
-                3 => {
-                    eprintln!("{}: exiting.", prefix);
-                    exit(3)
-                }
-                4 => eprintln!("{}: skip exit handlers?", prefix),
-                5 => eprintln!("{}: skip exit handlers??", prefix),
-                _ => {
-                    eprintln!("{}: aborting.", prefix);
-                    abort()
-                }
+        ctrlc::set_handler(move || match counter.fetch_add(1, Ordering::SeqCst) {
+            0 => {
+                eprintln!("{}: cancelling.", prefix);
+                this.clone().cancel();
             }
-        }).unwrap();
+            1 => eprintln!("{}: skip cancellation?", prefix),
+            2 => eprintln!("{}: skip cancellation??", prefix),
+            3 => {
+                eprintln!("{}: exiting.", prefix);
+                exit(3)
+            }
+            4 => eprintln!("{}: skip exit handlers?", prefix),
+            5 => eprintln!("{}: skip exit handlers??", prefix),
+            _ => {
+                eprintln!("{}: aborting.", prefix);
+                abort()
+            }
+        })
+        .unwrap();
     }
 
-    pub async fn run_main<E: Display>(self, f: impl Future<Output=Result<(), E>>) -> ! {
+    pub async fn run_main<E: Display>(self, f: impl Future<Output = Result<(), E>>) -> ! {
         self.run_main_timeout(Duration::from_millis(5000), f).await
     }
 
-    pub async fn run_main_timeout<E: Display>(self, dur: Duration, f: impl Future<Output=Result<(), E>>) -> ! {
+    pub async fn run_main_timeout<E: Display>(
+        self,
+        dur: Duration,
+        f: impl Future<Output = Result<(), E>>,
+    ) -> ! {
         self.cancel_on_control_c();
         match self.checked_timeout(dur, f).await {
             Ok(Ok(())) => std::process::exit(0),
@@ -181,9 +185,7 @@ impl<J: JoinHandle> Future for CoopJoinHandle<J> {
 }
 
 impl<J: JoinHandle> JoinHandle for CoopJoinHandle<J> {
-    fn abort(self) {
-        self.cancel.cancel();
-    }
+    fn abort(self) { self.cancel.cancel(); }
 }
 
 impl From<Canceled> for io::Error {
@@ -195,9 +197,7 @@ impl From<Timeout> for io::Error {
 }
 
 impl From<oneshot::error::RecvError> for Canceled {
-    fn from(_: oneshot::error::RecvError) -> Self {
-        Canceled
-    }
+    fn from(_: oneshot::error::RecvError) -> Self { Canceled }
 }
 
 impl Display for Canceled {
@@ -211,7 +211,6 @@ impl Display for Timeout {
 impl Error for Canceled {}
 
 impl Error for Timeout {}
-
 
 #[tokio::test]
 async fn test_return() {
@@ -231,7 +230,9 @@ async fn test_return() {
 
 impl Debug for Cancel {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Cancel").field(&Arc::as_ptr(&self.0)).finish()
+        f.debug_tuple("Cancel")
+            .field(&Arc::as_ptr(&self.0))
+            .finish()
     }
 }
 
@@ -260,16 +261,19 @@ async fn test_abort_handle() {
         assert_eq!(Poll::Ready(Some(2)), receiver.poll_recv(cx));
         assert_eq!(Poll::Pending, receiver.poll_recv(cx));
         Poll::Ready(())
-    }).await;
+    })
+    .await;
     handle.abort();
     poll_fn(|cx| {
         assert_eq!(Poll::Pending, receiver.poll_recv(cx));
         Poll::Ready(())
-    }).await;
+    })
+    .await;
     yield_now().await;
     poll_fn(|cx| {
         assert_eq!(Poll::Ready(Some(-1)), receiver.poll_recv(cx));
         assert_eq!(Poll::Ready(None), receiver.poll_recv(cx));
         Poll::Ready(())
-    }).await;
+    })
+    .await;
 }

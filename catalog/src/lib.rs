@@ -57,6 +57,7 @@ use std::hint::black_box;
 use std::ops::Deref;
 use std::sync::Once;
 
+pub use catalog_macros::register;
 use cfg_if::cfg_if;
 use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
@@ -78,8 +79,6 @@ pub mod reexport {
 
     pub use crate::imp::reexport::*;
 }
-
-pub use catalog_macros::register;
 
 pub trait Builder {
     type Output;

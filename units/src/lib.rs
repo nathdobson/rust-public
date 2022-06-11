@@ -10,6 +10,9 @@
 #![feature(associated_type_bounds)]
 #![feature(min_type_alias_impl_trait)]
 
+#[macro_use]
+extern crate lalrpop_util;
+
 mod ast;
 mod check;
 mod eval;
@@ -20,8 +23,5 @@ mod unicode;
 mod unit;
 mod value;
 mod variants;
-
-#[macro_use]
-extern crate lalrpop_util;
 
 lalrpop_mod!(pub grammar); // synthesized by LALRPOP

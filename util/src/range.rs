@@ -1,5 +1,6 @@
-use std::ops::Range;
 use std::cmp;
+use std::ops::Range;
+
 use num::CheckedAdd;
 
 pub trait RangeExt {
@@ -8,7 +9,10 @@ pub trait RangeExt {
     fn sub_range_truncated(&self, other: &Self) -> Self;
 }
 
-impl<T> RangeExt for Range<T> where T: Copy + Ord + CheckedAdd {
+impl<T> RangeExt for Range<T>
+where
+    T: Copy + Ord + CheckedAdd,
+{
     fn intersects(&self, other: &Self) -> bool {
         cmp::max(self.start, other.start) < cmp::min(self.end, other.end)
     }
@@ -39,18 +43,12 @@ fn test_range_ext() {
 
 #[test]
 #[should_panic]
-fn test_range_ext_swap() {
-    (10..20).sub_range(&(3..2));
-}
+fn test_range_ext_swap() { (10..20).sub_range(&(3..2)); }
 
 #[test]
 #[should_panic]
-fn test_range_ext_out_of_range() {
-    (10..20).sub_range(&(5..15));
-}
+fn test_range_ext_out_of_range() { (10..20).sub_range(&(5..15)); }
 
 #[test]
 #[should_panic]
-fn test_range_ext_overflow() {
-    (10..20).sub_range(&(isize::max_value()..isize::max_value()));
-}
+fn test_range_ext_overflow() { (10..20).sub_range(&(isize::max_value()..isize::max_value())); }

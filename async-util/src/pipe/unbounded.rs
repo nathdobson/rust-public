@@ -1,16 +1,17 @@
-use std::sync::atomic::AtomicPtr;
-use crate::waker::AtomicWaker;
-use crate::pipe::bounded;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::io;
 use std::io::{Error, Write};
-use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver, unbounded_channel};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncReadExt};
+use std::pin::Pin;
 use std::stream::Stream;
-use crate::waker::noop_waker_ref;
+use std::sync::atomic::AtomicPtr;
+use std::task::{Context, Poll};
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::yield_now;
+
 use crate::futureext::FutureExt;
+use crate::pipe::bounded;
+use crate::waker::{noop_waker_ref, AtomicWaker};
 
 pub struct PipeWrite {
     write: bounded::PipeWrite,
@@ -33,7 +34,11 @@ impl Unpin for PipeWrite {}
 impl Unpin for PipeRead {}
 
 impl AsyncRead for PipeRead {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf) -> Poll<io::Result<()>> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         loop {
             let old_filled = buf.filled().len();
             match Pin::new(&mut self.read).poll_read(cx, buf)? {
@@ -60,7 +65,9 @@ impl Write for PipeWrite {
         match Pin::new(&mut self.write).poll_write(&mut noop_ctx, buf)? {
             Poll::Ready(x) => Ok(x),
             Poll::Pending => {
-                let new_cap = (self.write.capacity() + 1).max(buf.len()).next_power_of_two();
+                let new_cap = (self.write.capacity() + 1)
+                    .max(buf.len())
+                    .next_power_of_two();
                 let (write, read) = bounded::pipe(new_cap);
                 self.sender.send(read).ok();
                 self.write = write;

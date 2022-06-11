@@ -1,8 +1,8 @@
-use std::sync::mpsc;
 use std::fmt::Debug;
-use std::time::Duration;
-use std::thread;
+use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
+use std::thread;
+use std::time::Duration;
 
 pub struct Client<I: Debug, O: Debug> {
     request: mpsc::Sender<I>,
@@ -17,7 +17,16 @@ pub struct Server<I: Debug, O: Debug> {
 pub fn channel<I: Debug, O: Debug>() -> (Client<I, O>, Server<I, O>) {
     let (is, ir) = mpsc::channel();
     let (os, or) = mpsc::channel();
-    (Client { request: is, response: or }, Server { request: ir, response: os })
+    (
+        Client {
+            request: is,
+            response: or,
+        },
+        Server {
+            request: ir,
+            response: os,
+        },
+    )
 }
 
 impl<I: Debug, O: Debug> Client<I, O> {
@@ -29,7 +38,11 @@ impl<I: Debug, O: Debug> Client<I, O> {
 
 impl<I: Debug, O: Debug> Server<I, O> {
     fn will(&self, callback: impl FnOnce(I) -> O) {
-        self.response.send(callback(self.request.recv_timeout(Duration::from_secs(1)).unwrap())).unwrap()
+        self.response
+            .send(callback(
+                self.request.recv_timeout(Duration::from_secs(1)).unwrap(),
+            ))
+            .unwrap()
     }
     pub fn expect_timeout(&self) {
         match self.request.recv_timeout(Duration::from_millis(100)) {
@@ -57,7 +70,12 @@ impl<I: Debug + PartialEq> Server<I, ()> {
 impl<I: Debug, O: Debug> Drop for Server<I, O> {
     fn drop(&mut self) {
         if !thread::panicking() {
-            assert_eq!(self.request.recv_timeout(Duration::from_secs(1)).unwrap_err(), mpsc::RecvTimeoutError::Disconnected);
+            assert_eq!(
+                self.request
+                    .recv_timeout(Duration::from_secs(1))
+                    .unwrap_err(),
+                mpsc::RecvTimeoutError::Disconnected
+            );
         }
     }
 }

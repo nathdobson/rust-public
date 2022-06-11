@@ -1,3 +1,4 @@
+//use util::any::{Upcast};
 use std::any::{Any, TypeId};
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, VecDeque};
@@ -9,7 +10,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::task::Context;
 use std::time::{Duration, Instant};
-//use util::any::{Upcast};
 use std::{fmt, io, mem, thread};
 
 use async_util::delay_writer::DelayWriter;

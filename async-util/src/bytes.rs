@@ -1,12 +1,13 @@
-use futures::{AsyncRead, AsyncWrite};
-use std::borrow::{BorrowMut, Borrow};
+use std::borrow::{Borrow, BorrowMut};
+use std::future::Future;
+use std::io;
+use std::marker::PhantomData;
 use std::mem::size_of;
 use std::pin::Pin;
-use std::future::Future;
+
 use futures::task::{Context, Poll};
+use futures::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
-use std::marker::PhantomData;
-use std::io;
 
 pub trait BytesInt {
     type Buffer: BorrowMut<[u8]> + Default + Copy;
@@ -94,7 +95,12 @@ impl<'a, R: AsyncRead + ?Sized, I: BytesInt, E: Endian> Unpin for ReadInt<'a, R,
 
 impl<'a, R: AsyncRead + ?Sized, I: BytesInt, E: Endian> ReadInt<'a, R, I, E> {
     fn new(read: &'a mut R) -> Self {
-        ReadInt { read, offset: 0, buf: I::Buffer::default(), phantom: PhantomData }
+        ReadInt {
+            read,
+            offset: 0,
+            buf: I::Buffer::default(),
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -131,7 +137,6 @@ impl<'a, R: ?Sized + AsyncRead + Unpin, I: BytesInt, E: Endian> Future for ReadI
     }
 }
 
-
 #[pin_project]
 pub struct WriteBytes<'a, W: WriteIntExt + ?Sized, B: Borrow<[u8]>> {
     #[pin]
@@ -140,9 +145,11 @@ pub struct WriteBytes<'a, W: WriteIntExt + ?Sized, B: Borrow<[u8]>> {
     bytes: B,
 }
 
-
 pub trait WriteIntExt: AsyncWrite + Unpin {
-    fn write_int<'a, I: BytesInt, E: Endian>(&'a mut self, x: I) -> WriteBytes<'a, Self, I::Buffer> {
+    fn write_int<'a, I: BytesInt, E: Endian>(
+        &'a mut self,
+        x: I,
+    ) -> WriteBytes<'a, Self, I::Buffer> {
         WriteBytes::new(self, E::int_to(x))
     }
     fn write_le<'a, I: BytesInt>(&'a mut self, x: I) -> WriteBytes<'a, Self, I::Buffer> {
@@ -164,7 +171,11 @@ impl<T: ?Sized + AsyncWrite + Unpin> WriteIntExt for T {}
 
 impl<'a, W: WriteIntExt + ?Sized, B: Borrow<[u8]>> WriteBytes<'a, W, B> {
     fn new(write: &'a mut W, bytes: B) -> Self {
-        WriteBytes { write, offset: 0, bytes }
+        WriteBytes {
+            write,
+            offset: 0,
+            bytes,
+        }
     }
 }
 

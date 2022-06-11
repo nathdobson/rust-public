@@ -7,9 +7,6 @@
 #![allow(dead_code)]
 #![allow(incomplete_features)]
 
-mod builder;
-mod error;
-
 use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -20,6 +17,9 @@ use serde::de::{DeserializeSeed, EnumAccess, IntoDeserializer, SeqAccess, Varian
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::Error;
+
+mod builder;
+mod error;
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
 pub enum VariantSchema {

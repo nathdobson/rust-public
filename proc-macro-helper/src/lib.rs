@@ -10,12 +10,6 @@
 #![feature(backtrace_frames)]
 #![feature(never_type)]
 
-pub mod attr_value;
-pub mod attrs;
-pub mod helper;
-#[cfg(test)]
-mod tests;
-
 extern crate proc_macro;
 
 use std::any::Any;
@@ -40,6 +34,12 @@ use syn::{
 
 use crate::attrs::{AttrGroup, AttrStream, ParseAttr, ParseAttrGroup};
 use crate::helper::HelperItem;
+
+pub mod attr_value;
+pub mod attrs;
+pub mod helper;
+#[cfg(test)]
+mod tests;
 
 pub fn proc_macro_derive_shim<A: ParseAttrGroup>(
     input: TokenStream,

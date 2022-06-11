@@ -10,8 +10,6 @@
 #![deny(unused_must_use)]
 #![feature(once_cell)]
 
-mod common;
-
 use std::ops::Deref;
 
 use common::any_string::AnyString;
@@ -20,6 +18,8 @@ use serde::{Deserialize, Serialize};
 use typetag_static::{binary, json, BoxAnySerde};
 
 use crate::common::custom::{Custom, Expected};
+
+mod common;
 
 #[test]
 fn test_binary_any() {

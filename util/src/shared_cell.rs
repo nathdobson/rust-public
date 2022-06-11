@@ -1,16 +1,19 @@
-use std::marker::Unsize;
-use std::ops::{Index, IndexMut, CoerceUnsized};
-use std::sync::atomic::AtomicU64;
-use std::sync::{atomic, Arc};
-use crate::shared::Shared;
+use std::cell::UnsafeCell;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
-use std::cell::UnsafeCell;
+use std::marker::Unsize;
+use std::ops::{CoerceUnsized, Index, IndexMut};
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::{atomic, Arc};
+
+use crate::shared::Shared;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub struct SharedCell { id: u64 }
+pub struct SharedCell {
+    id: u64,
+}
 
 struct Inner<A: ?Sized> {
     id: u64,
@@ -20,13 +23,20 @@ struct Inner<A: ?Sized> {
 pub struct Key<A: ?Sized + 'static>(Arc<Inner<A>>);
 
 impl SharedCell {
-    pub fn new() -> Self { SharedCell { id: COUNTER.fetch_add(1, Relaxed) } }
+    pub fn new() -> Self {
+        SharedCell {
+            id: COUNTER.fetch_add(1, Relaxed),
+        }
+    }
     pub fn push<A: 'static>(&self, value: A) -> Key<A> {
-        Key(Arc::new(Inner { id: self.id, value: UnsafeCell::new(value) }))
+        Key(Arc::new(Inner {
+            id: self.id,
+            value: UnsafeCell::new(value),
+        }))
     }
 }
 
-impl<'t, A: 'static + ?Sized, > Index<&'t Key<A>> for SharedCell {
+impl<'t, A: 'static + ?Sized> Index<&'t Key<A>> for SharedCell {
     type Output = A;
     fn index<'b>(&'b self, key: &'t Key<A>) -> &'b A {
         unsafe {
@@ -36,7 +46,7 @@ impl<'t, A: 'static + ?Sized, > Index<&'t Key<A>> for SharedCell {
     }
 }
 
-impl<'t, A: 'static + ?Sized, > IndexMut<&'t Key<A>> for SharedCell {
+impl<'t, A: 'static + ?Sized> IndexMut<&'t Key<A>> for SharedCell {
     fn index_mut<'b>(&'b mut self, key: &'t Key<A>) -> &'b mut A {
         unsafe {
             assert!(self.id == key.0.id);
@@ -48,15 +58,11 @@ impl<'t, A: 'static + ?Sized, > IndexMut<&'t Key<A>> for SharedCell {
 impl<A: 'static + ?Sized> Eq for Key<A> {}
 
 impl<A: 'static + ?Sized> PartialEq for Key<A> {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::as_ptr(&self.0).eq(&Arc::as_ptr(&other.0))
-    }
+    fn eq(&self, other: &Self) -> bool { Arc::as_ptr(&self.0).eq(&Arc::as_ptr(&other.0)) }
 }
 
 impl<A: 'static + ?Sized> Ord for Key<A> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        Arc::as_ptr(&self.0).cmp(&Arc::as_ptr(&other.0))
-    }
+    fn cmp(&self, other: &Self) -> Ordering { Arc::as_ptr(&self.0).cmp(&Arc::as_ptr(&other.0)) }
 }
 
 impl<A: 'static + ?Sized> PartialOrd for Key<A> {
@@ -73,6 +79,9 @@ impl<A: 'static + ?Sized> Clone for Key<A> {
     fn clone(&self) -> Self { Key(self.0.clone()) }
 }
 
-impl<T, U> CoerceUnsized<Key<U>> for Key<T> where
+impl<T, U> CoerceUnsized<Key<U>> for Key<T>
+where
     T: Unsize<U> + ?Sized,
-    U: ?Sized {}
+    U: ?Sized,
+{
+}

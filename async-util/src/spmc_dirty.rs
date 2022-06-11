@@ -1,14 +1,15 @@
-use std::sync::Arc;
-use std::sync::atomic::Ordering::AcqRel;
-use crate::waker::AtomicWaker;
-use std::sync::atomic::AtomicUsize;
-use tokio_stream::Stream;
-use std::task::{Context, Poll};
 use std::pin::Pin;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::AcqRel;
+use std::sync::Arc;
+use std::task::{ready, Context, Poll};
+
 use tokio::sync::Notify;
+use tokio_stream::Stream;
 use util::weak_vec::WeakVec;
+
 use crate::dirty;
-use std::task::ready;
+use crate::waker::AtomicWaker;
 
 pub struct Sender {
     generation: Arc<AtomicUsize>,
@@ -22,18 +23,12 @@ pub struct Receiver {
 }
 
 impl Sender {
-    pub fn new() -> Self {
-        todo!()
-    }
-    pub fn subscribe(&mut self) -> Receiver {
-        todo!()
-    }
+    pub fn new() -> Self { todo!() }
+    pub fn subscribe(&mut self) -> Receiver { todo!() }
 }
 
 impl Sender {
-    pub fn mark(&self) {
-        self.generation.fetch_add(2, AcqRel);
-    }
+    pub fn mark(&self) { self.generation.fetch_add(2, AcqRel); }
 }
 
 impl Receiver {
@@ -62,7 +57,5 @@ impl Stream for Receiver {
 impl Unpin for Receiver {}
 
 impl Drop for Sender {
-    fn drop(&mut self) {
-        self.generation.store(1, AcqRel);
-    }
+    fn drop(&mut self) { self.generation.store(1, AcqRel); }
 }

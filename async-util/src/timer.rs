@@ -1,18 +1,19 @@
-use std::task::{Poll, Context, Waker};
-use util::time::SerialInstant;
-use std::sync::{Arc, Mutex, Condvar};
+use std::future::poll_fn;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::{Arc, Condvar, Mutex};
+use std::task::{Context, Poll, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
-use crate::waker::HashWaker;
+
 use lazy_static::lazy_static;
 use priority_queue::PriorityQueue;
-use std::future::poll_fn;
+use serde::{Deserialize, Serialize};
+use util::time::SerialInstant;
+
 use crate::poll::PollResult;
-use crate::poll::PollResult::{Yield, Noop};
-use serde::Serialize;
-use serde::Deserialize;
+use crate::poll::PollResult::{Noop, Yield};
+use crate::waker::HashWaker;
 
 struct State {
     queue: PriorityQueue<HashWaker, SerialInstant>,
@@ -34,7 +35,7 @@ fn timer() -> Timer {
             let now = SerialInstant::now();
             if let Some((_, &when)) = lock.queue.peek() {
                 if when <= now {
-                    lock.queue.pop().unwrap().0.0.wake();
+                    lock.queue.pop().unwrap().0 .0.wake();
                 } else {
                     lock = TIMER.condvar.wait_timeout(lock, when - now).unwrap().0;
                 }
@@ -44,7 +45,9 @@ fn timer() -> Timer {
         }
     });
     Timer {
-        state: Mutex::new(State { queue: PriorityQueue::new() }),
+        state: Mutex::new(State {
+            queue: PriorityQueue::new(),
+        }),
         condvar: Condvar::new(),
     }
 }
@@ -70,18 +73,19 @@ pub struct Sleep {
 
 impl Sleep {
     pub fn new() -> Self {
-        Sleep { time: None, waker: None }
+        Sleep {
+            time: None,
+            waker: None,
+        }
     }
     pub fn set_instant(&mut self, time: SerialInstant) {
         self.time = Some(time);
-        self.waker.as_ref().map(|waker| poll_elapse(&mut Context::from_waker(waker), time));
+        self.waker
+            .as_ref()
+            .map(|waker| poll_elapse(&mut Context::from_waker(waker), time));
     }
-    pub fn set_delay(&mut self, delay: Duration) {
-        self.set_instant(SerialInstant::now() + delay);
-    }
-    pub fn sleeping(&mut self) -> bool {
-        self.time.is_some()
-    }
+    pub fn set_delay(&mut self, delay: Duration) { self.set_instant(SerialInstant::now() + delay); }
+    pub fn sleeping(&mut self) -> bool { self.time.is_some() }
     pub fn poll_sleep(&mut self, cx: &mut Context) -> PollResult {
         self.waker = Some(cx.waker().clone());
         if let Some(time) = self.time {
@@ -114,7 +118,7 @@ async fn test() {
         box |cx| {
             assert!((SerialInstant::now() - t2).as_millis() < 50);
             cx.waker().wake_by_ref()
-        }
+        },
     ];
     let mut actions = actions.into_iter();
     poll_fn(|cx| {
@@ -124,5 +128,6 @@ async fn test() {
         } else {
             Poll::Ready(())
         }
-    }).await;
+    })
+    .await;
 }

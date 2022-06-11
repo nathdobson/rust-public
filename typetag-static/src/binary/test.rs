@@ -1,11 +1,12 @@
-use serde::Serialize;
-use serde::Deserialize;
-use std::collections::HashMap;
-use crate::any::AnySerde;
-use std::ops::Deref;
 use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::marker::PhantomData;
-use crate::binary::{Error};
+use std::ops::Deref;
+
+use serde::{Deserialize, Serialize};
+
+use crate::any::AnySerde;
+use crate::binary::Error;
 
 #[derive(Serialize, Deserialize)]
 struct Test1;
@@ -23,16 +24,24 @@ struct Test4 {
 }
 
 #[derive(Serialize, Deserialize)]
-enum Test5 { A }
+enum Test5 {
+    A,
+}
 
 #[derive(Serialize, Deserialize)]
-enum Test6 { A(i8) }
+enum Test6 {
+    A(i8),
+}
 
 #[derive(Serialize, Deserialize)]
-enum Test7 { A(i16, i32) }
+enum Test7 {
+    A(i16, i32),
+}
 
 #[derive(Serialize, Deserialize)]
-enum Test8 { A { x: i64, y: i64 } }
+enum Test8 {
+    A { x: i64, y: i64 },
+}
 
 type Test9 = Option<u128>;
 
@@ -46,14 +55,29 @@ type Test13 = HashMap<i32, i64>;
 
 type Test14 = ();
 
-type Test15 = (i32, );
+type Test15 = (i32,);
 
 type Test16 = (i32, i64);
 
 #[derive(Serialize, Deserialize)]
 struct Test(
-    Test1, Test2, Test3, Test4, Test5, Test6, Test7, Test8,
-    Test9, Test10, Test11, Test12, Test13, Test14, Test15, Test16);
+    Test1,
+    Test2,
+    Test3,
+    Test4,
+    Test5,
+    Test6,
+    Test7,
+    Test8,
+    Test9,
+    Test10,
+    Test11,
+    Test12,
+    Test13,
+    Test14,
+    Test15,
+    Test16,
+);
 
 #[test]
 fn test_binary() {
@@ -73,8 +97,10 @@ fn test_binary() {
         vec![14, 15],
         vec![(16, 17), (18, 19)].into_iter().collect(),
         (),
-        (20, ),
+        (20,),
         (21, 22),
     );
-    value.serialize(crate::binary::ser::BinarySerializer::new(&mut vec)).unwrap();
+    value
+        .serialize(crate::binary::ser::BinarySerializer::new(&mut vec))
+        .unwrap();
 }

@@ -1,10 +1,14 @@
-use std::{thread, result, mem, fmt, io};
-use crate::bag::{Bag, Token};
-use std::sync::{Mutex, Condvar, Arc};
+use std::any::Any;
+use std::io::ErrorKind;
+use std::ops::Add;
+#[cfg(test)]
+use std::sync::Barrier;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use std::ops::Add;
-use std::any::Any;
+use std::{fmt, io, mem, result, thread};
+
+use crate::bag::{Bag, Token};
 
 #[derive(Eq, Ord, PartialEq, PartialOrd, Debug)]
 pub struct Cancel;
@@ -82,32 +86,29 @@ impl fmt::Debug for OnCancel {
 }
 
 pub fn channel() -> (Context, Canceller, Receiver) {
-    let context =
-        Arc::new(Inner {
-            mutex: Mutex::from(State {
-                contexts: 1,
-                status: Status::Active,
-                on_cancel: Bag::new(),
-            }),
-            condvar: Condvar::new(),
-        });
+    let context = Arc::new(Inner {
+        mutex: Mutex::from(State {
+            contexts: 1,
+            status: Status::Active,
+            on_cancel: Bag::new(),
+        }),
+        condvar: Condvar::new(),
+    });
     let canceller = context.clone();
     let receiver = context.clone();
-    (Context { inner: context },
-     Canceller { inner: canceller },
-     Receiver { inner: receiver })
+    (
+        Context { inner: context },
+        Canceller { inner: canceller },
+        Receiver { inner: receiver },
+    )
 }
 
 impl Into<io::Error> for Cancel {
-    fn into(self) -> io::Error {
-        io::Error::new(ErrorKind::Interrupted, "Cancelled")
-    }
+    fn into(self) -> io::Error { io::Error::new(ErrorKind::Interrupted, "Cancelled") }
 }
 
 impl From<Box<dyn Any + 'static + Send>> for JoinError {
-    fn from(_: Box<dyn Any + 'static + Send>) -> Self {
-        JoinError::Panic
-    }
+    fn from(_: Box<dyn Any + 'static + Send>) -> Self { JoinError::Panic }
 }
 
 impl Inner {
@@ -128,7 +129,6 @@ impl Inner {
     }
 }
 
-
 impl Context {
     pub fn check(&self) -> Result<()> {
         let lock = self.inner.mutex.lock().unwrap();
@@ -141,8 +141,12 @@ impl Context {
     pub fn on_cancel(&self, callback: impl FnOnce() + Send + 'static) -> OnCancelGuard {
         if let Ok(mut lock) = self.inner.mutex.lock() {
             lock.contexts += 2;
-            let self2 = Context { inner: self.inner.clone() };
-            let self3 = Context { inner: self.inner.clone() };
+            let self2 = Context {
+                inner: self.inner.clone(),
+            };
+            let self3 = Context {
+                inner: self.inner.clone(),
+            };
             let callback = Box::new(|| {
                 callback();
                 mem::drop(self2)
@@ -160,7 +164,9 @@ impl Context {
     pub fn spawn(&self, callback: impl FnOnce() -> Result<()> + Send + 'static) {
         if let Ok(mut lock) = self.inner.mutex.lock() {
             lock.contexts += 1;
-            let context = Context { inner: self.inner.clone() };
+            let context = Context {
+                inner: self.inner.clone(),
+            };
             if lock.status == Status::Active {
                 thread::spawn(|| {
                     if let Err(Cancel) = callback() {
@@ -188,7 +194,7 @@ impl Drop for OnCancelGuard {
                         x.join().ok();
                         return;
                     }
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             }
         }
@@ -212,23 +218,21 @@ impl Clone for Context {
         if let Ok(mut lock) = self.inner.mutex.lock() {
             lock.contexts += 1;
         }
-        Context { inner: self.inner.clone() }
+        Context {
+            inner: self.inner.clone(),
+        }
     }
 }
 
 impl Canceller {
-    pub fn cancel(&self) {
-        self.inner.cancel();
-    }
+    pub fn cancel(&self) { self.inner.cancel(); }
 }
 
 impl Receiver {
     pub fn recv(self) -> result::Result<(), RecvError> {
         self.recv_deadline(Instant::now().add(Duration::from_secs(60 * 60 * 24 * 365 * 100)))
     }
-    pub fn try_recv(self) -> result::Result<(), RecvError> {
-        self.recv_deadline(Instant::now())
-    }
+    pub fn try_recv(self) -> result::Result<(), RecvError> { self.recv_deadline(Instant::now()) }
     pub fn recv_timeout(self, timeout: Duration) -> result::Result<(), RecvError> {
         self.recv_deadline(Instant::now().add(timeout))
     }
@@ -243,10 +247,11 @@ impl Receiver {
                 return Ok(());
             }
             let timeout = deadline.saturating_duration_since(Instant::now());
-            let (lock2, timeout) =
-                self.inner.condvar.wait_timeout(lock, timeout).unwrap();
+            let (lock2, timeout) = self.inner.condvar.wait_timeout(lock, timeout).unwrap();
             if timeout.timed_out() {
-                return Err(RecvError::Empty(Receiver { inner: self.inner.clone() }));
+                return Err(RecvError::Empty(Receiver {
+                    inner: self.inner.clone(),
+                }));
             }
             lock = lock2;
         }
@@ -257,9 +262,7 @@ impl Joiner {
     pub fn join(self) -> result::Result<(), JoinError> {
         self.join_deadline(Instant::now().add(Duration::from_secs(60 * 60 * 24 * 365 * 100)))
     }
-    pub fn try_join(self) -> result::Result<(), JoinError> {
-        self.join_deadline(Instant::now())
-    }
+    pub fn try_join(self) -> result::Result<(), JoinError> { self.join_deadline(Instant::now()) }
     pub fn join_timeout(self, timeout: Duration) -> result::Result<(), JoinError> {
         self.join_deadline(Instant::now().add(timeout))
     }
@@ -273,10 +276,11 @@ impl Joiner {
                 return Ok(());
             }
             let timeout = deadline.saturating_duration_since(Instant::now());
-            let (lock2, timeout) =
-                self.inner.condvar.wait_timeout(lock, timeout).unwrap();
+            let (lock2, timeout) = self.inner.condvar.wait_timeout(lock, timeout).unwrap();
             if timeout.timed_out() {
-                return Err(JoinError::Empty(Joiner { inner: self.inner.clone() }));
+                return Err(JoinError::Empty(Joiner {
+                    inner: self.inner.clone(),
+                }));
             }
             lock = lock2;
         }
@@ -285,10 +289,6 @@ impl Joiner {
 
 #[cfg(test)]
 const STEP: Duration = Duration::from_millis(100);
-
-#[cfg(test)]
-use std::sync::Barrier;
-use std::io::ErrorKind;
 
 #[test]
 fn test_nothing() {
@@ -451,5 +451,3 @@ fn test_spawn_panic() {
         unexpected => panic!("unexpect {:?}", unexpected),
     };
 }
-
-

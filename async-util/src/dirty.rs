@@ -1,18 +1,19 @@
-use std::sync::Arc;
-use crate::waker::AtomicWaker;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::atomic::Ordering::Relaxed;
-use std::task::{Context, Poll};
-use std::pin::Pin;
-use std::sync::mpsc::RecvError;
 use std::cmp::Ordering;
-use tokio_stream::wrappers::{UnboundedReceiverStream, ReceiverStream};
-use tokio_stream::StreamExt;
-use tokio_stream::Stream;
 use std::ops::Add;
+use std::pin::Pin;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::mpsc::RecvError;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+
 use tokio::sync::Barrier;
-use crate::futureext::FutureExt;
 use tokio::task::yield_now;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+use tokio_stream::{Stream, StreamExt};
+
+use crate::futureext::FutureExt;
+use crate::waker::AtomicWaker;
 
 const STATE_CLEAN: usize = 0;
 const STATE_DIRTY: usize = 1;
@@ -53,7 +54,11 @@ impl Drop for Sender {
 
 impl Receiver {
     fn try_poll_next(&mut self) -> Poll<Option<()>> {
-        match self.0.state.compare_exchange(STATE_DIRTY, STATE_CLEAN, Relaxed, Relaxed) {
+        match self
+            .0
+            .state
+            .compare_exchange(STATE_DIRTY, STATE_CLEAN, Relaxed, Relaxed)
+        {
             Ok(STATE_DIRTY) => Poll::Ready(Some(())),
             Err(STATE_CLEAN) => Poll::Pending,
             Err(STATE_CLOSED) => Poll::Ready(None),

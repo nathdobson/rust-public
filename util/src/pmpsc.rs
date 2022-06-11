@@ -1,9 +1,9 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
-use std::sync::{Arc, Mutex, Condvar};
-use std::time::Instant;
 use std::sync::mpsc::{RecvError, TryRecvError};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
+use std::time::Instant;
 
 struct Item<P: Ord, T> {
     id: usize,
@@ -31,9 +31,7 @@ pub struct Receiver<P: Ord, T> {
 }
 
 impl<P: Ord, T> Item<P, T> {
-    fn key(&self) -> (Reverse<&P>, usize) {
-        (Reverse(&self.priority), self.id)
-    }
+    fn key(&self) -> (Reverse<&P>, usize) { (Reverse(&self.priority), self.id) }
 }
 
 impl<P: Ord, T> PartialEq for Item<P, T> {
@@ -67,7 +65,11 @@ impl<P: Ord, T> Sender<P, T> {
     pub fn send(&self, priority: P, value: T) {
         let mut lock = self.inner.mutex.lock().unwrap();
         let id = lock.next_id;
-        lock.heap.push(Item { id, priority, value });
+        lock.heap.push(Item {
+            id,
+            priority,
+            value,
+        });
         lock.next_id += 1;
         self.inner.condvar.notify_one();
     }
@@ -87,7 +89,9 @@ impl<P: Ord, T> Clone for Sender<P, T> {
     fn clone(&self) -> Self {
         let mut lock = self.inner.mutex.lock().unwrap();
         lock.senders += 1;
-        Sender { inner: self.inner.clone() }
+        Sender {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -114,7 +118,10 @@ impl<P: Ord, T> Receiver<P, T> {
             }
         }
     }
-    pub fn try_peek(&self) -> Result<P, TryRecvError> where P: Clone {
+    pub fn try_peek(&self) -> Result<P, TryRecvError>
+    where
+        P: Clone,
+    {
         let lock = self.inner.mutex.lock().unwrap();
         if lock.senders == 0 {
             Err(TryRecvError::Disconnected)
@@ -124,7 +131,10 @@ impl<P: Ord, T> Receiver<P, T> {
             Err(TryRecvError::Empty)
         }
     }
-    pub fn peek(&self) -> Result<P, RecvError> where P: Clone {
+    pub fn peek(&self) -> Result<P, RecvError>
+    where
+        P: Clone,
+    {
         let mut lock = self.inner.mutex.lock().unwrap();
         loop {
             if lock.senders == 0 {
@@ -171,12 +181,10 @@ impl Receiver<Instant, Box<dyn FnOnce() + Send + 'static>> {
     }
 }
 
-
 #[test]
 fn test() {
     use std::time::Duration;
-    use std::thread;
-    use std::mem;
+    use std::{mem, thread};
 
     let (sender, mut receiver) = channel();
     let handle = thread::spawn(move || {

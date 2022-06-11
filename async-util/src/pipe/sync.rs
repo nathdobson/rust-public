@@ -1,17 +1,24 @@
-use std::sync::{Mutex, Arc};
 use std::future::Future;
-use std::task::{Context, Poll, Waker};
-use std::pin::Pin;
 use std::io;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
+
+use futures::{pin_mut, FutureExt};
 use pin_project::pin_project;
-use futures::pin_mut;
+
 use crate::waker::test::TestWaker;
-use futures::FutureExt;
 
 enum State {
     Empty,
-    Reading { dest: *mut [u8], waker: Option<Waker> },
-    Writing { src: *const [u8], waker: Option<Waker> },
+    Reading {
+        dest: *mut [u8],
+        waker: Option<Waker>,
+    },
+    Writing {
+        src: *const [u8],
+        waker: Option<Waker>,
+    },
 }
 
 struct PipeRead(Arc<Mutex<State>>);
@@ -35,13 +42,19 @@ fn pipe() -> (PipeWrite, PipeRead) {
 
 impl PipeRead {
     fn read<'a>(&'a mut self, dest: &'a mut [u8]) -> ReadFuture {
-        ReadFuture { inner: &*self.0, dest }
+        ReadFuture {
+            inner: &*self.0,
+            dest,
+        }
     }
 }
 
 impl PipeWrite {
     fn write<'a>(&'a mut self, src: &'a [u8]) -> WriteFuture {
-        WriteFuture { inner: &*self.0, src }
+        WriteFuture {
+            inner: &*self.0,
+            src,
+        }
     }
 }
 
@@ -54,7 +67,10 @@ impl<'a> Future for ReadFuture<'a> {
             let mut lock = this.inner.lock().unwrap();
             match &mut *lock {
                 State::Empty => {
-                    *lock = State::Reading { dest: this.dest, waker: Some(cx.waker().clone()) };
+                    *lock = State::Reading {
+                        dest: this.dest,
+                        waker: Some(cx.waker().clone()),
+                    };
                     Poll::Pending
                 }
                 State::Reading { dest, waker } => {
@@ -88,7 +104,10 @@ impl<'a> Future for WriteFuture<'a> {
             let mut lock = this.inner.lock().unwrap();
             match &mut *lock {
                 State::Empty => {
-                    *lock = State::Writing { src: this.src, waker: Some(cx.waker().clone()) };
+                    *lock = State::Writing {
+                        src: this.src,
+                        waker: Some(cx.waker().clone()),
+                    };
                     Poll::Pending
                 }
                 State::Reading { dest, waker } => {
@@ -112,7 +131,6 @@ impl<'a> Future for WriteFuture<'a> {
         }
     }
 }
-
 
 impl<'a> Drop for ReadFuture<'a> {
     fn drop(&mut self) {
@@ -142,14 +160,16 @@ fn test_simple() {
     let writer = async {
         assert_eq!(write.write(&[0, 1]).await.unwrap(), 2);
         assert_eq!(write.write(&[2, 3, 4, 5]).await.unwrap(), 2);
-    }.fuse();
+    }
+    .fuse();
     let reader = async {
         let mut x = [0; 4];
         assert_eq!(read.read(&mut x).await.unwrap(), 2);
         assert_eq!(&x[..2], &[0, 1]);
         assert_eq!(read.read(&mut x[..2]).await.unwrap(), 2);
         assert_eq!(&x[..2], &[2, 3]);
-    }.fuse();
+    }
+    .fuse();
     pin_mut!(writer, reader);
     let (test1, waker1) = TestWaker::new();
 }

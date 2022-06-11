@@ -1,20 +1,22 @@
+use std::any::Any;
+use std::cell::UnsafeCell;
 use std::future::Future;
-use std::task::{Context, Poll};
+use std::lazy::SyncOnceCell;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
-use crate::waker::AtomicWaker;
-use std::lazy::SyncOnceCell;
 use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::Arc;
-use pin_project::pin_project;
+use std::task::{Context, Poll};
 use std::thread;
-use std::cell::UnsafeCell;
-use std::panic::{catch_unwind, AssertUnwindSafe, resume_unwind};
-use tokio::sync::oneshot;
-use crate::futureext::FutureExt;
+
+use pin_project::pin_project;
 use tokio::pin;
+use tokio::sync::oneshot;
 use tokio::task::yield_now;
-use std::any::Any;
+
+use crate::futureext::FutureExt;
+use crate::waker::AtomicWaker;
 
 pub trait JoinHandle: Future {
     fn abort(self);
@@ -96,7 +98,13 @@ pub fn remote<F: Future>(fut: F) -> (Remote<F>, RemoteJoinHandle<F::Output>) {
         done: AtomicBool::new(false),
         result: UnsafeCell::new(None),
     });
-    (Remote { inner: inner.clone(), fut }, RemoteJoinHandle { inner })
+    (
+        Remote {
+            inner: inner.clone(),
+            fut,
+        },
+        RemoteJoinHandle { inner },
+    )
 }
 
 unsafe impl<F: Future + Send + 'static> Send for Remote<F> where F::Output: Send + 'static {}
@@ -131,7 +139,6 @@ async fn spawn_test() {
     join.as_mut().ready().unwrap().unwrap();
 }
 
-
 #[tokio::test]
 #[should_panic(expected = "PANIC 42")]
 async fn panic_test() {
@@ -139,7 +146,8 @@ async fn panic_test() {
         panic!("PANIC {}", 42);
         #[allow(unreachable_code)]
         ()
-    }.into_remote();
+    }
+    .into_remote();
     let join = tokio::spawn(remote);
     pin!(handle, join);
     assert!(handle.as_mut().ready().is_none());
