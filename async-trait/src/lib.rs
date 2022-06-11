@@ -5,9 +5,9 @@
 
 use std::future::Future;
 use std::marker::PhantomData;
+use std::mem::size_of;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::mem::{size_of};
 
 pub struct TraitFuture<'a, R: Future> {
     raw: R,
@@ -16,31 +16,33 @@ pub struct TraitFuture<'a, R: Future> {
 
 impl<'a, R: Future> TraitFuture<'a, R> {
     pub fn new(raw: R) -> Self {
-        TraitFuture { raw, phantom: PhantomData }
+        TraitFuture {
+            raw,
+            phantom: PhantomData,
+        }
     }
 }
 
 impl<'a, R: Future> Future for TraitFuture<'a, R> {
     type Output = R::Output;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        unsafe {
-            Pin::new_unchecked(&mut self.get_unchecked_mut().raw).poll(cx)
-        }
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().raw).poll(cx) }
     }
 }
 
 pub unsafe fn poll_erased<F, A>(
     _: F,
     this: *mut (),
-    cx: &mut Context)
-    -> Poll<<F::Output as Future>::Output>
-    where F: Fn<A>, F::Output: Future {
+    cx: &mut Context,
+) -> Poll<<F::Output as Future>::Output>
+where
+    F: Fn<A>,
+    F::Output: Future,
+{
     F::Output::poll(Pin::new_unchecked(&mut *(this as *mut F::Output)), cx)
 }
 
-pub const fn future_size<T: Fn<A>, A>(_: &T) -> usize {
-    size_of::<T::Output>()
-}
+pub const fn future_size<T: Fn<A>, A>(_: &T) -> usize { size_of::<T::Output>() }
 
 #[macro_export]
 macro_rules! async_trait {
@@ -145,4 +147,3 @@ mod tests {
         block_on(Trogdor.burninate(1, 2));
     }
 }
-

@@ -1,15 +1,16 @@
-use crate::ser::error::Error;
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use serde::Serialize;
-use flatbuffers::{FlatBufferBuilder, WIPOffset, UnionWIPOffset};
-use crate::ser::wrapper::{Stack, Serializer};
 
-pub mod wrapper;
-pub mod value;
+use crate::ser::error::Error;
+use crate::ser::wrapper::{Serializer, Stack};
+
 pub mod enu;
 pub mod error;
-pub mod vector;
 pub mod map;
 pub mod table;
+pub mod value;
+pub mod vector;
+pub mod wrapper;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

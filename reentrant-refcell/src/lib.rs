@@ -14,8 +14,9 @@ use std::mem;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-use test::Bencher;
+
 use fast_thread_id::FastThreadId;
+use test::Bencher;
 
 pub struct ReentrantRefCell<T> {
     owner: AtomicUsize,
@@ -39,11 +40,15 @@ impl<T> ReentrantRefCell<T> {
     }
     #[inline]
     fn lock<'a>(&'a self, tid: FastThreadId) -> Result<LockGuard<'a>, usize> {
-        self.owner.compare_exchange(0, tid.into_usize(), Acquire, Relaxed)?;
+        self.owner
+            .compare_exchange(0, tid.into_usize(), Acquire, Relaxed)?;
         Ok(LockGuard(&self.owner))
     }
     #[inline(never)]
-    pub fn with_outer<F, O>(&self, f: F) -> O where F: for<'a> FnOnce(&'a T) -> O {
+    pub fn with_outer<F, O>(&self, f: F) -> O
+    where
+        F: for<'a> FnOnce(&'a T) -> O,
+    {
         let tid = FastThreadId::get();
         let _guard = self.lock(tid).unwrap_or_else(|existing| {
             if existing == tid.into_usize() {
@@ -55,7 +60,10 @@ impl<T> ReentrantRefCell<T> {
         unsafe { f(&*self.value.get()) }
     }
     #[inline]
-    pub fn with_inner<F, O>(&self, f: F) -> O where F: for<'a> FnOnce(&'a T) -> O {
+    pub fn with_inner<F, O>(&self, f: F) -> O
+    where
+        F: for<'a> FnOnce(&'a T) -> O,
+    {
         let tid = FastThreadId::get().into_usize();
         let owner = self.owner.load(Relaxed);
         if owner != tid {
@@ -73,14 +81,17 @@ impl<T> ReentrantRefCell<T> {
         unsafe { f(&*self.value.get()) }
     }
     #[inline]
-    pub fn with_reentrant<F, O>(&self, f: F) -> O where F: for<'a> FnOnce(&'a T) -> O {
+    pub fn with_reentrant<F, O>(&self, f: F) -> O
+    where
+        F: for<'a> FnOnce(&'a T) -> O,
+    {
         let tid = FastThreadId::get();
         let old = self.owner.load(Relaxed);
         let _guard;
         if old != tid.into_usize() {
-            _guard = self.lock(tid).unwrap_or_else(|_|
-                panic!("Already locked by other thread")
-            );
+            _guard = self
+                .lock(tid)
+                .unwrap_or_else(|_| panic!("Already locked by other thread"));
         }
         unsafe { f(&*self.value.get()) }
     }
@@ -95,7 +106,7 @@ unsafe impl<T: Send> Send for ReentrantRefCell<T> {}
 
 unsafe impl<T: Send> Sync for ReentrantRefCell<T> {}
 
-impl<'a> ! Send for LockGuard<'a> {}
+impl<'a> !Send for LockGuard<'a> {}
 
 #[test]
 fn test_simple() {

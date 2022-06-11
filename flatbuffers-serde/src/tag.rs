@@ -1,13 +1,15 @@
+use std::any::{type_name, TypeId};
 use std::collections::HashMap;
-use std::any::{TypeId, type_name};
-use registry::{registry, Registry, BuilderFrom};
-use sha2::{Sha256, Digest};
 use std::convert::TryInto;
 use std::fmt::{Debug, Formatter};
-use lazy_static::lazy_static;
 use std::marker::PhantomData;
-use crate::any_generated::{TypeTagHash};
-use flatbuffers::{Verifier, InvalidFlatbuffer, Verifiable, WIPOffset, ForwardsUOffset};
+
+use flatbuffers::{ForwardsUOffset, InvalidFlatbuffer, Verifiable, Verifier, WIPOffset};
+use lazy_static::lazy_static;
+use registry::{registry, BuilderFrom, Registry};
+use sha2::{Digest, Sha256};
+
+use crate::any_generated::TypeTagHash;
 
 #[derive(Debug)]
 pub struct TypeTag {
@@ -20,7 +22,8 @@ pub struct TypeTag {
 
 #[derive(Copy, Clone)]
 pub struct FlatTypeTag {
-    run_verifier: for<'a, 'b, 'c> fn(&'a mut Verifier<'b, 'c>, loc: usize) -> Result<(), InvalidFlatbuffer>,
+    run_verifier:
+        for<'a, 'b, 'c> fn(&'a mut Verifier<'b, 'c>, loc: usize) -> Result<(), InvalidFlatbuffer>,
 }
 
 pub struct TypeTagSet {
@@ -28,7 +31,6 @@ pub struct TypeTagSet {
     by_hash: HashMap<TypeTagHash, &'static TypeTag>,
     by_name: HashMap<&'static str, &'static TypeTag>,
 }
-
 
 pub trait HasTypeTag {
     fn type_tag() -> &'static TypeTag;
@@ -49,7 +51,11 @@ impl TypeTag {
 }
 
 impl FlatTypeTag {
-    pub fn run_verifier(&self, verifier: &mut Verifier, loc: usize) -> Result<(), InvalidFlatbuffer> {
+    pub fn run_verifier(
+        &self,
+        verifier: &mut Verifier,
+        loc: usize,
+    ) -> Result<(), InvalidFlatbuffer> {
         (self.run_verifier)(verifier, loc)
     }
 }
@@ -98,14 +104,14 @@ impl TypeTag {
 
 impl FlatTypeTag {
     pub const fn new<T: 'static + Verifiable>() -> Self {
-        FlatTypeTag { run_verifier: ForwardsUOffset::<T>::run_verifier }
+        FlatTypeTag {
+            run_verifier: ForwardsUOffset::<T>::run_verifier,
+        }
     }
 }
 
 unsafe impl<T: HasFlatTypeTag> HasFlatTypeTag for WIPOffset<T> {
-    fn flat_type_tag() -> &'static FlatTypeTag {
-        T::flat_type_tag()
-    }
+    fn flat_type_tag() -> &'static FlatTypeTag { T::flat_type_tag() }
 }
 
 registry! {

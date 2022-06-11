@@ -1,8 +1,8 @@
-use serde::Serialize;
-use serde::Deserialize;
-use typetag_static::impl_any_serde;
 use std::marker::PhantomData;
+
 use catalog::register;
+use serde::{Deserialize, Serialize};
+use typetag_static::impl_any_serde;
 
 #[derive(Serialize, Deserialize, Eq, Ord, PartialEq, PartialOrd, Clone, Hash, Debug)]
 pub struct AnyString(pub String);

@@ -4,14 +4,12 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-
-use syn::{Error, Item, parse2, parse_quote};
-use quote::quote;
 use proc_macro2::TokenStream as TokenStream2;
-use proc_macro_helper::{assert_equiv, proc_macro_attr_shim, proc_macro_derive_shim};
 use proc_macro_helper::attrs::{AttrGroup, AttrStream, ParseAttr, ParseAttrGroup};
 use proc_macro_helper::helper::{HelperDefinition, HelperItem};
-
+use proc_macro_helper::{assert_equiv, proc_macro_attr_shim, proc_macro_derive_shim};
+use quote::quote;
+use syn::{parse2, parse_quote, Error, Item};
 
 struct MyAttrGroup {
     my_attr: MyAttr,
@@ -22,13 +20,20 @@ struct MyAttr {
 }
 
 impl ParseAttrGroup for MyAttrGroup {
-    fn parse(group: &AttrGroup) -> syn::Result<Self> { Ok(MyAttrGroup { my_attr: group.parse("my_attr")? }) }
+    fn parse(group: &AttrGroup) -> syn::Result<Self> {
+        Ok(MyAttrGroup {
+            my_attr: group.parse("my_attr")?,
+        })
+    }
 }
 
 impl ParseAttr for MyAttr {
-    fn parse_attr(stream: &mut AttrStream) -> syn::Result<Self> { Ok(MyAttr { my_key: stream.parse_entry("my_key")? }) }
+    fn parse_attr(stream: &mut AttrStream) -> syn::Result<Self> {
+        Ok(MyAttr {
+            my_key: stream.parse_entry("my_key")?,
+        })
+    }
 }
-
 
 #[proc_macro_derive(MyDerive, attributes(my_attr))]
 pub fn my_derive(input: TokenStream) -> TokenStream {
@@ -55,9 +60,7 @@ fn my_attr_macro_impl(attrs: MyAttr, item: HelperItem) -> Result<TokenStream2, E
 }
 
 #[proc_macro_derive(MyClone)]
-pub fn my_clone(input: TokenStream) -> TokenStream {
-    proc_macro_derive_shim(input, my_clone_impl)
-}
+pub fn my_clone(input: TokenStream) -> TokenStream { proc_macro_derive_shim(input, my_clone_impl) }
 
 fn my_clone_impl(attrs: (), item: HelperItem) -> Result<TokenStream2, Error> {
     let typ = item.ident();
@@ -65,25 +68,21 @@ fn my_clone_impl(attrs: (), item: HelperItem) -> Result<TokenStream2, Error> {
     let generic_args = item.generic_args();
     let inner_types = item.inner_types();
     let expr = match item.definition() {
-        HelperDefinition::Struct(def) => {
-            def.build(|index| {
-                let projector = def.projector(index);
-                parse_quote! {
-                    ::std::clone::Clone::clone(&self.#projector)
-                }
-            })
-        }
+        HelperDefinition::Struct(def) => def.build(|index| {
+            let projector = def.projector(index);
+            parse_quote! {
+                ::std::clone::Clone::clone(&self.#projector)
+            }
+        }),
         HelperDefinition::Enum(def) => {
-            def.do_match(
-                parse_quote! {self}, "",
-                |variant, field_names| {
-                    def.build(variant, |field| {
-                        let field_name = &field_names[field];
-                        parse_quote! {
-                            ::std::clone::Clone::clone(#field_name)
-                        }
-                    })
+            def.do_match(parse_quote! {self}, "", |variant, field_names| {
+                def.build(variant, |field| {
+                    let field_name = &field_names[field];
+                    parse_quote! {
+                        ::std::clone::Clone::clone(#field_name)
+                    }
                 })
+            })
         }
     };
     Ok(quote! {

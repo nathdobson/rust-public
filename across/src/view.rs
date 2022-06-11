@@ -1,19 +1,20 @@
-use termio::gui::div::{DivImpl, Div, DivRc};
-use termio::gui::layout::{Layout, Constraint};
 use std::collections::HashMap;
-use crate::puzzle::{Puzzle, Cell, Clue, Variable};
-use termio::canvas::Canvas;
-use std::ops::{Range, Bound};
-use termio::gui::tree::{Tree, Dirty};
-use util::rect::Rect;
-use termio::color::Color;
-use itertools::Itertools;
-use termio::screen::Style;
-use termio::gui::gui::InputEvent;
-use termio::input::Key;
-use termio::Direction;
 use std::env::var;
-use termio::input::KeyEvent;
+use std::ops::{Bound, Range};
+
+use itertools::Itertools;
+use termio::canvas::Canvas;
+use termio::color::Color;
+use termio::gui::div::{Div, DivImpl, DivRc};
+use termio::gui::gui::InputEvent;
+use termio::gui::layout::{Constraint, Layout};
+use termio::gui::tree::{Dirty, Tree};
+use termio::input::{Key, KeyEvent};
+use termio::screen::Style;
+use termio::Direction;
+use util::rect::Rect;
+
+use crate::puzzle::{Cell, Clue, Puzzle, Variable};
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Mode {
@@ -32,12 +33,15 @@ pub struct PuzzleDiv {
 
 impl PuzzleDiv {
     pub fn new(tree: Tree, puzzle: Puzzle) -> DivRc<Self> {
-        DivRc::new(tree, PuzzleDiv {
-            puzzle,
-            current_cell: 0,
-            mode: Mode::Clue,
-            lines: vec![],
-        })
+        DivRc::new(
+            tree,
+            PuzzleDiv {
+                puzzle,
+                current_cell: 0,
+                mode: Mode::Clue,
+                lines: vec![],
+            },
+        )
     }
     fn current_variable(&self) -> Option<&Variable> {
         Some(&self.puzzle.variables[&self.puzzle.cells[self.current_cell].variable?])
@@ -50,8 +54,7 @@ impl PuzzleDiv {
     }
     fn style(indexed: bool, active: bool) -> Style {
         Style {
-            background:
-            if indexed {
+            background: if indexed {
                 if active {
                     Color::RGB666(4, 4, 0)
                 } else {
@@ -68,8 +71,7 @@ impl PuzzleDiv {
     }
     fn dark_style(indexed: bool, active: bool) -> Style {
         Style {
-            background:
-            if indexed {
+            background: if indexed {
                 if active {
                     Color::RGB666(2, 2, 0)
                 } else {
@@ -88,7 +90,8 @@ impl PuzzleDiv {
             for (x, v) in clue.variables.iter().cloned().enumerate() {
                 let v = &self.puzzle.variables[&v];
                 let cell = &self.puzzle.cells[v.cell];
-                canvas.style = Self::style(self.current_variable() == Some(v), self.mode == Mode::Clue);
+                canvas.style =
+                    Self::style(self.current_variable() == Some(v), self.mode == Mode::Clue);
                 canvas.draw((x as isize, 1), &cell.guess.unwrap_or(' '));
             }
         }
@@ -98,9 +101,11 @@ impl PuzzleDiv {
             for (x, cell) in (start..end).enumerate() {
                 let cell: &Cell = &self.puzzle.cells[cell];
                 let letter = cell.guess.unwrap_or(' ');
-                canvas.style = Self::style(self.current_cell == cell.cell, self.mode == Mode::Quote);
+                canvas.style =
+                    Self::style(self.current_cell == cell.cell, self.mode == Mode::Quote);
                 if cell.variable.is_none() && letter == ' ' {
-                    canvas.style = Self::dark_style(self.current_cell == cell.cell, self.mode == Mode::Quote);
+                    canvas.style =
+                        Self::dark_style(self.current_cell == cell.cell, self.mode == Mode::Quote);
                 }
                 canvas.draw((x as isize, y as isize), &letter);
             }
@@ -123,10 +128,20 @@ impl PuzzleDiv {
             let letter = clue.letter;
             if dir == 1 {
                 let range = (Bound::Excluded(letter), Bound::Unbounded);
-                next_clue = self.puzzle.clues.range(range).next().or(self.puzzle.clues.first_key_value());
+                next_clue = self
+                    .puzzle
+                    .clues
+                    .range(range)
+                    .next()
+                    .or(self.puzzle.clues.first_key_value());
             } else if dir == -1 {
                 let range = ..letter;
-                next_clue = self.puzzle.clues.range(range).next_back().or(self.puzzle.clues.last_key_value());
+                next_clue = self
+                    .puzzle
+                    .clues
+                    .range(range)
+                    .next_back()
+                    .or(self.puzzle.clues.last_key_value());
             } else {
                 panic!();
             };
@@ -156,7 +171,12 @@ impl PuzzleDiv {
     }
     fn shift_vertical(&mut self, dir: isize) {
         if self.mode == Mode::Quote {
-            let y = self.lines.iter().position(|c| *c > self.current_cell).unwrap() - 1;
+            let y = self
+                .lines
+                .iter()
+                .position(|c| *c > self.current_cell)
+                .unwrap()
+                - 1;
             let x = self.current_cell - self.lines[y];
             let y = Self::wrap(y, dir, self.lines.len() - 1);
             self.current_cell = x + self.lines[y];
@@ -167,14 +187,29 @@ impl PuzzleDiv {
 impl DivImpl for PuzzleDiv {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
         self.lines = (0..6).map(|x| x * self.puzzle.cells.len() / 5).collect();
-        Layout { size: constraint.max_size.unwrap(), line_settings: HashMap::new() }
+        Layout {
+            size: constraint.max_size.unwrap(),
+            line_settings: HashMap::new(),
+        }
     }
     fn self_paint_below(self: &Div<Self>, mut canvas: Canvas) {
         self.paint_clue(canvas.push_bounds(Rect::from_position_size((0, 0), (self.size().0, 2))));
-        self.paint_quote(canvas.push_translate((0, 4)).push_bounds(Rect::from_position_size((0, 4), (self.size().0, self.lines.len() as isize))));
-        self.paint_title(canvas
-            .push_translate((0, (4 + self.lines.len() + 1) as isize))
-            .push_bounds(Rect::from_position_size((0, (4 + self.lines.len() + 1) as isize), (self.size().0, 1))));
+        self.paint_quote(
+            canvas
+                .push_translate((0, 4))
+                .push_bounds(Rect::from_position_size(
+                    (0, 4),
+                    (self.size().0, self.lines.len() as isize),
+                )),
+        );
+        self.paint_title(
+            canvas
+                .push_translate((0, (4 + self.lines.len() + 1) as isize))
+                .push_bounds(Rect::from_position_size(
+                    (0, (4 + self.lines.len() + 1) as isize),
+                    (self.size().0, 1),
+                )),
+        );
     }
     fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool {
         let this = &mut **self;
@@ -184,7 +219,8 @@ impl DivImpl for PuzzleDiv {
                 if *event == KeyEvent::typed('¡') {
                     this.mode = Mode::Clue;
                     while this.current_variable().is_none() {
-                        this.current_cell = Self::wrap(this.current_cell, 1, this.puzzle.cells.len());
+                        this.current_cell =
+                            Self::wrap(this.current_cell, 1, this.puzzle.cells.len());
                     }
                     self.mark_dirty(Dirty::Paint);
                     return true;
@@ -199,7 +235,8 @@ impl DivImpl for PuzzleDiv {
                             this.set_variable(variable);
                             break;
                         } else {
-                            this.current_cell = Self::wrap(this.current_cell, 1, this.puzzle.cells.len());
+                            this.current_cell =
+                                Self::wrap(this.current_cell, 1, this.puzzle.cells.len());
                         }
                     }
                     self.mode = Mode::Title;
@@ -211,10 +248,12 @@ impl DivImpl for PuzzleDiv {
                             self.shift_clue(1);
                         }
                         Mode::Quote => {
-                            self.current_cell = self.puzzle.cells[self.current_cell + 1..].iter()
+                            self.current_cell = self.puzzle.cells[self.current_cell + 1..]
+                                .iter()
                                 .chain(self.puzzle.cells[..self.current_cell + 1].iter())
                                 .position(|x| x.variable.is_none())
-                                .unwrap() + 1;
+                                .unwrap()
+                                + 1;
                         }
                         Mode::Title => {
                             self.shift_clue(1);
@@ -261,4 +300,3 @@ impl DivImpl for PuzzleDiv {
         false
     }
 }
-

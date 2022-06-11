@@ -1,11 +1,13 @@
-use crate::gui::tree::Tree;
-use util::grid::{Grid, rows, cols};
-use crate::gui::div::{DivRc, DivImpl, Div};
-use crate::gui::layout::{Layout, Constraint};
 use std::collections::HashMap;
+
 use float_ord::FloatOrd;
-use crate::line::{Stroke, TableBorder};
+use util::grid::{cols, rows, Grid};
+
 use crate::canvas::Canvas;
+use crate::gui::div::{Div, DivImpl, DivRc};
+use crate::gui::layout::{Constraint, Layout};
+use crate::gui::tree::Tree;
+use crate::line::{Stroke, TableBorder};
 
 #[derive(Debug, Clone)]
 pub struct TableDiv {
@@ -31,17 +33,20 @@ impl Table {
         horizontals: Grid<Stroke>,
         verticals: Grid<Stroke>,
     ) -> DivRc<Table> {
-        let mut result = DivRc::new(tree, Table {
-            grid,
-            cols,
-            rows,
-            border: TableBorder {
-                xs: vec![],
-                ys: vec![],
-                horizontals,
-                verticals,
+        let mut result = DivRc::new(
+            tree,
+            Table {
+                grid,
+                cols,
+                rows,
+                border: TableBorder {
+                    xs: vec![],
+                    ys: vec![],
+                    horizontals,
+                    verticals,
+                },
             },
-        });
+        );
         {
             let mut write = result.write();
             let write = &mut *write;
@@ -68,7 +73,9 @@ pub(crate) fn flex(total_size: isize, sizes: &mut [isize], portions: &[f64]) {
     order.sort_by_key(|&index| FloatOrd(portions[index] / sizes[index] as f64));
     let mut flex_start = 0;
     for &index in order.iter() {
-        if flex_portion * sizes[index] as f64 <= portions[index] * flex_size as f64 && (portions[index] != 0.0 || sizes[index] != 0) {
+        if flex_portion * sizes[index] as f64 <= portions[index] * flex_size as f64
+            && (portions[index] != 0.0 || sizes[index] != 0)
+        {
             break;
         }
         flex_start += 1;
@@ -119,23 +126,29 @@ impl DivImpl for Table {
                 if cell.flex {
                     div.layout(&Constraint::from_max((width, height)));
                 }
-                let position =
-                    (xs[x as usize] + 1 + (cell.align.0 * (width - div.size().0) as f64).round() as isize,
-                     ys[y as usize] + 1 + (cell.align.1 * (height - div.size().1) as f64).round() as isize);
+                let position = (
+                    xs[x as usize]
+                        + 1
+                        + (cell.align.0 * (width - div.size().0) as f64).round() as isize,
+                    ys[y as usize]
+                        + 1
+                        + (cell.align.1 * (height - div.size().1) as f64).round() as isize,
+                );
                 div.set_position(position);
             }
         }
-        Layout { size, line_settings: HashMap::new() }
+        Layout {
+            size,
+            line_settings: HashMap::new(),
+        }
     }
 
-    fn self_paint_below(self: &Div<Self>, canvas: Canvas) {
-        self.border.paint_border(canvas);
-    }
+    fn self_paint_below(self: &Div<Self>, canvas: Canvas) { self.border.paint_border(canvas); }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::gui::table::{flex};
+    use crate::gui::table::flex;
 
     fn run_test(available: isize, sizes: &[isize], lines: &[f64], expected: &[isize]) {
         let mut sizes = sizes.iter().cloned().collect::<Vec<_>>();

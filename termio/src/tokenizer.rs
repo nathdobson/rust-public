@@ -1,9 +1,9 @@
 use std::io::Write;
-use std::{mem, io};
 use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::{io, mem};
 
 use pin_project::pin_project;
-use std::task::{Poll, Context};
 use tokio::io::AsyncRead;
 
 #[pin_project]
@@ -14,15 +14,8 @@ pub struct Tokenizer<R: AsyncRead> {
 }
 
 impl<R: AsyncRead> Tokenizer<R> {
-    pub fn new(inner: R) -> Self {
-        Tokenizer {
-            inner,
-            log: vec![],
-        }
-    }
-    pub fn clear_log(self: Pin<&mut Self>) {
-        self.project().log.clear();
-    }
+    pub fn new(inner: R) -> Self { Tokenizer { inner, log: vec![] } }
+    pub fn clear_log(self: Pin<&mut Self>) { self.project().log.clear(); }
     pub fn take_log(self: Pin<&mut Self>) -> Vec<u8> {
         mem::replace(&mut self.project().log, vec![])
     }

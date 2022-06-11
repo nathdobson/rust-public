@@ -1,25 +1,24 @@
-use crate::output::CursorPosition;
-use std::collections::{HashMap, BTreeMap, BTreeSet};
-use std::ops::{Range, Deref};
-use crate::color::Color;
-use util::grid::{Grid, GridSliceMut, GridSliceIndex};
-use util::rect::Rect;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::ops::{Deref, Range};
+
+use arrayvec::ArrayString;
+use itertools::Format;
 use unicode_segmentation::UnicodeSegmentation;
 use util::grid;
-use crate::output::Background;
-use crate::output::Foreground;
-use crate::output::DoubleHeightTop;
-use crate::output::DoubleHeightBottom;
-use crate::output::SingleWidthLine;
-use crate::screen::{LineSetting, Screen, Rune, Style};
-use crate::writer::TermWriter;
-use std::fmt;
-use std::fmt::{Formatter, Display};
-use crate::string::{StyleFormat, StyleWrite, StyleOption, StyleFormatter};
-use itertools::Format;
-use arrayvec::ArrayString;
+use util::grid::{Grid, GridSliceIndex, GridSliceMut};
+use util::rect::Rect;
+
 use crate::advance::advance_of_grapheme;
+use crate::color::Color;
 use crate::image::Image;
+use crate::output::{
+    Background, CursorPosition, DoubleHeightBottom, DoubleHeightTop, Foreground, SingleWidthLine,
+};
+use crate::screen::{LineSetting, Rune, Screen, Style};
+use crate::string::{StyleFormat, StyleFormatter, StyleOption, StyleWrite};
+use crate::writer::TermWriter;
 
 pub struct Canvas<'a> {
     screen: &'a mut Screen,
@@ -40,8 +39,18 @@ impl<'a> StyleWrite for Canvas<'a> {
 }
 
 impl<'a> Canvas<'a> {
-    pub fn new(screen: &'a mut Screen, bounds: Rect, position: (isize, isize), style: Style) -> Self {
-        Canvas { screen, bounds, position, style }
+    pub fn new(
+        screen: &'a mut Screen,
+        bounds: Rect,
+        position: (isize, isize),
+        style: Style,
+    ) -> Self {
+        Canvas {
+            screen,
+            bounds,
+            position,
+            style,
+        }
     }
     pub fn set(&mut self, p: (isize, isize), mut grapheme: &str) -> isize {
         if grapheme == "\x1b" {

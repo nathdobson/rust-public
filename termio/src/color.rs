@@ -21,10 +21,8 @@ pub enum Color {
     Gray24(u8),
 }
 
-impl Default for Color{
-    fn default() -> Self {
-        Color::Default
-    }
+impl Default for Color {
+    fn default() -> Self { Color::Default }
 }
 
 impl Color {
@@ -40,7 +38,7 @@ impl Color {
                 assert!(n < 24);
                 Some(232 + n)
             }
-            Color::Default => None
+            Color::Default => None,
         }
     }
 }

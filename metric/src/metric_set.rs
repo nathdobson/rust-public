@@ -1,16 +1,17 @@
-use crate::values::Values;
-use crate::metric::{Metric, LocalMetric, IsMetric};
-use std::sync::Arc;
-use parking_lot::Mutex;
-use std::collections::HashMap;
-use lazy_static::lazy_static;
-use by_address::ByAddress;
-use std::cell::RefCell;
-use std::borrow::BorrowMut;
 use std::any::Any;
-use rusqlite::Connection;
-use crate::keys::Keys;
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
 
+use by_address::ByAddress;
+use lazy_static::lazy_static;
+use parking_lot::Mutex;
+use rusqlite::Connection;
+
+use crate::keys::Keys;
+use crate::metric::{IsMetric, LocalMetric, Metric};
+use crate::values::Values;
 
 #[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd, Debug)]
 pub struct MetricKey(ByAddress<&'static str>);
@@ -26,8 +27,6 @@ struct Inner {
 #[derive(Clone)]
 pub(crate) struct MetricSet(Arc<Mutex<Inner>>);
 
-
-
 lazy_static! {
     static ref GLOBAL_SET: MetricSet = MetricSet::new();
 }
@@ -38,39 +37,43 @@ thread_local! {
 
 impl MetricSet {
     pub fn new() -> Self {
-        MetricSet(Arc::new(Mutex::new(Inner { metrics: HashMap::new() })))
+        MetricSet(Arc::new(Mutex::new(Inner {
+            metrics: HashMap::new(),
+        })))
     }
     pub fn global() -> Self {
-        LOCAL_SET.with(|local_set| {
-            local_set.borrow().clone()
-        }).unwrap_or(GLOBAL_SET.clone())
+        LOCAL_SET
+            .with(|local_set| local_set.borrow().clone())
+            .unwrap_or(GLOBAL_SET.clone())
     }
     pub fn set_for_thread(&self) {
-        LOCAL_SET.with(|local_set| {
-            *local_set.borrow_mut() = Some(self.clone())
-        })
+        LOCAL_SET.with(|local_set| *local_set.borrow_mut() = Some(self.clone()))
     }
-    pub fn get_or_insert<F, T>(
+    pub fn get_or_insert<F, T>(&self, key: MetricKey, default: F) -> Arc<dyn IsMetric>
+    where
+        F: FnOnce() -> Arc<T>,
+        T: IsMetric + 'static,
+    {
+        self.0
+            .lock()
+            .metrics
+            .entry(key)
+            .or_insert_with(|| default())
+            .clone()
+    }
+    pub fn get_local<K: Keys, V: Values + Clone>(
         &self,
         key: MetricKey,
-        default: F,
-    ) -> Arc<dyn IsMetric>
-        where F: FnOnce() -> Arc<T>, T: IsMetric + 'static {
-        self.0.lock().metrics.entry(key).or_insert_with(|| default()).clone()
-    }
-    pub fn get_local<K: Keys, V: Values + Clone>(&self, key: MetricKey, default: &V) -> LocalMetric<K, V> {
-        self
-            .get_or_insert(key, || Arc::new(Metric::<K, V>::new(default.clone())))
+        default: &V,
+    ) -> LocalMetric<K, V> {
+        self.get_or_insert(key, || Arc::new(Metric::<K, V>::new(default.clone())))
             .as_any()
             .downcast_ref::<Metric<K, V>>()
             .unwrap()
             .local()
     }
-    pub fn get_keys(&self) -> Vec<MetricKey> {
-        self.0.lock().metrics.keys().cloned().collect()
-    }
+    pub fn get_keys(&self) -> Vec<MetricKey> { self.0.lock().metrics.keys().cloned().collect() }
     pub fn get(&self, key: MetricKey) -> Option<Arc<dyn IsMetric>> {
         self.0.lock().metrics.get(&key).cloned()
     }
 }
-

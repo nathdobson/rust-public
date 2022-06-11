@@ -8,10 +8,11 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use parking_lot::Mutex;
+
 use colosseum::sync::Arena;
 use ouroboros::self_referencing;
 use ouroboros_impl_cache_map_inner::BorrowedFields;
+use parking_lot::Mutex;
 #[self_referencing]
 pub struct CacheMapInner<K: 'static, V: 'static> {
     arena: Arena<V>,
@@ -33,15 +34,23 @@ impl Display for InsertError {
 
 impl<K, V> CacheMap<K, V> {
     pub fn new() -> Self {
-        CacheMap(CacheMapInner::new(Arena::new(), |_| Mutex::new(HashMap::new())))
+        CacheMap(CacheMapInner::new(Arena::new(), |_| {
+            Mutex::new(HashMap::new())
+        }))
     }
 }
 
 impl<K: Hash + Eq, V> CacheMap<K, V> {
     pub fn try_insert(&self, k: K, v: V) -> Result<(), InsertError> {
-        self.0.with(|all| Self::try_insert_impl(all.arena, all.map, k, v))
+        self.0
+            .with(|all| Self::try_insert_impl(all.arena, all.map, k, v))
     }
-    fn try_insert_impl<'arena>(arena: &'arena Arena<V>, map: &Mutex<HashMap<K, &'arena V>>, k: K, v: V) -> Result<(), InsertError> {
+    fn try_insert_impl<'arena>(
+        arena: &'arena Arena<V>,
+        map: &Mutex<HashMap<K, &'arena V>>,
+        k: K,
+        v: V,
+    ) -> Result<(), InsertError> {
         match map.lock().entry(k) {
             Entry::Occupied(_) => Err(InsertError),
             Entry::Vacant(vacant) => {
@@ -51,46 +60,45 @@ impl<K: Hash + Eq, V> CacheMap<K, V> {
             }
         }
     }
-    pub fn get<'a, Q>(&'a self, k: &Q) -> Option<&'a V> where K: Borrow<Q>, Q: ?Sized + Hash + Eq {
+    pub fn get<'a, Q>(&'a self, k: &Q) -> Option<&'a V>
+    where
+        K: Borrow<Q>,
+        Q: ?Sized + Hash + Eq,
+    {
         fn imp<'outer, 'q, K, V, Q>(
-            k: &'q Q
-        ) ->
-            impl 'q + for<'arena> FnOnce(
-                BorrowedFields<'outer, 'arena, K, V>
-            ) -> Option<&'outer V>
-            where K: Eq + Hash + Borrow<Q>,
-                  Q: ?Sized + Eq + Hash {
-            |all| {
-                all.map.lock().get(k).map(|x| &**x)
-            }
+            k: &'q Q,
+        ) -> impl 'q + for<'arena> FnOnce(BorrowedFields<'outer, 'arena, K, V>) -> Option<&'outer V>
+        where
+            K: Eq + Hash + Borrow<Q>,
+            Q: ?Sized + Eq + Hash,
+        {
+            |all| all.map.lock().get(k).map(|x| &**x)
         }
         self.0.with(imp(k))
     }
-    pub fn get_or_init<'a, 'q, Q, F: 'q>(
-        &'a self,
-        k: &'q Q,
-        f: F,
-    ) -> &'a V
-        where K: Borrow<Q>,
-              Q: ?Sized + Eq + Hash + ToOwned<Owned=K>,
-              F: 'q + FnOnce() -> V
+    pub fn get_or_init<'a, 'q, Q, F: 'q>(&'a self, k: &'q Q, f: F) -> &'a V
+    where
+        K: Borrow<Q>,
+        Q: ?Sized + Eq + Hash + ToOwned<Owned = K>,
+        F: 'q + FnOnce() -> V,
     {
         fn imp<'outer, 'q, K, V, Q, F: 'q>(
             k: &'q Q,
             f: F,
-        ) ->
-            impl 'q + for<'arena> FnOnce(
-                BorrowedFields<'outer, 'arena, K, V>
-            ) -> &'outer V
-            where K: Eq + Hash + Borrow<Q>,
-                  Q: ?Sized + Eq + Hash + ToOwned<Owned=K>,
-                  F: FnOnce() -> V {
+        ) -> impl 'q + for<'arena> FnOnce(BorrowedFields<'outer, 'arena, K, V>) -> &'outer V
+        where
+            K: Eq + Hash + Borrow<Q>,
+            Q: ?Sized + Eq + Hash + ToOwned<Owned = K>,
+            F: FnOnce() -> V,
+        {
             |all| {
                 let mut lock = all.map.lock();
                 if let Some(value) = lock.get(k) {
                     *value
                 } else {
-                    lock.entry(k.to_owned()).insert_entry(all.arena.alloc(f())).get()
+                    lock.entry(k.to_owned())
+                        .insert_entry(all.arena.alloc(f()))
+                        .get()
                 }
             }
         }

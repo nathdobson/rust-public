@@ -13,25 +13,19 @@ pub struct IdentityDeserializer<'de> {
 }
 
 impl<'de> IdentityDeserializer<'de> {
-    fn follow<T: Follow<'de>>(&self) -> T::Inner {
-        T::follow(self.buf, self.loc)
-    }
+    fn follow<T: Follow<'de>>(&self) -> T::Inner { T::follow(self.buf, self.loc) }
 }
 
 impl<'de> Follow<'de> for IdentityDeserializer<'de> {
     type Inner = Self;
-    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner {
-        IdentityDeserializer {
-            buf,
-            loc,
-        }
-    }
+    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner { IdentityDeserializer { buf, loc } }
 }
 
 impl<'de> FlatDeserializer<'de> for IdentityDeserializer<'de> {
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        if let Some(deserializer)
-        = self.follow::<FollowOrNull<ForwardsUOffset<Deserializer<IdentityDeserializer>>>>() {
+        if let Some(deserializer) =
+            self.follow::<FollowOrNull<ForwardsUOffset<Deserializer<IdentityDeserializer>>>>()
+        {
             visitor.visit_some(deserializer)
         } else {
             visitor.visit_none()

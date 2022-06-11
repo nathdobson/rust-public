@@ -7,17 +7,17 @@
 #![allow(dead_code)]
 #![allow(incomplete_features)]
 
-mod error;
 mod builder;
+mod error;
 
-use serde::{Serialize, Deserializer};
-use serde::Deserialize;
-use serde::de::{Visitor, SeqAccess, DeserializeSeed, EnumAccess, VariantAccess, IntoDeserializer};
-use std::fmt::{Display, Debug, Formatter};
-use std::collections::HashMap;
-use std::any::{TypeId, Any};
-use std::marker::PhantomData;
+use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
+
+use serde::de::{DeserializeSeed, EnumAccess, IntoDeserializer, SeqAccess, VariantAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::Error;
 
@@ -40,14 +40,27 @@ pub enum Schema {
     Bytes,
     Option(SchemaId),
     Unit,
-    UnitStruct { name: String },
-    NewtypeStruct { name: String, value: SchemaId },
-    Enum { enums: Vec<(String, VariantSchema)> },
+    UnitStruct {
+        name: String,
+    },
+    NewtypeStruct {
+        name: String,
+        value: SchemaId,
+    },
+    Enum {
+        enums: Vec<(String, VariantSchema)>,
+    },
     Vec(SchemaId),
     Map(SchemaId, SchemaId),
     Tuple(Vec<SchemaId>),
-    TupleStruct { name: String, fields: Vec<SchemaId> },
-    Struct { name: String, fields: Vec<(String, SchemaId)> },
+    TupleStruct {
+        name: String,
+        fields: Vec<SchemaId>,
+    },
+    Struct {
+        name: String,
+        fields: Vec<(String, SchemaId)>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone)]
@@ -66,7 +79,5 @@ pub struct SchemaMap {
 }
 
 impl SchemaMap {
-    fn get(&self, id: SchemaId) -> &SchemaType {
-        self.map.get(&id).unwrap()
-    }
+    fn get(&self, id: SchemaId) -> &SchemaType { self.map.get(&id).unwrap() }
 }

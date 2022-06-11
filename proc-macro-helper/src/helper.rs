@@ -1,10 +1,14 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::format_ident;
-use syn::{AngleBracketedGenericArguments, Arm, Attribute, AttributeArgs, ConstParam, Error, Expr, ExprCall, ExprField, ExprMatch, ExprPath, ExprStruct, FieldPat, Fields, FieldValue, GenericArgument, GenericParam, Generics, Index, Item, ItemEnum, ItemStruct, LifetimeDef, Member, parse_quote, Pat, Path, PatIdent, PatStruct, Type, TypeParam, Variant};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::Result;
 use syn::token::Comma;
+use syn::{
+    parse_quote, AngleBracketedGenericArguments, Arm, Attribute, AttributeArgs, ConstParam, Error,
+    Expr, ExprCall, ExprField, ExprMatch, ExprPath, ExprStruct, FieldPat, FieldValue, Fields,
+    GenericArgument, GenericParam, Generics, Index, Item, ItemEnum, ItemStruct, LifetimeDef,
+    Member, Pat, PatIdent, PatStruct, Path, Result, Type, TypeParam, Variant,
+};
 
 #[derive(Debug)]
 pub struct HelperEnum {
@@ -51,7 +55,10 @@ fn item_sort(item: &Item) -> &'static str {
 }
 
 fn handle_unknown_item(item: &Item) -> Result<!> {
-    Result::Err(Error::new(item.span(), format_args!("unsupported item {}", item_sort(item))))
+    Result::Err(Error::new(
+        item.span(),
+        format_args!("unsupported item {}", item_sort(item)),
+    ))
 }
 
 impl HelperItem {
@@ -180,7 +187,10 @@ impl HelperStruct {
         if let Some(ident) = field.ident.clone() {
             Member::Named(ident)
         } else {
-            Member::Unnamed(Index { index: index as u32, span: field.span() })
+            Member::Unnamed(Index {
+                index: index as u32,
+                span: field.span(),
+            })
         }
     }
     pub fn project(&self, expr: Expr, index: usize) -> Expr {
@@ -231,16 +241,18 @@ impl HelperStruct {
                     args: fields,
                 })
             }
-            Fields::Unit => {
-                Expr::Path(parse_quote!(#path))
-            }
+            Fields::Unit => Expr::Path(parse_quote!(#path)),
         }
     }
 }
 
-
 impl HelperEnum {
-    pub fn do_match(&self, expr: Expr, prefix: &str, mut arm_fn: impl FnMut(usize, Vec<Ident>) -> Expr) -> Expr {
+    pub fn do_match(
+        &self,
+        expr: Expr,
+        prefix: &str,
+        mut arm_fn: impl FnMut(usize, Vec<Ident>) -> Expr,
+    ) -> Expr {
         let prefix = if prefix.is_empty() {
             format!("")
         } else {
@@ -351,9 +363,7 @@ impl HelperEnum {
                     args: fields,
                 })
             }
-            Fields::Unit => {
-                Expr::Path(parse_quote! {#enum_name::# variant_name})
-            }
+            Fields::Unit => Expr::Path(parse_quote! {#enum_name::# variant_name}),
         }
     }
 }

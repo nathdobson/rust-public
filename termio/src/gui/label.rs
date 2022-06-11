@@ -1,12 +1,13 @@
-use crate::string::StyleString;
-use crate::gui::layout::{Constraint, Layout};
-use crate::canvas::Canvas;
-use crate::gui::gui::{InputEvent};
-use crate::input::{MouseEvent, Mouse};
-use std::mem;
 use std::collections::HashMap;
-use crate::gui::div::{DivRc, DivImpl, Div};
-use crate::gui::tree::{Tree, Dirty};
+use std::mem;
+
+use crate::canvas::Canvas;
+use crate::gui::div::{Div, DivImpl, DivRc};
+use crate::gui::gui::InputEvent;
+use crate::gui::layout::{Constraint, Layout};
+use crate::gui::tree::{Dirty, Tree};
+use crate::input::{Mouse, MouseEvent};
+use crate::string::StyleString;
 
 #[derive(Debug)]
 pub struct Label {
@@ -16,10 +17,13 @@ pub struct Label {
 
 impl Label {
     pub fn new(tree: Tree) -> DivRc<Label> {
-        DivRc::new(tree, Label {
-            lines: vec![],
-            bottom_scroll: 0,
-        })
+        DivRc::new(
+            tree,
+            Label {
+                lines: vec![],
+                bottom_scroll: 0,
+            },
+        )
     }
 
     pub fn sync(self: &mut Div<Self>, source: &Vec<StyleString>) {
@@ -54,23 +58,29 @@ impl DivImpl for Label {
             let top = self.bottom_scroll - height;
             let middle = height;
             let bottom = self.lines.len() as isize - middle - top;
-            let top = ((height - 1) as f32 * 8.0 * top as f32 / (self.lines.len() as f32)).ceil() as isize;
-            let bottom = ((height - 1) as f32 * 8.0 * bottom as f32 / (self.lines.len() as f32)).ceil() as isize;
+            let top = ((height - 1) as f32 * 8.0 * top as f32 / (self.lines.len() as f32)).ceil()
+                as isize;
+            let bottom = ((height - 1) as f32 * 8.0 * bottom as f32 / (self.lines.len() as f32))
+                .ceil() as isize;
             let middle = height * 8 - top - bottom;
             //println!("{:?} {:?} {:?}", top, middle, bottom);
             for y in 0..height {
                 if y < top / 8 {
                     canvas.draw((width - 1, y), &' ');
                 } else if y == top / 8 {
-                    canvas.draw((width - 1, y),
-                                &std::char::from_u32('█' as u32 - (top % 8) as u32).unwrap());
+                    canvas.draw(
+                        (width - 1, y),
+                        &std::char::from_u32('█' as u32 - (top % 8) as u32).unwrap(),
+                    );
                 } else if y < (top + middle) / 8 {
                     canvas.draw((width - 1, y), &'█');
                 } else if y == (top + middle) / 8 {
                     let mut canvas2 = canvas.push();
                     mem::swap(&mut canvas2.style.background, &mut canvas2.style.foreground);
-                    canvas2.draw((width - 1, y),
-                                 &std::char::from_u32('█' as u32 - ((top + middle) % 8) as u32).unwrap());
+                    canvas2.draw(
+                        (width - 1, y),
+                        &std::char::from_u32('█' as u32 - ((top + middle) % 8) as u32).unwrap(),
+                    );
                 } else {
                     canvas.draw((width - 1, y), &' ');
                 }

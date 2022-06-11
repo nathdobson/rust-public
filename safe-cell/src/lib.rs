@@ -1,23 +1,24 @@
 #![feature(default_free_fn)]
 #![allow(unused_imports)]
 
+use std::any::{Any, TypeId};
 use std::borrow::Borrow;
 use std::cell::{Cell, UnsafeCell};
 use std::collections::HashMap;
-use std::ops::Deref;
-use std::panic::resume_unwind;
-use std::sync::{Arc, Barrier};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::atomic::Ordering::Release;
-use std::{mem, thread};
-use std::any::{Any, TypeId};
 use std::default::default;
 use std::hash::Hash;
+use std::ops::Deref;
+use std::panic::resume_unwind;
+use std::sync::atomic::Ordering::Release;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Barrier};
 use std::thread::ThreadId;
 use std::time::Duration;
+use std::{mem, thread};
+
+use cache_map::CacheMap;
 use ondrop::OnDrop;
 use parking_lot::{Mutex, ReentrantMutex};
-use cache_map::CacheMap;
 
 pub struct SafeOnceCell<T> {
     initializing: ReentrantMutex<Cell<bool>>,
@@ -74,15 +75,15 @@ impl<T> SafeOnceCell<T> {
                 return (*self.value.get()).as_ref();
             }
             let _done = OnDrop::new(|| self.initialized.store(true, Release));
-            if lock.replace(true) { panic!("Deadlock in initialization.") }
+            if lock.replace(true) {
+                panic!("Deadlock in initialization.")
+            }
             let value = &mut *self.value.get();
             *value = Some(init());
             (*self.value.get()).as_ref()
         }
     }
-    pub fn into_inner(self) -> Option<T> {
-        self.value.into_inner()
-    }
+    pub fn into_inner(self) -> Option<T> { self.value.into_inner() }
 }
 
 impl<T> Default for SafeOnceCell<T> {
@@ -91,23 +92,20 @@ impl<T> Default for SafeOnceCell<T> {
 
 impl<T, F> SafeLazy<T, F> {
     pub const fn new(f: F) -> Self {
-        SafeLazy { cell: SafeOnceCell::new(), init: Cell::new(Some(f)) }
+        SafeLazy {
+            cell: SafeOnceCell::new(),
+            init: Cell::new(Some(f)),
+        }
     }
 }
 
 impl<T: Default> SafeLazy<T> {
-    pub const fn const_default() -> Self {
-        SafeLazy::new(|| T::default())
-    }
+    pub const fn const_default() -> Self { SafeLazy::new(|| T::default()) }
 }
 
 impl<T, F: FnOnce() -> T> Deref for SafeLazy<T, F> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        self.cell.get_or_init(|| {
-            self.init.take().unwrap()()
-        })
-    }
+    fn deref(&self) -> &Self::Target { self.cell.get_or_init(|| self.init.take().unwrap()()) }
 }
 
 unsafe impl<T: Send> Send for SafeOnceCell<T> {}
@@ -119,32 +117,44 @@ unsafe impl<T: Send, F: Send> Send for SafeLazy<T, F> {}
 unsafe impl<T: Sync + Send, F: Send> Sync for SafeLazy<T, F> {}
 
 impl<K: Eq + Hash, V> SafeOnceCellMap<K, V> {
-    pub fn get_or_init<'a, Q, F>(&'a self, key: &Q, f: F) -> &'a V where Q: ?Sized + ToOwned<Owned=K>, K: Borrow<Q>, F: FnOnce() -> V, Q: Eq + Hash {
+    pub fn get_or_init<'a, Q, F>(&'a self, key: &Q, f: F) -> &'a V
+    where
+        Q: ?Sized + ToOwned<Owned = K>,
+        K: Borrow<Q>,
+        F: FnOnce() -> V,
+        Q: Eq + Hash,
+    {
         self.map.get_or_init(key, default).get_or_init(f)
     }
 }
 
 impl<K, V> SafeOnceCellMap<K, V> {
     pub fn new() -> Self {
-        SafeOnceCellMap { map: CacheMap::new() }
+        SafeOnceCellMap {
+            map: CacheMap::new(),
+        }
     }
 }
 
 impl SafeTypeMap {
     pub fn new() -> Self {
-        SafeTypeMap { map: SafeOnceCellMap::new() }
+        SafeTypeMap {
+            map: SafeOnceCellMap::new(),
+        }
     }
-    pub fn get_or_init<'a, F, T: 'static + Send + Sync>(&'a self, f: F) -> &'a T where F: FnOnce() -> T {
+    pub fn get_or_init<'a, F, T: 'static + Send + Sync>(&'a self, f: F) -> &'a T
+    where
+        F: FnOnce() -> T,
+    {
         let type_id = TypeId::of::<T>();
-        let result: &'a Box<dyn Any + Send + Sync> = self.map.get_or_init(&type_id, || Box::new(f()));
+        let result: &'a Box<dyn Any + Send + Sync> =
+            self.map.get_or_init(&type_id, || Box::new(f()));
         result.downcast_ref::<T>().unwrap()
     }
 }
 
 impl Default for SafeTypeMap {
-    fn default() -> Self {
-        SafeTypeMap::new()
-    }
+    fn default() -> Self { SafeTypeMap::new() }
 }
 
 impl<T: Clone> Clone for SafeOnceCell<T> {
@@ -167,14 +177,22 @@ fn test_simple() {
 fn parallel(threads: usize, f: impl 'static + Send + Sync + Fn()) {
     let barrier = Arc::new(Barrier::new(threads));
     let f = Arc::new(f);
-    (0..threads).map(|_| thread::spawn({
-        let barrier = barrier.clone();
-        let f = f.clone();
-        move || {
-            barrier.wait();
-            f();
-        }
-    })).collect::<Vec<_>>().into_iter().for_each(|x| { x.join().unwrap_or_else(|x| resume_unwind(x)); });
+    (0..threads)
+        .map(|_| {
+            thread::spawn({
+                let barrier = barrier.clone();
+                let f = f.clone();
+                move || {
+                    barrier.wait();
+                    f();
+                }
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|x| {
+            x.join().unwrap_or_else(|x| resume_unwind(x));
+        });
 }
 
 #[test]
@@ -199,8 +217,7 @@ fn test_reentrant() {
 #[test]
 #[should_panic(expected = "Poisoned")]
 fn test_racy_reentrant() {
-    use rand::thread_rng;
-    use rand::Rng;
+    use rand::{thread_rng, Rng};
 
     let cell = Arc::new(SafeOnceCell::new());
     parallel(100, {
@@ -219,12 +236,13 @@ fn test_map() {
     let map = SafeOnceCellMap::<String, String>::new();
     assert_eq!(map.get_or_init("a", || "b".to_string()), "b");
     assert_eq!(map.get_or_init("a", || "c".to_string()), "b");
-    assert_eq!(map.get_or_init("x", || {
-        assert_eq!(map.get_or_init("y", || {
-            "y".to_string()
-        }), "y");
-        "x".to_string()
-    }), "x");
+    assert_eq!(
+        map.get_or_init("x", || {
+            assert_eq!(map.get_or_init("y", || { "y".to_string() }), "y");
+            "x".to_string()
+        }),
+        "x"
+    );
 }
 
 #[test]
@@ -232,9 +250,7 @@ fn test_map() {
 fn test_map_reentrant() {
     let map = SafeOnceCellMap::<String, String>::new();
     map.get_or_init("x", || {
-        map.get_or_init("x", || {
-            "x".to_string()
-        });
+        map.get_or_init("x", || "x".to_string());
         "x".to_string()
     });
 }

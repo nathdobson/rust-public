@@ -1,11 +1,11 @@
 #![feature(allocator_api)]
 
-use std::alloc::{Allocator, AllocError, Layout};
-use std::sync::atomic::AtomicBool;
-use std::mem::{ ManuallyDrop};
+use std::alloc::{AllocError, Allocator, Layout};
 use std::cell::UnsafeCell;
-use std::sync::atomic::Ordering::Relaxed;
+use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
 
 pub struct TakeCell<T: ?Sized> {
     taken: AtomicBool,
@@ -13,7 +13,10 @@ pub struct TakeCell<T: ?Sized> {
 }
 
 impl<T> TakeCell<T> {
-    pub fn new(value: T) -> Self where T: Sized {
+    pub fn new(value: T) -> Self
+    where
+        T: Sized,
+    {
         TakeCell {
             taken: AtomicBool::new(false),
             value: UnsafeCell::new(ManuallyDrop::new(value)),
@@ -61,4 +64,3 @@ impl<T: ?Sized> Drop for TakeCell<T> {
 unsafe impl<T: ?Sized> Send for TakeCell<T> {}
 
 unsafe impl<T: ?Sized> Sync for TakeCell<T> {}
-

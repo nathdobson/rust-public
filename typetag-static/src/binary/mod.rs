@@ -1,23 +1,28 @@
+pub mod any;
 mod de;
 pub mod ser;
-pub mod any;
 
-use serde::{Serializer, Serialize, Deserializer, Deserialize};
-use std::fmt::{Display, Debug, Formatter};
-use serde::ser::{SerializeSeq, SerializeTuple, SerializeTupleStruct, SerializeTupleVariant, SerializeMap, SerializeStruct, SerializeStructVariant};
-use std::ops::Range;
-use std::io::{Cursor, ErrorKind, Read};
-use serde::de::{Visitor, SeqAccess, MapAccess, EnumAccess, IntoDeserializer, VariantAccess};
-use std::io;
-use std::string::FromUtf8Error;
-use serde::de::DeserializeSeed;
-use crate::tag::{TypeTag, TypeTagHash};
-use crate::binary::ser::BinarySerializer;
-use crate::binary::de::BinaryDeserializer;
 use std::any::TypeId;
 use std::f32::consts::E;
+use std::fmt::{Debug, Display, Formatter};
+use std::io;
+use std::io::{Cursor, ErrorKind, Read};
+use std::ops::Range;
+use std::string::FromUtf8Error;
 
 pub use any::IMPLS;
+use serde::de::{
+    DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor,
+};
+use serde::ser::{
+    SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
+    SerializeTupleStruct, SerializeTupleVariant,
+};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::binary::de::BinaryDeserializer;
+use crate::binary::ser::BinarySerializer;
+use crate::tag::{TypeTag, TypeTagHash};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Error {
@@ -68,7 +73,9 @@ impl Display for Error {
             Error::FromUtf8(None) => write!(f, "UTF8 error"),
             Error::FromUtf8(Some(e)) => write!(f, "UTF8 error: {}", e),
             Error::Unsupported => write!(f, "Unsupported operation"),
-            Error::MissingSerialize(id) => write!(f, "Missing `impl_any_binary!` for type with {:?}", id),
+            Error::MissingSerialize(id) => {
+                write!(f, "Missing `impl_any_binary!` for type with {:?}", id)
+            }
             Error::BadType => write!(f, "Bad AnySerialize"),
             Error::BadLength => write!(f, "Bad length"),
         }
@@ -76,17 +83,22 @@ impl Display for Error {
 }
 
 impl serde::ser::Error for Error {
-    fn custom<T>(msg: T) -> Self where T: Display {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: Display,
+    {
         Error::Custom(format!("{}", msg))
     }
 }
 
 impl serde::de::Error for Error {
-    fn custom<T>(msg: T) -> Self where T: Display {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: Display,
+    {
         Error::Custom(format!("{}", msg))
     }
 }
-
 
 impl From<io::Error> for Error {
     fn from(ioe: io::Error) -> Self { Error::Io(Some(ioe)) }
@@ -104,7 +116,11 @@ impl From<Error> for io::Error {
             Error::Io(None) => io::Error::new(ErrorKind::Other, "io error"),
             Error::FromUtf8(Some(e)) => io::Error::new(ErrorKind::Other, e),
             Error::FromUtf8(None) => io::Error::new(ErrorKind::Other, "utf8 error"),
-            Error::MissingSerialize(_) | Error::BadChar | Error::Unsupported | Error::BadType | Error::BadLength => io::Error::new(ErrorKind::Other, format!("{}", e)),
+            Error::MissingSerialize(_)
+            | Error::BadChar
+            | Error::Unsupported
+            | Error::BadType
+            | Error::BadLength => io::Error::new(ErrorKind::Other, format!("{}", e)),
         }
     }
 }

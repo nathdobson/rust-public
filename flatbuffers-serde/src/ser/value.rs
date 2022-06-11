@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Formatter};
 
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, VOffsetT, WIPOffset, UOffsetT};
+use flatbuffers::{FlatBufferBuilder, UOffsetT, UnionWIPOffset, VOffsetT, WIPOffset};
 
+use crate::flat_util::{Flat128, FlatUnit, VariantT};
 use crate::ser::wrapper::Serializer;
-use crate::flat_util::{VariantT, Flat128, FlatUnit};
 
 #[derive(Copy, Clone)]
 pub enum OneValue {
@@ -21,35 +21,24 @@ pub enum OneValue {
 #[derive(Copy, Clone, Debug)]
 pub enum Value {
     OneValue(OneValue),
-    Enum {
-        variant: VariantT,
-        value: OneValue,
-    },
+    Enum { variant: VariantT, value: OneValue },
 }
 
 impl Debug for OneValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            OneValue::Ref(x) =>
-                f.debug_tuple("OneValue::Ref")
-                    .field(&x.value())
-                    .finish(),
-            OneValue::SomeRef(x) =>
-                f.debug_tuple("OneValue::SomeRef")
-                    .field(&x.value())
-                    .finish(),
+            OneValue::Ref(x) => f.debug_tuple("OneValue::Ref").field(&x.value()).finish(),
+            OneValue::SomeRef(x) => f
+                .debug_tuple("OneValue::SomeRef")
+                .field(&x.value())
+                .finish(),
             OneValue::NoneRef => f.debug_struct("OneValue::NoneRef").finish(),
             OneValue::Fixed0 => f.debug_struct("OneValue::Fixed0").finish(),
-            OneValue::Fixed8(x) =>
-                f.debug_tuple("OneValue::Fixed8").field(&x).finish(),
-            OneValue::Fixed16(x) =>
-                f.debug_tuple("OneValue::Fixed16").field(&x).finish(),
-            OneValue::Fixed32(x) =>
-                f.debug_tuple("OneValue::Fixed32").field(&x).finish(),
-            OneValue::Fixed64(x) =>
-                f.debug_tuple("OneValue::Fixed64").field(&x).finish(),
-            OneValue::Fixed128(x) =>
-                f.debug_tuple("OneValue::Fixed128").field(&x).finish(),
+            OneValue::Fixed8(x) => f.debug_tuple("OneValue::Fixed8").field(&x).finish(),
+            OneValue::Fixed16(x) => f.debug_tuple("OneValue::Fixed16").field(&x).finish(),
+            OneValue::Fixed32(x) => f.debug_tuple("OneValue::Fixed32").field(&x).finish(),
+            OneValue::Fixed64(x) => f.debug_tuple("OneValue::Fixed64").field(&x).finish(),
+            OneValue::Fixed128(x) => f.debug_tuple("OneValue::Fixed128").field(&x).finish(),
         }
     }
 }
@@ -88,7 +77,11 @@ impl OneValue {
         }
     }
 
-    pub fn to_offset(self, fbb: &mut FlatBufferBuilder, value: OneValue) -> WIPOffset<UnionWIPOffset> {
+    pub fn to_offset(
+        self,
+        fbb: &mut FlatBufferBuilder,
+        value: OneValue,
+    ) -> WIPOffset<UnionWIPOffset> {
         match self {
             OneValue::Ref(x) => x,
             OneValue::SomeRef(x) => fbb.push(x).as_union_value(),

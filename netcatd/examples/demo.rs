@@ -2,41 +2,39 @@
 #![feature(arbitrary_self_types)]
 #![deny(unused_must_use)]
 
-use std::{io, mem, process};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{io, mem, process};
 
+use async_backtrace::traced_main;
 use async_util::coop::Cancel;
-use netcatd::tcp::{NetcatServer, Model};
+use async_util::poll::poll_loop;
+use netcatd::tcp::{Model, NetcatServer};
 use termio::canvas::Canvas;
 use termio::color::Color;
 use termio::gui::button::Button;
 use termio::gui::div::{Div, DivImpl, DivRc};
-use termio::gui::{event, GuiBuilder};
-use termio::gui::event::{BoxFnMut};
+use termio::gui::event::BoxFnMut;
 use termio::gui::gui::{Gui, InputEvent};
 use termio::gui::layout::{Constraint, Layout};
+use termio::gui::table::{Table, TableDiv};
 use termio::gui::tree::Tree;
-use termio::input::{Event, Key, Mouse, KeyEvent};
+use termio::gui::{event, GuiBuilder};
 use termio::input::modifiers::*;
+use termio::input::{Event, Key, KeyEvent, Mouse};
+use termio::line::Stroke;
 use termio::output::{DoubleHeightBottom, DoubleHeightTop, Foreground};
 use termio::screen::Style;
-use util::{Name, swrite};
 use util::grid::Grid;
 use util::mutrc::MutRc;
-use termio::gui::table::{Table, TableDiv};
-use termio::line::Stroke;
-use async_backtrace::traced_main;
-use async_util::poll::poll_loop;
+use util::{swrite, Name};
 
 #[derive(Debug)]
 pub struct DemoModel {}
 
 impl DemoModel {
-    pub fn new() -> Self {
-        DemoModel {}
-    }
+    pub fn new() -> Self { DemoModel {} }
 }
 
 impl Model for DemoModel {
@@ -62,27 +60,25 @@ impl Root {
         let hello = Button::new(
             tree.clone(),
             "hello".to_string(),
-            BoxFnMut::new(||
-                println!("Hello")));
+            BoxFnMut::new(|| println!("Hello")),
+        );
         let goodbye = Button::new(
             tree.clone(),
             "goodbye".to_string(),
-            BoxFnMut::new(||
-                println!("Goodbye")));
-        let grid = Grid::new((2, 1), |x, y| {
-            match (x, y) {
-                (0, 0) => TableDiv {
-                    div: hello.clone(),
-                    flex: true,
-                    align: (0.0, 0.0),
-                },
-                (1, 0) => TableDiv {
-                    div: goodbye.clone(),
-                    flex: false,
-                    align: (0.0, 0.0),
-                },
-                _ => panic!()
-            }
+            BoxFnMut::new(|| println!("Goodbye")),
+        );
+        let grid = Grid::new((2, 1), |x, y| match (x, y) {
+            (0, 0) => TableDiv {
+                div: hello.clone(),
+                flex: true,
+                align: (0.0, 0.0),
+            },
+            (1, 0) => TableDiv {
+                div: goodbye.clone(),
+                flex: false,
+                align: (0.0, 0.0),
+            },
+            _ => panic!(),
         });
         let table = Table::new(
             tree.clone(),
@@ -92,11 +88,14 @@ impl Root {
             Grid::new((2, 2), |_, _| Stroke::Narrow),
             Grid::new((3, 1), |_, _| Stroke::Double),
         );
-        let mut result = DivRc::new(tree.clone(), Root {
-            hello,
-            goodbye,
-            table: table.clone(),
-        });
+        let mut result = DivRc::new(
+            tree.clone(),
+            Root {
+                hello,
+                goodbye,
+                table: table.clone(),
+            },
+        );
         result.write().add(table);
         result
     }
@@ -106,22 +105,26 @@ impl DivImpl for Root {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
         let mut table = self.table.write();
         table.layout(constraint);
-        Layout { size: table.size(), line_settings: Default::default() }
+        Layout {
+            size: table.size(),
+            line_settings: Default::default(),
+        }
     }
 }
 
 fn main() {
     traced_main("127.0.0.1:9999".to_string(), async move {
         let cancel = Cancel::new();
-        cancel.clone().run_main(async {
-            let (listener, mut server) = NetcatServer::new(cancel);
-            listener.listen("0.0.0.0:8000").await?;
-            let mut model = DemoModel::new();
-            poll_loop(|cx| {
-                server.poll_elapse(cx, &mut model)
-            }).await?;
-            #[allow(unreachable_code)]
+        cancel
+            .clone()
+            .run_main(async {
+                let (listener, mut server) = NetcatServer::new(cancel);
+                listener.listen("0.0.0.0:8000").await?;
+                let mut model = DemoModel::new();
+                poll_loop(|cx| server.poll_elapse(cx, &mut model)).await?;
+                #[allow(unreachable_code)]
                 Ok::<(), io::Error>(())
-        }).await;
+            })
+            .await;
     });
 }

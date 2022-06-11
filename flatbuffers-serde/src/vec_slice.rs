@@ -1,6 +1,7 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use serde::de::{Visitor, SeqAccess, MapAccess, EnumAccess};
 use std::fmt::Formatter;
+
+use serde::de::{EnumAccess, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Default)]
 pub struct VecSlice {
@@ -10,17 +11,14 @@ pub struct VecSlice {
 
 impl VecSlice {
     pub fn new() -> Self {
-        VecSlice { vec: vec![], head: 0 }
+        VecSlice {
+            vec: vec![],
+            head: 0,
+        }
     }
-    pub fn from_vec(vec: Vec<u8>, head: usize) -> Self {
-        VecSlice { vec, head }
-    }
-    pub fn len(&self) -> usize {
-        self.vec.len() - self.head
-    }
-    pub fn into_vec(self) -> Vec<u8> {
-        self.vec
-    }
+    pub fn from_vec(vec: Vec<u8>, head: usize) -> Self { VecSlice { vec, head } }
+    pub fn len(&self) -> usize { self.vec.len() - self.head }
+    pub fn into_vec(self) -> Vec<u8> { self.vec }
     pub fn clear(&mut self) {
         self.vec.clear();
         self.vec.resize(self.vec.capacity(), 0);
@@ -51,30 +49,43 @@ impl VecSlice {
 }
 
 impl AsRef<[u8]> for VecSlice {
-    fn as_ref(&self) -> &[u8] {
-        &self.vec[self.head..]
-    }
+    fn as_ref(&self) -> &[u8] { &self.vec[self.head..] }
 }
 
 impl Serialize for VecSlice {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_bytes(&self.vec[self.head..])
     }
 }
 
 impl<'de> Deserialize<'de> for VecSlice {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         struct Vis;
         impl<'de> Visitor<'de> for Vis {
             type Value = VecSlice;
             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
                 write!(formatter, "a byte buf")
             }
-            fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E> where E: serde::de::Error {
+            fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
                 Ok(VecSlice { vec: v, head: 0 })
             }
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E> where E: serde::de::Error {
-                Ok(VecSlice { vec: v.to_owned(), head: 0 })
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(VecSlice {
+                    vec: v.to_owned(),
+                    head: 0,
+                })
             }
         }
         deserializer.deserialize_byte_buf(Vis)
@@ -82,9 +93,7 @@ impl<'de> Deserialize<'de> for VecSlice {
 }
 
 impl From<Vec<u8>> for VecSlice {
-    fn from(vec: Vec<u8>) -> Self {
-        VecSlice { vec, head: 0 }
-    }
+    fn from(vec: Vec<u8>) -> Self { VecSlice { vec, head: 0 } }
 }
 
 #[test]

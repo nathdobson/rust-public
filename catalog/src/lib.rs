@@ -51,16 +51,17 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use parking_lot::Mutex;
-use std::ops::Deref;
-use std::sync::{Once};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::hint::black_box;
+use std::ops::Deref;
+use std::sync::Once;
+
+use cfg_if::cfg_if;
+use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use safe_cell::{SafeLazy, SafeOnceCell};
-use cfg_if::cfg_if;
 
 cfg_if!(
     if #[cfg(any(target_arch = "wasm32", target_arch = "wasi"))] {
@@ -73,8 +74,9 @@ cfg_if!(
 );
 
 pub mod reexport {
-    pub use crate::imp::reexport::*;
     pub use cfg_if;
+
+    pub use crate::imp::reexport::*;
 }
 
 pub use catalog_macros::register;
@@ -120,7 +122,9 @@ impl<B: Builder> Registry<B> {
     }
     #[doc(hidden)]
     pub fn register(&self, entry: fn(&mut B)) {
-        self.inputs.lock().as_mut()
+        self.inputs
+            .lock()
+            .as_mut()
             .expect("Registry already initialized")
             .push(entry);
     }
@@ -145,12 +149,13 @@ impl<B: Builder> Deref for Registry<B> {
 
 impl<T> Deref for LazyEntry<T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        self.public.deref()
-    }
+    fn deref(&self) -> &Self::Target { self.public.deref() }
 }
 
-impl<B: Builder> Debug for Registry<B> where B::Output: Debug {
+impl<B: Builder> Debug for Registry<B>
+where
+    B::Output: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Registry")
             .field("output", self.deref())
@@ -162,7 +167,9 @@ impl<A: Eq + Hash + Debug, B> BuilderFrom<(A, B)> for HashMap<A, B> {
     fn insert(&mut self, (k, v): (A, B)) {
         match self.entry(k) {
             Entry::Occupied(e) => panic!("{:?}", e.key()),
-            Entry::Vacant(e) => { e.insert(v); }
+            Entry::Vacant(e) => {
+                e.insert(v);
+            }
         }
     }
 }

@@ -6,20 +6,21 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use parking_lot::Mutex;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 use rusqlite::Connection;
+
 use crate::values::Values;
 
-mod values;
-mod sum;
-mod histogram;
-mod table;
 mod database;
+mod histogram;
+mod keys;
 mod metric;
 mod metric_set;
-mod keys;
-
+mod sum;
+mod table;
+mod values;
 
 // impl<S: Stats + Clone> Metric<S> {
 //     pub fn new(stats: S) -> Self {
@@ -42,33 +43,29 @@ mod keys;
 //     }
 // }
 
-
 #[cfg(test)]
 mod test {
-    use crate::histogram::{Buckets, Point};
-    use serde::Serialize;
-    use serde::Deserialize;
+    use std::any::Any;
+    use std::ops::Deref;
+    use std::sync::Arc;
+    use std::thread::sleep;
+    use std::time::Duration;
+
     use lazy_static::lazy_static;
     use parking_lot::Mutex;
     use rusqlite::Connection;
-    use std::thread::sleep;
-    use std::time::Duration;
-    use crate::metric::Metric;
-    use crate::metric::LocalMetric;
-    use crate::metric_set::MetricKey;
-    use crate::metric_set::MetricSet;
-    use std::sync::Arc;
-    use std::any::Any;
-    use std::ops::Deref;
+    use serde::{Deserialize, Serialize};
+
+    use crate::histogram::{Buckets, Point};
+    use crate::metric::{LocalMetric, Metric};
+    use crate::metric_set::{MetricKey, MetricSet};
 
     type KeysType = (&'static str, u32);
     type ValuesType = Buckets;
 
     static NAME: MetricKey = MetricKey::new("/example/metric");
 
-    fn make_values() -> ValuesType {
-        Buckets::exponential(1.0, 2.0, 10)
-    }
+    fn make_values() -> ValuesType { Buckets::exponential(1.0, 2.0, 10) }
     lazy_static! {
         static ref VALUES: ValuesType = make_values();
     }
@@ -77,10 +74,7 @@ mod test {
             MetricSet::global().get_local(NAME, &&*VALUES);
     }
     fn add(field1: &'static str, field2: u32, value: f64) {
-        LOCAL_METRIC.with(|local| local.add(
-            (field1, field2),
-            Point { value, weight: 1.0 },
-        ));
+        LOCAL_METRIC.with(|local| local.add((field1, field2), Point { value, weight: 1.0 }));
     }
 
     #[test]

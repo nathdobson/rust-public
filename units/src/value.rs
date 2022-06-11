@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use ustr::Ustr;
-use ordered_float::OrderedFloat;
-use std::iter;
-use ustr::ustr;
-use crate::factors::Factors;
-use std::ops::{Add, Sub, Mul, Div, Deref};
 use std::fmt::{Debug, Formatter};
+use std::iter;
+use std::ops::{Add, Deref, Div, Mul, Sub};
+
+use ordered_float::OrderedFloat;
+use ustr::{ustr, Ustr};
+
+use crate::factors::Factors;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct Value {
@@ -39,16 +40,20 @@ type ValueResult = Result<Value, ValueError>;
 // }
 
 impl Value {
-    pub fn number(value: f64) -> Value { Value { value: OrderedFloat(value), units: Factors::new() } }
+    pub fn number(value: f64) -> Value {
+        Value {
+            value: OrderedFloat(value),
+            units: Factors::new(),
+        }
+    }
     pub fn with_unit(value: f64, units: Factors) -> Value {
-        Value { value: OrderedFloat(value), units }
+        Value {
+            value: OrderedFloat(value),
+            units,
+        }
     }
-    pub fn value(&self) -> f64 {
-        *self.value
-    }
-    pub fn units(&self) -> &Factors {
-        &self.units
-    }
+    pub fn value(&self) -> f64 { *self.value }
+    pub fn units(&self) -> &Factors { &self.units }
 }
 
 impl Debug for Value {

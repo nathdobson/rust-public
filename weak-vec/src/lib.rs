@@ -1,10 +1,11 @@
 #![feature(unsize)]
 #![feature(vec_into_raw_parts)]
 
-use std::sync::{Weak, Arc};
-use std::mem;
-use take_cell::TakeCell;
 use std::marker::Unsize;
+use std::mem;
+use std::sync::{Arc, Weak};
+
+use take_cell::TakeCell;
 
 const MAX_FACTOR: f64 = 0.5;
 
@@ -15,10 +16,15 @@ pub struct WeakVec<T: ?Sized> {
 
 impl<T: ?Sized> WeakVec<T> {
     pub fn new() -> WeakVec<T> {
-        WeakVec { vec: vec![], potential: 0 }
+        WeakVec {
+            vec: vec![],
+            potential: 0,
+        }
     }
     pub fn push(&mut self, element: Weak<T>) {
-        if self.vec.len() == self.vec.capacity() && (self.potential as f64 / self.vec.len() as f64) >= MAX_FACTOR {
+        if self.vec.len() == self.vec.capacity()
+            && (self.potential as f64 / self.vec.len() as f64) >= MAX_FACTOR
+        {
             self.iter().count();
         }
         self.vec.push(element);
@@ -29,11 +35,13 @@ impl<T: ?Sized> WeakVec<T> {
         self.push(Arc::downgrade(&element) as Weak<T>);
         element
     }
-    pub fn iter<'a>(&'a mut self) -> impl Iterator<Item=Arc<T>> + 'a {
+    pub fn iter<'a>(&'a mut self) -> impl Iterator<Item = Arc<T>> + 'a {
         self.potential = 0;
-        self.vec.filter_iter(|x| x.upgrade().ok_or(())).filter_map(|x| x.ok())
+        self.vec
+            .filter_iter(|x| x.upgrade().ok_or(()))
+            .filter_map(|x| x.ok())
     }
-    pub fn drain<'a>(&'a mut self) -> impl Iterator<Item=Arc<T>> + 'a {
+    pub fn drain<'a>(&'a mut self) -> impl Iterator<Item = Arc<T>> + 'a {
         self.vec.drain(..).filter_map(|x| x.upgrade())
     }
 }
@@ -57,14 +65,17 @@ impl<T: Fn() + ?Sized> WeakVec<T> {
 trait VecExt {
     type Element;
     fn filter_iter<'a, S, E, F>(&'a mut self, f: F) -> FilterIter<'a, Self::Element, S, E, F>
-        where F: FnMut(&'a mut Self::Element) -> Result<S, E>;
+    where
+        F: FnMut(&'a mut Self::Element) -> Result<S, E>;
 }
 
 impl<T> VecExt for Vec<T> {
     type Element = T;
 
     fn filter_iter<'a, S, E, F>(&'a mut self, fun: F) -> FilterIter<'a, T, S, E, F>
-        where F: FnMut(&'a mut Self::Element) -> Result<S, E> {
+    where
+        F: FnMut(&'a mut Self::Element) -> Result<S, E>,
+    {
         FilterIter::new(self, fun)
     }
 }
@@ -109,7 +120,9 @@ impl<'a, T, S, E, F: FnMut(&'a mut T) -> Result<S, E>> FilterIter<'a, T, S, E, F
 
 impl<'a, T, S, E, F: FnMut(&'a mut T) -> Result<S, E>> Drop for FilterIter<'a, T, S, E, F> {
     fn drop(&mut self) {
-        struct OnDrop<'b, 'a, T, S, E, F: FnMut(&'a mut T) -> Result<S, E>>(&'b mut FilterIter<'a, T, S, E, F>);
+        struct OnDrop<'b, 'a, T, S, E, F: FnMut(&'a mut T) -> Result<S, E>>(
+            &'b mut FilterIter<'a, T, S, E, F>,
+        );
         impl<'b, 'a, T, S, E, F: FnMut(&'a mut T) -> Result<S, E>> Drop for OnDrop<'b, 'a, T, S, E, F> {
             fn drop(&mut self) {
                 unsafe {

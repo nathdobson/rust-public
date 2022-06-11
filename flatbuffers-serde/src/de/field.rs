@@ -12,24 +12,18 @@ pub struct FieldDeserializer<'de> {
 }
 
 impl<'de> FieldDeserializer<'de> {
-    fn follow<T: Follow<'de>>(&self) -> T::Inner {
-        T::follow(self.buf, self.loc)
-    }
+    fn follow<T: Follow<'de>>(&self) -> T::Inner { T::follow(self.buf, self.loc) }
 }
 
 impl<'de> Follow<'de> for FieldDeserializer<'de> {
     type Inner = Self;
-    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner {
-        FieldDeserializer {
-            buf,
-            loc,
-        }
-    }
+    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner { FieldDeserializer { buf, loc } }
 }
 
 impl<'a, 'de> FlatDeserializer<'de> for FieldDeserializer<'de> {
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        self.follow::<ForwardsUOffset<IdentityDeserializer>>().deserialize_option(visitor)
+        self.follow::<ForwardsUOffset<IdentityDeserializer>>()
+            .deserialize_option(visitor)
     }
 
     fn deserialize_fixed<T: Follow<'de> + 'de>(self) -> Option<T::Inner> {
@@ -40,7 +34,7 @@ impl<'a, 'de> FlatDeserializer<'de> for FieldDeserializer<'de> {
         Some(self.follow::<ForwardsUOffset<T>>())
     }
     fn deserialize_enum<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        self.follow::<ForwardsUOffset<IdentityDeserializer>>().deserialize_enum(visitor)
+        self.follow::<ForwardsUOffset<IdentityDeserializer>>()
+            .deserialize_enum(visitor)
     }
 }
-

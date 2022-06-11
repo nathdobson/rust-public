@@ -1,16 +1,17 @@
-use crate::ast::{Block, Stmt, Expr, Opcode, UnitSet, UnitPart};
-//use crate::value::Value;
-use ustr::Ustr;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
+
+use ordered_float::OrderedFloat;
+//use crate::value::Value;
+use ustr::{ustr, Ustr};
+
+use crate::ast::{Block, Expr, Opcode, Stmt, UnitPart, UnitSet};
+use crate::factors::Factors;
 //use crate::value::Value;
 use crate::unit::{UnitCtx, UnitData};
-use crate::factors::Factors;
-use ordered_float::OrderedFloat;
-use ustr::ustr;
-use std::fmt::{Debug, Formatter};
 use crate::value::Value;
-use crate::variants::{VariantFn, Note};
+use crate::variants::{Note, VariantFn};
 
 #[derive(Clone)]
 pub struct EvalCtx {
@@ -20,7 +21,10 @@ pub struct EvalCtx {
 
 impl EvalCtx {
     pub fn new(unit_ctx: UnitCtx) -> Self {
-        EvalCtx { variables: im::HashMap::new(), unit_ctx }
+        EvalCtx {
+            variables: im::HashMap::new(),
+            unit_ctx,
+        }
     }
     pub fn eval<'eval>(&self, block: &'eval Block) -> VariantFn<'eval, Value> {
         self.eval_stmts(&block.0)
@@ -43,7 +47,11 @@ impl EvalCtx {
         }
     }
 
-    fn eval_expr<'eval>(&self, expr: &'eval Expr, target: Option<Factors>) -> VariantFn<'eval, Value> {
+    fn eval_expr<'eval>(
+        &self,
+        expr: &'eval Expr,
+        target: Option<Factors>,
+    ) -> VariantFn<'eval, Value> {
         match expr {
             Expr::Number(n) => VariantFn::correct(Value::number(*n)),
             Expr::Var(x) => VariantFn::correct(self.variables.get(x).unwrap().clone()),
@@ -55,9 +63,9 @@ impl EvalCtx {
                 };
                 self.eval_expr(e1, child_target.clone()).then(move |v1| {
                     let new_ctx = new_ctx.clone();
-                    new_ctx.eval_expr(e2, child_target.clone()).then(move |v2| {
-                        new_ctx.eval_op(*op, &v1, &v2, child_target)
-                    })
+                    new_ctx
+                        .eval_expr(e2, child_target.clone())
+                        .then(move |v2| new_ctx.eval_op(*op, &v1, &v2, child_target))
                 })
             }
             Expr::Call(f, es) => {
@@ -74,9 +82,7 @@ impl EvalCtx {
                     });
                 }
                 let new_ctx = self.clone();
-                params.then(move |vs| {
-                    new_ctx.eval_fun(*f, &vs)
-                })
+                params.then(move |vs| new_ctx.eval_fun(*f, &vs))
             }
             Expr::WithUnits(e, units) => {
                 let units = self.unit_ctx.factors_for_unit_set(units);
@@ -87,18 +93,26 @@ impl EvalCtx {
             }
             Expr::AsUnits(e, u) => {
                 let this = self.clone();
-                let u: Vec<Factors> = u.iter().map(|u| this.unit_ctx.factors_for_unit_set(u)).collect();
+                let u: Vec<Factors> = u
+                    .iter()
+                    .map(|u| this.unit_ctx.factors_for_unit_set(u))
+                    .collect();
                 VariantFn::all_correct(u).then(move |u| {
                     let this = this.clone();
-                    this.eval_expr(e, Some(u.clone())).then(move |v| {
-                        this.convert(&v, &u)
-                    })
+                    this.eval_expr(e, Some(u.clone()))
+                        .then(move |v| this.convert(&v, &u))
                 })
             }
         }
     }
 
-    fn eval_op(&self, op: Opcode, v1: &Value, v2: &Value, target: Option<Factors>) -> VariantFn<'static, Value> {
+    fn eval_op(
+        &self,
+        op: Opcode,
+        v1: &Value,
+        v2: &Value,
+        target: Option<Factors>,
+    ) -> VariantFn<'static, Value> {
         match op {
             Opcode::Mul => self.mul(v1, v2, target),
             Opcode::Div => self.div(v1, v2, target),
@@ -114,46 +128,77 @@ impl EvalCtx {
         }
     }
 
-    pub fn add<'a>(&'a self, v1: &'a Value, v2: &'a Value, target: Option<Factors>) -> VariantFn<'static, Value> {
-
+    pub fn add<'a>(
+        &'a self,
+        v1: &'a Value,
+        v2: &'a Value,
+        target: Option<Factors>,
+    ) -> VariantFn<'static, Value> {
         if v1.units() == v2.units() {
-            VariantFn::correct(Value::with_unit(v1.value() + v2.value(), v1.units().clone()))
+            VariantFn::correct(Value::with_unit(
+                v1.value() + v2.value(),
+                v1.units().clone(),
+            ))
         } else {
             let v1c = v1.clone();
             let v2c = v2.clone();
-            let as_v1 =
-                self.convert(v2, v1.units())
-                    .then(move |v2|
-                        VariantFn::correct(Value::with_unit(v1c.value() + v2.value(), v1c.units().clone())));
-            let as_v2 =
-                self.convert(v1, v2.units())
-                    .then(move |v1|
-                        VariantFn::correct(Value::with_unit(v1.value() + v2c.value(), v2c.units().clone())));
+            let as_v1 = self.convert(v2, v1.units()).then(move |v2| {
+                VariantFn::correct(Value::with_unit(
+                    v1c.value() + v2.value(),
+                    v1c.units().clone(),
+                ))
+            });
+            let as_v2 = self.convert(v1, v2.units()).then(move |v1| {
+                VariantFn::correct(Value::with_unit(
+                    v1.value() + v2c.value(),
+                    v2c.units().clone(),
+                ))
+            });
             as_v1.union(as_v2)
         }
     }
 
     pub fn sub(&self, v1: &Value, v2: &Value) -> VariantFn<'static, Value> {
         assert_eq!(v1.units(), v2.units());
-        VariantFn::correct(Value::with_unit(v1.value() - v2.value(), v1.units().clone()))
+        VariantFn::correct(Value::with_unit(
+            v1.value() - v2.value(),
+            v1.units().clone(),
+        ))
     }
 
     pub fn mul(&self, v1: &Value, v2: &Value) -> VariantFn<'static, Value> {
-        VariantFn::correct(Value::with_unit(v1.value() * v2.value(), v1.units() * v2.units()))
+        VariantFn::correct(Value::with_unit(
+            v1.value() * v2.value(),
+            v1.units() * v2.units(),
+        ))
     }
 
     pub fn div(&self, v1: &Value, v2: &Value) -> VariantFn<'static, Value> {
-        VariantFn::correct(Value::with_unit(v1.value() / v2.value(), v1.units() / v2.units()))
+        VariantFn::correct(Value::with_unit(
+            v1.value() / v2.value(),
+            v1.units() / v2.units(),
+        ))
     }
     fn convert(&self, v: &Value, unit: &Factors) -> VariantFn<'static, Value> {
-        let canon = self.unit_ctx.unit_data_for_factors(v.units()).unwrap().conversion.to_canonical(v.value());
-        let conv = self.unit_ctx.unit_data_for_factors(unit).unwrap().conversion.from_canonical(canon);
-        VariantFn::correct(
-            Value::with_unit(conv, unit.clone())
-        ).union(VariantFn::incorrect(
+        let canon = self
+            .unit_ctx
+            .unit_data_for_factors(v.units())
+            .unwrap()
+            .conversion
+            .to_canonical(v.value());
+        let conv = self
+            .unit_ctx
+            .unit_data_for_factors(unit)
+            .unwrap()
+            .conversion
+            .from_canonical(canon);
+        VariantFn::correct(Value::with_unit(conv, unit.clone())).union(VariantFn::incorrect(
             Value::with_unit(v.value(), unit.clone()),
-            Note::new(ustr(&format!("Skipped unit conversion from `{:?}' to `{:?}'.", v.units(), unit))),
+            Note::new(ustr(&format!(
+                "Skipped unit conversion from `{:?}' to `{:?}'.",
+                v.units(),
+                unit
+            ))),
         ))
     }
 }
-

@@ -1,9 +1,9 @@
 use core::option::Option;
 use core::option::Option::{None, Some};
-use flatbuffers::Follow;
-use flatbuffers::UOffsetT;
-use flatbuffers::Push;
 use std::marker::PhantomData;
+
+use flatbuffers::{Follow, Push, UOffsetT};
+
 use crate::vec_slice::VecSlice;
 
 pub struct FlatUnit;
@@ -20,9 +20,7 @@ pub struct FlatUnion<'a> {
 
 impl Push for Flat128 {
     type Output = u128;
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        dst.copy_from_slice(&self.0.to_le_bytes())
-    }
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) { dst.copy_from_slice(&self.0.to_le_bytes()) }
 }
 
 impl<'de> Follow<'de> for Flat128 {
@@ -52,18 +50,13 @@ impl<'de, T: Follow<'de>> Follow<'de> for FollowOrNull<T> {
     }
 }
 
-
 impl<'de> Follow<'de> for FlatUnit {
     type Inner = ();
 
-    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner {
-        ()
-    }
+    fn follow(buf: &'de [u8], loc: usize) -> Self::Inner { () }
 }
 
 impl<'a> Follow<'a> for FlatUnion<'a> {
     type Inner = Self;
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        FlatUnion { buf, loc }
-    }
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner { FlatUnion { buf, loc } }
 }

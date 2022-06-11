@@ -1,17 +1,15 @@
-use ustr::Ustr;
-use retain_mut::RetainMut;
-use std::marker::PhantomData;
-use std::iter;
-use std::iter::Once;
-use std::vec;
 use std::fmt::{Debug, Formatter};
-use ustr::ustr;
 use std::hash::Hash;
-use im::hashmap;
-use im::hashset;
-use itertools::Itertools;
+use std::iter::Once;
+use std::marker::PhantomData;
+use std::{iter, vec};
 
-#[derive(Eq, PartialEq, Clone, Hash, )]
+use im::{hashmap, hashset};
+use itertools::Itertools;
+use retain_mut::RetainMut;
+use ustr::{ustr, Ustr};
+
+#[derive(Eq, PartialEq, Clone, Hash)]
 pub struct Note(Ustr);
 
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -30,23 +28,17 @@ impl Note {
 }
 
 impl<V: VariantKey> VariantSet<V> {
-    pub fn iter(&self) -> impl Iterator<Item=(&V, &[Note])> {
-        self.0.iter().flat_map(
-            |map|
-                map.iter()
-                    .flat_map(
-                        |(k, vs)|
-                            vs.iter().map(move |v|
-                                (k, v.as_slice())
-                            )))
+    pub fn iter(&self) -> impl Iterator<Item = (&V, &[Note])> {
+        self.0.iter().flat_map(|map| {
+            map.iter()
+                .flat_map(|(k, vs)| vs.iter().map(move |v| (k, v.as_slice())))
+        })
     }
 }
 
 impl VariantCtx {
     pub fn new(max_notes: usize) -> Self { VariantCtx { max_notes } }
-    pub fn empty<V: VariantKey>(&self) -> VariantSet<V> {
-        VariantSet(vec![])
-    }
+    pub fn empty<V: VariantKey>(&self) -> VariantSet<V> { VariantSet(vec![]) }
     pub fn push<V: VariantKey>(&self, vs: &mut VariantSet<V>, v: V, notes: Vec<Note>) {
         if notes.len() <= self.max_notes {
             if vs.0.len() <= notes.len() {
@@ -60,7 +52,8 @@ impl VariantCtx {
         vs: &mut VariantSet<V>,
         value: V,
         x_note_set: &im::HashSet<Vec<Note>>,
-        y_note_set: &im::HashSet<Vec<Note>>) {
+        y_note_set: &im::HashSet<Vec<Note>>,
+    ) {
         for x_note in x_note_set.iter() {
             for y_note in y_note_set.iter() {
                 let mut xy_note = x_note.clone();
@@ -74,7 +67,7 @@ impl VariantCtx {
         self.push(&mut result, v, vec![]);
         result
     }
-    pub fn all_correct<V: VariantKey>(&self, vs: impl IntoIterator<Item=V>) -> VariantSet<V> {
+    pub fn all_correct<V: VariantKey>(&self, vs: impl IntoIterator<Item = V>) -> VariantSet<V> {
         let mut result = self.empty();
         for v in vs {
             self.push(&mut result, v, vec![]);
@@ -87,13 +80,18 @@ impl VariantCtx {
         result
     }
     pub fn union<V: VariantKey>(&self, a: &VariantSet<V>, b: &VariantSet<V>) -> VariantSet<V> {
-        VariantSet(a.0.iter().cloned().zip_longest(b.0.iter().cloned()).map(|x| {
-            x.reduce(|a, b| {
-                a.clone().union_with(b.clone(), |a, b| {
-                    a.clone().union(b.clone())
+        VariantSet(
+            a.0.iter()
+                .cloned()
+                .zip_longest(b.0.iter().cloned())
+                .map(|x| {
+                    x.reduce(|a, b| {
+                        a.clone()
+                            .union_with(b.clone(), |a, b| a.clone().union(b.clone()))
+                    })
                 })
-            })
-        }).collect())
+                .collect(),
+        )
     }
     pub fn cross<V1: VariantKey, V2: VariantKey, V3: VariantKey>(
         &self,
@@ -102,10 +100,12 @@ impl VariantCtx {
         f: impl Fn(&V1, &V2) -> V3,
     ) -> VariantSet<V3> {
         let mut result = self.empty();
-        for (x_note_count, x_group)
-        in x.0.iter().enumerate() {
-            for (y_note_count, y_group)
-            in y.0.iter().take(1 + self.max_notes - x_note_count).enumerate() {
+        for (x_note_count, x_group) in x.0.iter().enumerate() {
+            for (y_note_count, y_group) in
+                y.0.iter()
+                    .take(1 + self.max_notes - x_note_count)
+                    .enumerate()
+            {
                 for (x_value, x_note_set) in x_group.iter() {
                     for (y_value, y_note_set) in y_group.iter() {
                         self.push_all(&mut result, f(x_value, y_value), x_note_set, y_note_set);
@@ -122,7 +122,9 @@ impl VariantCtx {
     ) -> VariantSet<V2> {
         let mut result = self.empty();
         for (note_count, x_group) in x.0.iter().enumerate() {
-            let ctx = VariantCtx { max_notes: self.max_notes - note_count };
+            let ctx = VariantCtx {
+                max_notes: self.max_notes - note_count,
+            };
             for (x_value, x_note_set) in x_group.iter() {
                 let y = f(&ctx, x_value);
                 for y_group in y.0.iter() {
@@ -141,35 +143,32 @@ impl<'a, V: VariantKey> VariantFn<'a, V> {
     pub fn resolve(self, ctx: &VariantCtx) -> VariantSet<V> { (self.0)(ctx) }
     pub fn empty() -> Self { Self::new(|ctx| ctx.empty()) }
     pub fn correct(v: V) -> Self { Self::new(|ctx| ctx.correct(v)) }
-    pub fn all_correct(vs: impl 'a + IntoIterator<Item=V>) -> Self {
+    pub fn all_correct(vs: impl 'a + IntoIterator<Item = V>) -> Self {
         Self::new(|ctx| ctx.all_correct(vs))
     }
     pub fn incorrect(v: V, note: Note) -> Self { Self::new(|ctx| ctx.incorrect(v, note)) }
     pub fn union(self, other: Self) -> Self {
         Self::new(|ctx| ctx.union(&self.resolve(ctx), &other.resolve(ctx)))
     }
-    pub fn then<V2: VariantKey>(self, f: impl 'a + Fn(V) -> VariantFn<'a, V2>) -> VariantFn<'a, V2> {
+    pub fn then<V2: VariantKey>(
+        self,
+        f: impl 'a + Fn(V) -> VariantFn<'a, V2>,
+    ) -> VariantFn<'a, V2> {
         VariantFn::new(move |ctx| {
-            ctx.then(
-                &self.resolve(ctx),
-                |ctx2, v| f(v.clone()).resolve(ctx2),
-            )
+            ctx.then(&self.resolve(ctx), |ctx2, v| f(v.clone()).resolve(ctx2))
         })
     }
     pub fn cross<V2: VariantKey, V3: VariantKey>(
         self,
         other: VariantFn<'a, V2>,
-        f: impl 'a + Fn(&V, &V2) -> V3) -> VariantFn<'a, V3> {
-        VariantFn::new(move |ctx| {
-            ctx.cross(&self.resolve(ctx), &other.resolve(ctx), f)
-        })
+        f: impl 'a + Fn(&V, &V2) -> V3,
+    ) -> VariantFn<'a, V3> {
+        VariantFn::new(move |ctx| ctx.cross(&self.resolve(ctx), &other.resolve(ctx), f))
     }
 }
 
 impl Debug for Note {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.0) }
 }
 
 // #[derive(Eq, PartialEq, Clone)]
@@ -334,13 +333,11 @@ fn test_errors() {
     let output_fn = || {
         let input = VariantFn::correct(9);
         input.then(|x| {
-            let feet_per_yard
-                = VariantFn::correct(3).union(VariantFn::incorrect(1, error1.clone()));
-            let inches_per_foot
-                = VariantFn::correct(12).union(VariantFn::incorrect(1, error2.clone()));
-            feet_per_yard.cross(inches_per_foot, move |y, z| {
-                x * y * z
-            })
+            let feet_per_yard =
+                VariantFn::correct(3).union(VariantFn::incorrect(1, error1.clone()));
+            let inches_per_foot =
+                VariantFn::correct(12).union(VariantFn::incorrect(1, error2.clone()));
+            feet_per_yard.cross(inches_per_foot, move |y, z| x * y * z)
         })
     };
     let expected = vec![
@@ -353,11 +350,14 @@ fn test_errors() {
         },
         hashmap! {
             9 => hashset![vec![error1.clone(), error2.clone()]],
-        }
+        },
     ];
     for max_notes in 0..=2 {
         let output = output_fn().resolve(&VariantCtx::new(max_notes));
         println!("{:?}", output);
-        assert_eq!(output, VariantSet(expected[0..=max_notes].iter().cloned().collect()));
+        assert_eq!(
+            output,
+            VariantSet(expected[0..=max_notes].iter().cloned().collect())
+        );
     }
 }

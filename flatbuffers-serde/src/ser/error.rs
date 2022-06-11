@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug)]
 pub enum Error {
-    Custom(String)
+    Custom(String),
 }
 
 impl std::error::Error for Error {}
@@ -16,8 +16,10 @@ impl Display for Error {
 }
 
 impl serde::ser::Error for Error {
-    fn custom<T>(msg: T) -> Self where T: Display {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: Display,
+    {
         Error::Custom(msg.to_string())
     }
 }
-

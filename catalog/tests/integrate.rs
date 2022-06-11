@@ -4,11 +4,12 @@
 #![allow(unused_mut)]
 wasm_bindgen_test_configure!(run_in_browser);
 
-use registry::{Registry, BuilderFrom, Builder};
 use std::collections::{HashMap, HashSet};
 use std::lazy::SyncOnceCell;
-use wasm_bindgen_test::wasm_bindgen_test_configure;
+
+use registry::{Builder, BuilderFrom, Registry};
 use registry_macros::register;
+use wasm_bindgen_test::wasm_bindgen_test_configure;
 
 struct TestRegistry(HashMap<&'static str, &'static str>);
 
@@ -44,36 +45,38 @@ impl Builder for TestRegistryLazy {
 }
 
 impl BuilderFrom<TestEntry> for TestRegistry {
-    fn insert(&mut self, element: TestEntry) {
-        self.0.insert(element.key, element.value);
-    }
+    fn insert(&mut self, element: TestEntry) { self.0.insert(element.key, element.value); }
 }
 
 impl BuilderFrom<&TestEntry> for TestRegistry {
-    fn insert(&mut self, element: &TestEntry) {
-        self.0.insert(element.key, element.value);
-    }
+    fn insert(&mut self, element: &TestEntry) { self.0.insert(element.key, element.value); }
 }
 
 impl BuilderFrom<&'static TestEntryLazy> for TestRegistryLazy {
-    fn insert(&mut self, element: &'static TestEntryLazy) {
-        self.0.push(element)
-    }
+    fn insert(&mut self, element: &'static TestEntryLazy) { self.0.push(element) }
 }
 
 impl TestEntryLazy {
     fn new() -> Self {
-        TestEntryLazy { cell: SyncOnceCell::new() }
+        TestEntryLazy {
+            cell: SyncOnceCell::new(),
+        }
     }
 }
 
 #[register(TEST_REGISTRY)]
 fn register_fn() -> TestEntry {
-    TestEntry { key: "a", value: "a" }
+    TestEntry {
+        key: "a",
+        value: "a",
+    }
 }
 
 #[register(TEST_REGISTRY, crate = ::arena_buffers::reexport::registry)]
-static TEST_ENTRY: TestEntry = TestEntry { key: "c", value: "c" };
+static TEST_ENTRY: TestEntry = TestEntry {
+    key: "c",
+    value: "c",
+};
 
 #[register(TEST_REGISTRY_LAZY, lazy = true)]
 static TEST_ENTRY_LAZY1: TestEntryLazy = TestEntryLazy::new();
@@ -82,21 +85,35 @@ static TEST_ENTRY_LAZY1: TestEntryLazy = TestEntryLazy::new();
 static TEST_ENTRY_LAZY2: TestEntryLazy = TestEntryLazy::new();
 
 mod foo {
-    use crate::TestEntry;
     use registry_macros::register;
+
+    use crate::TestEntry;
 
     #[register(crate::TEST_REGISTRY)]
     fn register_fn2() -> TestEntry {
-         crate::TestEntry { key: "b", value: "b" }
+        crate::TestEntry {
+            key: "b",
+            value: "b",
+        }
     }
 }
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 #[test]
 fn test() {
-    assert_eq!(*TEST_REGISTRY, vec![("a", "a"), ("b", "b"), ("c", "c")].into_iter().collect());
-    assert_eq!(vec![0, 1].into_iter().collect::<HashSet<_>>(),
-               vec![*TEST_ENTRY_LAZY1.cell.get().unwrap(),
-                    *TEST_ENTRY_LAZY2.cell.get().unwrap()]
-                   .into_iter().collect());
+    assert_eq!(
+        *TEST_REGISTRY,
+        vec![("a", "a"), ("b", "b"), ("c", "c")]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        vec![0, 1].into_iter().collect::<HashSet<_>>(),
+        vec![
+            *TEST_ENTRY_LAZY1.cell.get().unwrap(),
+            *TEST_ENTRY_LAZY2.cell.get().unwrap()
+        ]
+        .into_iter()
+        .collect()
+    );
 }

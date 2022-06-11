@@ -1,12 +1,14 @@
 use flatbuffers::{Follow, ForwardsUOffset, Table};
-use serde::de::{DeserializeSeed, EnumAccess, IntoDeserializer, SeqAccess, VariantAccess, Visitor, MapAccess};
+use serde::de::value::U16Deserializer;
+use serde::de::{
+    DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor,
+};
 
 use crate::de::error::Error;
 use crate::de::field::FieldDeserializer;
 use crate::de::identity::IdentityDeserializer;
 use crate::de::wrapper::{Deserializer, FlatDeserializer};
 use crate::flat_util::VariantT;
-use serde::de::value::U16Deserializer;
 
 #[derive(Debug)]
 pub struct TableDeserializer<'de> {
@@ -28,7 +30,10 @@ impl<'a, 'de> EnumAccess<'de> for &'a mut TableDeserializer<'de> {
     type Error = Error;
     type Variant = &'a mut TableDeserializer<'de>;
 
-    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error> where V: DeserializeSeed<'de> {
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: DeserializeSeed<'de>,
+    {
         let variant = self.deserialize_fixed::<VariantT>().unwrap_or(0);
         let de: U16Deserializer<Error> = variant.into_deserializer();
         let variant = seed.deserialize(de)?;
@@ -44,35 +49,52 @@ impl<'a, 'de> VariantAccess<'de> for &'a mut TableDeserializer<'de> {
         Ok(())
     }
 
-    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error> where T: DeserializeSeed<'de> {
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+    where
+        T: DeserializeSeed<'de>,
+    {
         let deserializer = self.deserialize_fixed::<FieldDeserializer>();
         let mut deserializer = deserializer.ok_or(Error::MissingEnumValue)?;
         seed.deserialize(Deserializer::new(deserializer))
     }
 
-    fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error> where V: Visitor<'de> {
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
         let deserializer = self.deserialize_fixed::<ForwardsUOffset<TableDeserializer>>();
         let mut deserializer = deserializer.ok_or(Error::MissingEnumValue)?;
         visitor.visit_seq(&mut deserializer)
     }
 
-    fn struct_variant<V>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error> where V: Visitor<'de> {
+    fn struct_variant<V>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
         self.tuple_variant(fields.len(), visitor)
     }
 }
 
 impl<'de> SeqAccess<'de> for TableDeserializer<'de> {
     type Error = Error;
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error> where T: DeserializeSeed<'de> {
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: DeserializeSeed<'de>,
+    {
         println!("next_element_seed {:?}", self.index);
         Ok(Some(seed.deserialize(Deserializer::new(self))?))
     }
 }
 
-
 impl<'a, 'de> FlatDeserializer<'de> for &'a mut TableDeserializer<'de> {
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        if let Some(deserializer) = self.deserialize_fixed::<ForwardsUOffset<IdentityDeserializer>>() {
+        if let Some(deserializer) =
+            self.deserialize_fixed::<ForwardsUOffset<IdentityDeserializer>>()
+        {
             visitor.visit_some(Deserializer::new(deserializer))
         } else {
             visitor.visit_none()
@@ -88,7 +110,9 @@ impl<'a, 'de> FlatDeserializer<'de> for &'a mut TableDeserializer<'de> {
 
     fn deserialize_variable<T: Follow<'de> + 'de>(self) -> Option<T::Inner> {
         println!("deserialize_value({:?})", self);
-        let result = self.table.get::<ForwardsUOffset<T>>((self.index * 2 + 4) as u16, None);
+        let result = self
+            .table
+            .get::<ForwardsUOffset<T>>((self.index * 2 + 4) as u16, None);
         self.index += 1;
         result
     }

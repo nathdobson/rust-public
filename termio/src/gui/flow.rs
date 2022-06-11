@@ -1,10 +1,11 @@
-use crate::gui::div::{DivImpl, Div, DivWeak, DivRc};
-use crate::gui::layout::{Layout, Constraint, Align, CENTER};
-use crate::gui::tree::Tree;
-use std::ops::{Index, IndexMut};
 use std::collections::HashMap;
 use std::mem;
+use std::ops::{Index, IndexMut};
+
+use crate::gui::div::{Div, DivImpl, DivRc, DivWeak};
+use crate::gui::layout::{Align, Constraint, Layout, CENTER};
 use crate::gui::pad::Pad;
+use crate::gui::tree::Tree;
 
 #[derive(Debug)]
 pub enum FlowRule {
@@ -33,9 +34,21 @@ pub struct Flow {
 
 impl Flow {
     pub fn new(tree: Tree, direction: FlowDirection, elements: Vec<FlowDiv>) -> DivRc<Self> {
-        let mut result = DivRc::new(tree, Flow { direction, elements });
+        let mut result = DivRc::new(
+            tree,
+            Flow {
+                direction,
+                elements,
+            },
+        );
         let mut write = result.write();
-        for child in write.elements.iter().map(|x| x.div.clone()).collect::<Vec<_>>().into_iter() {
+        for child in write
+            .elements
+            .iter()
+            .map(|x| x.div.clone())
+            .collect::<Vec<_>>()
+            .into_iter()
+        {
             write.add(child)
         }
         mem::drop(write);
@@ -112,7 +125,8 @@ impl DivImpl for Flow {
                     delta = div.size()[d];
                 }
                 FlowRule::Portion(portion) => {
-                    delta = ((available as f64 * (portion / available_portions)).round() as isize).max(0);
+                    delta = ((available as f64 * (portion / available_portions)).round() as isize)
+                        .max(0);
                     available -= delta;
                     available_portions -= portion;
                     let mut max = size;
@@ -135,6 +149,9 @@ impl DivImpl for Flow {
         let mut size = size;
         size[d] = position;
         size[f] = actual_flip_size;
-        Layout { size, line_settings: HashMap::new() }
+        Layout {
+            size,
+            line_settings: HashMap::new(),
+        }
     }
 }

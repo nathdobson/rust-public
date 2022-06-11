@@ -2,9 +2,7 @@
 
 use std::ops::Try;
 
-pub fn try_into_result<T: Try>(element: T) -> Result<T::Ok, T::Error> {
-    element.into_result()
-}
+pub fn try_into_result<T: Try>(element: T) -> Result<T::Ok, T::Error> { element.into_result() }
 
 #[macro_export]
 macro_rules! attempt {
@@ -42,7 +40,10 @@ macro_rules! attempt {
 fn sum_option_test() {
     use std::option::NoneError;
     use std::{ops, result};
-    fn sum_option_with_ascription<T: ops::Add<Output=T>>(x: Option<T>, y: Option<T>) -> Option<T> {
+    fn sum_option_with_ascription<T: ops::Add<Output = T>>(
+        x: Option<T>,
+        y: Option<T>,
+    ) -> Option<T> {
         return attempt!({
             Some(catch!(x) + catch!(y))
         }; catch (_: NoneError) => {
@@ -50,7 +51,7 @@ fn sum_option_test() {
         });
     }
 
-    fn sum_option_with_pattern<T: ops::Add<Output=T>>(x: Option<T>, y: Option<T>) -> Option<T> {
+    fn sum_option_with_pattern<T: ops::Add<Output = T>>(x: Option<T>, y: Option<T>) -> Option<T> {
         return attempt!({
             Some(catch!(x) + catch!(y))
         }; catch (NoneError) => {
@@ -58,7 +59,10 @@ fn sum_option_test() {
         });
     }
 
-    fn sum_option_with_throw<T: ops::Add<Output=T>>(x: Option<T>, y: Option<T>) -> result::Result<T, NoneError> {
+    fn sum_option_with_throw<T: ops::Add<Output = T>>(
+        x: Option<T>,
+        y: Option<T>,
+    ) -> result::Result<T, NoneError> {
         return attempt!({
             Ok(catch!(x) + catch!(y))
         }; catch (e) => {

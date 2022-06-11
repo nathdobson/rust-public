@@ -1,16 +1,15 @@
-use std::{error, fmt, mem, thread};
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::Display;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::{Arc, Mutex};
+use std::{error, fmt, mem, thread};
+
 use termio::input::{Event, EventReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use util::shared::{Object, Shared};
 use util::socket::{set_linger, set_reuse_port};
-use std::net::{Ipv4Addr, Ipv6Addr};
-use tokio::net::TcpStream;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 
 const SOCKS5: u8 = 5;
 const SOCKS4: u8 = 4;
@@ -69,7 +68,7 @@ impl Host {
                 stream.read_exact(&mut addr).await?;
                 Ok(Host::V6(Ipv6Addr::from(addr)))
             }
-            _ => Err(format!("Unknown address type {}", addr_type))?
+            _ => Err(format!("Unknown address type {}", addr_type))?,
         }
     }
     pub fn to_string(self) -> Result<String, Box<dyn Error>> {
@@ -81,7 +80,11 @@ impl Host {
     }
 }
 
-pub async fn run_proxy_client(stream: &mut TcpStream, host: Host, port: u16) -> Result<(Host, u16), Box<dyn Error>> {
+pub async fn run_proxy_client(
+    stream: &mut TcpStream,
+    host: Host,
+    port: u16,
+) -> Result<(Host, u16), Box<dyn Error>> {
     stream.write_all(&[SOCKS5, 1, AUTH_NONE]).await?;
     let version = stream.read_u8().await?;
     if version != SOCKS5 {

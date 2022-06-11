@@ -1,15 +1,15 @@
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
-use itertools::{Itertools, repeat_n};
-use std::collections::{HashMap, BTreeMap};
-use std::{iter, mem};
-use std::fmt;
-use crate::canvas::Canvas;
-use util::grid::Grid;
-use crate::string::StyleOption;
-use crate::screen::Screen;
-use crate::screen::Style;
-use util::rect::Rect;
+use std::{fmt, iter, mem};
+
+use itertools::{repeat_n, Itertools};
 use strum::IntoEnumIterator;
+use util::grid::Grid;
+use util::rect::Rect;
+
+use crate::canvas::Canvas;
+use crate::screen::{Screen, Style};
+use crate::string::StyleOption;
 
 #[derive(Eq, Ord, PartialEq, PartialOrd, Hash, Debug, Copy, Clone, EnumIter)]
 pub enum Stroke {
@@ -36,22 +36,20 @@ pub struct BoxCell {
 
 impl BoxCell {
     fn new(left: Stroke, right: Stroke, up: Stroke, down: Stroke) -> Self {
-        BoxCell { left, right, up, down }
+        BoxCell {
+            left,
+            right,
+            up,
+            down,
+        }
     }
 }
 
 fn render(cell: BoxCell) -> Option<char> {
-    use Stroke::Blank as B;
-    use Stroke::Narrow as N;
-    use Stroke::Narrow2 as N2;
-    use Stroke::Narrow3 as N3;
-    use Stroke::Narrow4 as N4;
-    use Stroke::Wide as T;
-    use Stroke::Wide2 as T2;
-    use Stroke::Wide3 as T3;
-    use Stroke::Wide4 as T4;
-    use Stroke::Double as D;
-    use Stroke::Curved as C;
+    use Stroke::{
+        Blank as B, Curved as C, Double as D, Narrow as N, Narrow2 as N2, Narrow3 as N3,
+        Narrow4 as N4, Wide as T, Wide2 as T2, Wide3 as T3, Wide4 as T4,
+    };
 
     // Unused: ╱╲╳
 
@@ -193,15 +191,24 @@ fn render(cell: BoxCell) -> Option<char> {
 }
 
 fn build_table() -> HashMap<BoxCell, char> {
-    iter::repeat(Stroke::iter()).take(4).multi_cartesian_product().filter_map(|v| {
-        let cell = BoxCell { left: v[0], right: v[1], up: v[2], down: v[3] };
-        Some((cell, render(cell)?))
-    }).collect()
+    iter::repeat(Stroke::iter())
+        .take(4)
+        .multi_cartesian_product()
+        .filter_map(|v| {
+            let cell = BoxCell {
+                left: v[0],
+                right: v[1],
+                up: v[2],
+                down: v[3],
+            };
+            Some((cell, render(cell)?))
+        })
+        .collect()
 }
 
-lazy_static!(
-    static ref LOOKUP : HashMap<BoxCell, char> = build_table();
-);
+lazy_static! {
+    static ref LOOKUP: HashMap<BoxCell, char> = build_table();
+}
 
 impl fmt::Display for BoxCell {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -219,7 +226,14 @@ fn test_symbols() {
         mapping.entry(("up ", cell.up)).or_default().push(ch);
         mapping.entry(("down ", cell.down)).or_default().push(ch);
     }
-    for xs in repeat_n([Stroke::Blank, Stroke::Narrow, Stroke::Wide, Stroke::Double].iter().cloned(), 4).multi_cartesian_product() {
+    for xs in repeat_n(
+        [Stroke::Blank, Stroke::Narrow, Stroke::Wide, Stroke::Double]
+            .iter()
+            .cloned(),
+        4,
+    )
+    .multi_cartesian_product()
+    {
         if xs.iter().any(|&x| x == Stroke::Wide) && xs.iter().any(|&x| x == Stroke::Double) {
             continue;
         }
@@ -237,11 +251,16 @@ fn test_symbols() {
             continue;
         }
         println!(" {} ", BoxCell::new(Stroke::Blank, Stroke::Blank, up, up));
-        println!("{}{}{}",
-                 BoxCell::new(left, left, Stroke::Blank, Stroke::Blank),
-                 BoxCell::new(left, right, up, down),
-                 BoxCell::new(right, right, Stroke::Blank, Stroke::Blank));
-        println!(" {} ", BoxCell::new(Stroke::Blank, Stroke::Blank, down, down));
+        println!(
+            "{}{}{}",
+            BoxCell::new(left, left, Stroke::Blank, Stroke::Blank),
+            BoxCell::new(left, right, up, down),
+            BoxCell::new(right, right, Stroke::Blank, Stroke::Blank)
+        );
+        println!(
+            " {} ",
+            BoxCell::new(Stroke::Blank, Stroke::Blank, down, down)
+        );
         println!();
     }
 }
@@ -261,10 +280,26 @@ impl TableBorder {
                 let row = row as isize;
                 let col = col as isize;
                 let cross = BoxCell {
-                    left: self.horizontals.get((col - 1, row)).cloned().unwrap_or(Stroke::Blank),
-                    right: self.horizontals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
-                    up: self.verticals.get((col, row - 1)).cloned().unwrap_or(Stroke::Blank),
-                    down: self.verticals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
+                    left: self
+                        .horizontals
+                        .get((col - 1, row))
+                        .cloned()
+                        .unwrap_or(Stroke::Blank),
+                    right: self
+                        .horizontals
+                        .get((col, row))
+                        .cloned()
+                        .unwrap_or(Stroke::Blank),
+                    up: self
+                        .verticals
+                        .get((col, row - 1))
+                        .cloned()
+                        .unwrap_or(Stroke::Blank),
+                    down: self
+                        .verticals
+                        .get((col, row))
+                        .cloned()
+                        .unwrap_or(Stroke::Blank),
                 };
                 let formatted = format!("{}", cross);
                 canvas.set((x, y), &formatted);
@@ -275,12 +310,26 @@ impl TableBorder {
                 for x in xs[0] + 1..xs[1] {
                     let col = col as isize;
                     let row = row as isize;
-                    canvas.set((x, y), &format!("{}", BoxCell {
-                        left: self.horizontals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
-                        right: self.horizontals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
-                        up: Stroke::Blank,
-                        down: Stroke::Blank,
-                    }));
+                    canvas.set(
+                        (x, y),
+                        &format!(
+                            "{}",
+                            BoxCell {
+                                left: self
+                                    .horizontals
+                                    .get((col, row))
+                                    .cloned()
+                                    .unwrap_or(Stroke::Blank),
+                                right: self
+                                    .horizontals
+                                    .get((col, row))
+                                    .cloned()
+                                    .unwrap_or(Stroke::Blank),
+                                up: Stroke::Blank,
+                                down: Stroke::Blank,
+                            }
+                        ),
+                    );
                 }
             }
         }
@@ -289,12 +338,26 @@ impl TableBorder {
                 for y in ys[0] + 1..ys[1] {
                     let col = col as isize;
                     let row = row as isize;
-                    canvas.set((x, y), &format!("{}", BoxCell {
-                        left: Stroke::Blank,
-                        right: Stroke::Blank,
-                        up: self.verticals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
-                        down: self.verticals.get((col, row)).cloned().unwrap_or(Stroke::Blank),
-                    }));
+                    canvas.set(
+                        (x, y),
+                        &format!(
+                            "{}",
+                            BoxCell {
+                                left: Stroke::Blank,
+                                right: Stroke::Blank,
+                                up: self
+                                    .verticals
+                                    .get((col, row))
+                                    .cloned()
+                                    .unwrap_or(Stroke::Blank),
+                                down: self
+                                    .verticals
+                                    .get((col, row))
+                                    .cloned()
+                                    .unwrap_or(Stroke::Blank),
+                            }
+                        ),
+                    );
                 }
             }
         }

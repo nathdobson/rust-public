@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
 use std::marker::PhantomData;
-use proc_macro_helper_test::MyDerive;
-use proc_macro_helper_test::MyClone;
-use proc_macro_helper_test::my_attr_macro;
+
+use proc_macro_helper_test::{my_attr_macro, MyClone, MyDerive};
 
 #[test]
 fn test_my_derive() {
@@ -19,7 +18,6 @@ fn test_my_attr_macro() {
     struct Foo;
     assert_eq!(MY_ATTR_MACRO, 3);
 }
-
 
 #[test]
 fn test_my_clone() {

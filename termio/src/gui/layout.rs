@@ -1,8 +1,10 @@
 use std::collections::HashMap;
-use crate::screen::LineSetting;
+
 use util::grid::Grid;
 use util::itertools::Itertools2;
+
 use crate::gui::div::{Div, DivRc};
+use crate::screen::LineSetting;
 
 #[derive(Debug)]
 pub struct Constraint {
@@ -11,7 +13,7 @@ pub struct Constraint {
 
 pub struct Layout {
     pub size: (isize, isize),
-    pub line_settings: HashMap::<isize, LineSetting>,
+    pub line_settings: HashMap<isize, LineSetting>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -49,7 +51,8 @@ impl Align {
         self
     }
     pub fn align(&self, start: isize, inner_size: isize, outer_size: isize) -> isize {
-        let x = (start as f64 + self.percent * (outer_size as f64 - inner_size as f64)).round() as isize;
+        let x = (start as f64 + self.percent * (outer_size as f64 - inner_size as f64)).round()
+            as isize;
         match self.rounding {
             Rounding::Int => x,
             Rounding::Even => x & !1,
@@ -62,10 +65,9 @@ impl Constraint {
     pub fn from_max(max_size: (isize, isize)) -> Self {
         assert!(max_size.0 >= 0);
         assert!(max_size.1 >= 0);
-        Constraint { max_size: Some(max_size) }
+        Constraint {
+            max_size: Some(max_size),
+        }
     }
-    pub fn none() -> Self {
-        Constraint { max_size: None }
-    }
-
+    pub fn none() -> Self { Constraint { max_size: None } }
 }

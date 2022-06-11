@@ -16,7 +16,13 @@
 #![feature(async_stream)]
 #![feature(future_poll_fn)]
 #![deny(unused_must_use)]
-#![allow(unused_imports, unused_variables, dead_code, unreachable_code, incomplete_features)]
+#![allow(
+    unused_imports,
+    unused_variables,
+    dead_code,
+    unreachable_code,
+    incomplete_features
+)]
 
 use std::iter::FromIterator;
 use std::ops::DerefMut;
@@ -30,19 +36,19 @@ extern crate util;
 #[macro_use]
 extern crate strum_macros;
 
-pub mod output;
-pub mod input;
-pub mod tokenizer;
-pub mod color;
-pub mod canvas;
-pub mod screen;
-pub mod writer;
-pub mod string;
-pub mod line;
-pub mod gui;
-pub mod symbols;
 pub mod advance;
+pub mod canvas;
+pub mod color;
+pub mod gui;
 pub mod image;
+pub mod input;
+pub mod line;
+pub mod output;
+pub mod screen;
+pub mod string;
+pub mod symbols;
+pub mod tokenizer;
+pub mod writer;
 
 #[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub enum Direction {

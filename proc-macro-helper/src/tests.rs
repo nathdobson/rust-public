@@ -1,1 +1,1 @@
-use syn::{Item, parse_quote};
+use syn::{parse_quote, Item};

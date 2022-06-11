@@ -1,5 +1,6 @@
 use unicode_segmentation::UnicodeSegmentation;
-use crate::string::{StyleString, StyleFormat};
+
+use crate::string::{StyleFormat, StyleString};
 
 pub fn advance_of_grapheme(string: &str) -> isize {
     match string {

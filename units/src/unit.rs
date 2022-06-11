@@ -1,13 +1,14 @@
 //use crate::value::Unit;
-use crate::factors::Factors;
-use ustr::Ustr;
-use crate::ast::{UnitSet, UnitPart};
 use std::collections::HashMap;
-use itertools::Itertools;
-use ustr::ustr;
-use crate::value::Value;
-use std::fmt::{Debug, Formatter, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::iter;
+
+use itertools::Itertools;
+use ustr::{ustr, Ustr};
+
+use crate::ast::{UnitPart, UnitSet};
+use crate::factors::Factors;
+use crate::value::Value;
 
 #[derive(Clone, Debug)]
 pub struct ConversionRatio {
@@ -43,43 +44,52 @@ pub enum UnitError {
     BadCombination,
 }
 
-impl From<f64> for Conversion { fn from(ratio: f64) -> Self { Conversion::Ratio(ConversionRatio { ratio }) } }
+impl From<f64> for Conversion {
+    fn from(ratio: f64) -> Self { Conversion::Ratio(ConversionRatio { ratio }) }
+}
 
-impl From<ConversionRatio> for Conversion { fn from(x: ConversionRatio) -> Self { Conversion::Ratio(x) } }
+impl From<ConversionRatio> for Conversion {
+    fn from(x: ConversionRatio) -> Self { Conversion::Ratio(x) }
+}
 
-impl From<ConversionLine> for Conversion { fn from(x: ConversionLine) -> Self { Conversion::Line(x) } }
+impl From<ConversionLine> for Conversion {
+    fn from(x: ConversionLine) -> Self { Conversion::Line(x) }
+}
 
 impl UnitCtx {
     pub fn new() -> Self {
-        UnitCtx { units: im::HashMap::new() }
+        UnitCtx {
+            units: im::HashMap::new(),
+        }
     }
     pub fn push(
         &mut self,
-        unit: impl IntoIterator<Item=&'static str>,
+        unit: impl IntoIterator<Item = &'static str>,
         dimension: impl Into<Factors>,
-        conversion: impl Into<Conversion>) {
+        conversion: impl Into<Conversion>,
+    ) {
         let dimension = dimension.into();
         let conversion = conversion.into();
-        let unit_data = UnitData { dimension, conversion };
+        let unit_data = UnitData {
+            dimension,
+            conversion,
+        };
         for unit in unit {
             self.units.insert(unit.into(), unit_data.clone());
         }
     }
     pub fn push_composite(
         &mut self,
-        unit: impl IntoIterator<Item=&'static str>,
+        unit: impl IntoIterator<Item = &'static str>,
         count: f64,
-        expr: impl IntoIterator<Item=(&'static str, i32)>) {
-        let mut unit_data = self.unit_data_for_factors(
-            &expr.into_iter()
-                .map(|(k, v)| (ustr(k), v))
-                .collect()
-        ).unwrap();
+        expr: impl IntoIterator<Item = (&'static str, i32)>,
+    ) {
+        let mut unit_data = self
+            .unit_data_for_factors(&expr.into_iter().map(|(k, v)| (ustr(k), v)).collect())
+            .unwrap();
         match &mut unit_data.conversion {
-            Conversion::Ratio(ratio) => {
-                ratio.ratio *= count
-            }
-            Conversion::Line(_) => panic!()
+            Conversion::Ratio(ratio) => ratio.ratio *= count,
+            Conversion::Line(_) => panic!(),
         }
         for unit in unit {
             self.units.insert(unit.into(), unit_data.clone());
@@ -106,8 +116,13 @@ impl UnitCtx {
     // }
     pub fn unit_data_for_factors(&self, unit: &Factors) -> Result<UnitData, UnitError> {
         if let Ok((unit, 1)) = unit.iter().exactly_one() {
-            if let Some(data @ UnitData { conversion: Conversion::Line(r), .. })
-            = self.units.get(unit) {
+            if let Some(
+                data @ UnitData {
+                    conversion: Conversion::Line(r),
+                    ..
+                },
+            ) = self.units.get(unit)
+            {
                 return Ok(data.clone());
             }
         }
@@ -122,15 +137,18 @@ impl UnitCtx {
                 return Err(UnitError::BadCombination);
             }
         }
-        Ok(UnitData { dimension, conversion: Conversion::Ratio(ConversionRatio { ratio }) })
+        Ok(UnitData {
+            dimension,
+            conversion: Conversion::Ratio(ConversionRatio { ratio }),
+        })
     }
     pub fn factors_for_unit_set(&self, unit_set: &UnitSet) -> Factors {
         match unit_set {
             UnitSet::None => Factors::new(),
             UnitSet::Simple(x) => self.unit_part_to_factors(x),
-            UnitSet::Fraction(n, d) =>
-                &self.unit_part_to_factors(n)
-                    / &self.unit_part_to_factors(d),
+            UnitSet::Fraction(n, d) => {
+                &self.unit_part_to_factors(n) / &self.unit_part_to_factors(d)
+            }
         }
     }
     fn unit_part_to_factors(&self, unit_part: &UnitPart) -> Factors {
@@ -154,8 +172,22 @@ impl UnitCtx {
         ctx.push(["kg", "kilogram", "kilograms"], "mass", 1000.0);
 
         ctx.push(["K", "kelvin"], "temperature", 1.0);
-        ctx.push(["C", "celsius"], "temperature", ConversionLine { ratio: 1.0, intercept: 273.15 });
-        ctx.push(["F", "fahrenheit"], "temperature", ConversionLine { ratio: 5.0 / 9.0, intercept: 45967.0 / 180.0 });
+        ctx.push(
+            ["C", "celsius"],
+            "temperature",
+            ConversionLine {
+                ratio: 1.0,
+                intercept: 273.15,
+            },
+        );
+        ctx.push(
+            ["F", "fahrenheit"],
+            "temperature",
+            ConversionLine {
+                ratio: 5.0 / 9.0,
+                intercept: 45967.0 / 180.0,
+            },
+        );
 
         ctx.push_composite(["mph"], 1.0, [("mile", 1), ("hour", -1)]);
         ctx.push_composite(["acre", "acres"], 560.0, [("feet", 2)]);
@@ -169,13 +201,13 @@ impl Conversion {
     pub fn to_canonical(&self, input: f64) -> f64 {
         match self {
             Conversion::Ratio(ConversionRatio { ratio }) => input * ratio,
-            Conversion::Line(_) => todo!()
+            Conversion::Line(_) => todo!(),
         }
     }
     pub fn from_canonical(&self, input: f64) -> f64 {
         match self {
             Conversion::Ratio(ConversionRatio { ratio }) => input / ratio,
-            Conversion::Line(_) => todo!()
+            Conversion::Line(_) => todo!(),
         }
     }
 }

@@ -4,23 +4,24 @@
 
 extern crate proc_macro;
 
-use proc_macro::{TokenStream};
 use std::collections::hash_map::DefaultHasher;
 use std::default::default;
 use std::hash::{Hash, Hasher};
-use proc_macro2::{Ident, Span};
 
-use syn::{parse_macro_input, DeriveInput, Data, LitByteStr, Type, ItemFn, parse_quote, ReturnType, NestedMeta, Meta, Error, Lit, ItemStatic, Path, LitBool, Token, parse};
+use proc_macro::TokenStream;
+use proc_macro2::{Ident, Span};
 use quote::quote;
 use syn::__private::TokenStream2;
-use syn::Item;
-use syn::ReturnType::Default;
-use syn::AttributeArgs;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::token::Comma;
+use syn::ReturnType::Default;
+use syn::{
+    parse, parse_macro_input, parse_quote, AttributeArgs, Data, DeriveInput, Error, Item, ItemFn,
+    ItemStatic, Lit, LitBool, LitByteStr, Meta, NestedMeta, Path, ReturnType, Token, Type,
+};
 
 fn ctor(crat: &Path, name: &Ident, body: &TokenStream2) -> TokenStream2 {
     let mut hasher = DefaultHasher::new();
@@ -31,12 +32,14 @@ fn ctor(crat: &Path, name: &Ident, body: &TokenStream2) -> TokenStream2 {
     name.span().end().line.hash(&mut hasher);
     name.span().end().column.hash(&mut hasher);
     let hash = format!("{:016X}", hasher.finish());
-    let pub_ident_fn =
-        syn::parse_str::<syn::Ident>(format!("rust_registry___registry___{}_{}", name, hash).as_ref())
-            .expect("Unable to create identifier");
-    let pub_ident_static =
-        syn::parse_str::<syn::Ident>(format!("RUST_REGISTRY___REGISTRY___{}_{}", name, hash).as_ref())
-            .expect("Unable to create identifier");
+    let pub_ident_fn = syn::parse_str::<syn::Ident>(
+        format!("rust_registry___registry___{}_{}", name, hash).as_ref(),
+    )
+    .expect("Unable to create identifier");
+    let pub_ident_static = syn::parse_str::<syn::Ident>(
+        format!("RUST_REGISTRY___REGISTRY___{}_{}", name, hash).as_ref(),
+    )
+    .expect("Unable to create identifier");
     let bytes = format!("{} ", pub_ident_fn).into_bytes();
     let bytes = LitByteStr::new(&bytes, Span::call_site());
     quote! {
@@ -87,7 +90,7 @@ impl Parse for CustomArg {
                 input.parse::<Token![=]>()?;
                 match key.as_str() {
                     "lazy" => CustomArg::Lazy(input.parse()?),
-                    _ => return Err(input.error("expected 'lazy' or 'crate'"))
+                    _ => return Err(input.error("expected 'lazy' or 'crate'")),
                 }
             } else {
                 return Err(input.error("expected 'lazy' or 'crate'"));
@@ -151,17 +154,23 @@ fn register_impl(args: CustomArgs, input: Item) -> Result<TokenStream2, Error> {
     //         NestedMeta::Lit(x) => return Err(Error::new(x.span(), "Cannot use List as arg")),
     //     }
     // }
-    let registry = args.registry.ok_or_else(|| Error::new(input.span(), "Must specify catalog"))?;
+    let registry = args
+        .registry
+        .ok_or_else(|| Error::new(input.span(), "Must specify catalog"))?;
     let crat = &args.crat;
     let lazy = args.lazy.value;
     match &input {
         Item::Fn(f) => {
             let name = &f.sig.ident;
-            let ctored = ctor(crat, name, &quote! {
-                #crat::Registry::register(&#registry, |x| {
-                    #crat::BuilderFrom::insert(x, #name());
-                })
-            });
+            let ctored = ctor(
+                crat,
+                name,
+                &quote! {
+                    #crat::Registry::register(&#registry, |x| {
+                        #crat::BuilderFrom::insert(x, #name());
+                    })
+                },
+            );
             Ok(quote! {
                 #f
                 #ctored
@@ -179,16 +188,20 @@ fn register_impl(args: CustomArgs, input: Item) -> Result<TokenStream2, Error> {
                     ty,
                     eq_token,
                     expr,
-                    semi_token
+                    semi_token,
                 } = s;
                 if let Some(mutability) = mutability {
                     return Err(Error::new(mutability.span(), "Cannot use mutable statics."));
                 }
-                let ctored = ctor(crat, &ident, &quote! {
-                    #crat::Registry::register(&#registry, |x| {
-                        #crat::BuilderFrom::insert(x, #crat::LazyEntry::__private(&#ident))
-                    })
-                });
+                let ctored = ctor(
+                    crat,
+                    &ident,
+                    &quote! {
+                        #crat::Registry::register(&#registry, |x| {
+                            #crat::BuilderFrom::insert(x, #crat::LazyEntry::__private(&#ident))
+                        })
+                    },
+                );
                 Ok(quote! {
                     #ctored
                     #( #attrs )*
@@ -204,17 +217,26 @@ fn register_impl(args: CustomArgs, input: Item) -> Result<TokenStream2, Error> {
                 })
             } else {
                 let name = &s.ident;
-                let ctored = ctor(crat, &s.ident, &quote! {
-                    #crat::Registry::register(&#registry, |x| {
-                        #crat::BuilderFrom::insert(x, &#name)
-                    })
-                });
+                let ctored = ctor(
+                    crat,
+                    &s.ident,
+                    &quote! {
+                        #crat::Registry::register(&#registry, |x| {
+                            #crat::BuilderFrom::insert(x, &#name)
+                        })
+                    },
+                );
                 Ok(quote! {
                     #ctored
                     #s
                 })
             }
         }
-        _ => return Err(Error::new(input.span(), "Macro only applies to functions and statics.")),
+        _ => {
+            return Err(Error::new(
+                input.span(),
+                "Macro only applies to functions and statics.",
+            ))
+        }
     }
 }

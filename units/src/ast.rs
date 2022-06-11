@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+
 use ustr::Ustr;
 
 pub struct Block(pub Vec<Stmt>);
@@ -39,18 +40,12 @@ pub enum Opcode {
 impl Debug for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Number(x) =>
-                write!(f, "{:?}", x),
-            Expr::Op(a, op, b) =>
-                write!(f, "({:?} {:?} {:?})", a, op, b),
-            Expr::Var(x) =>
-                write!(f, "{}", x),
-            Expr::Call(fun, es) =>
-                write!(f, "{:?}({:?})", fun, es),
-            Expr::WithUnits(e, u) =>
-                write!(f, "{:?} {:?}", e, u),
-            Expr::AsUnits(e, u) =>
-                write!(f, "{:?} {:?}", e, u),
+            Expr::Number(x) => write!(f, "{:?}", x),
+            Expr::Op(a, op, b) => write!(f, "({:?} {:?} {:?})", a, op, b),
+            Expr::Var(x) => write!(f, "{}", x),
+            Expr::Call(fun, es) => write!(f, "{:?}({:?})", fun, es),
+            Expr::WithUnits(e, u) => write!(f, "{:?} {:?}", e, u),
+            Expr::AsUnits(e, u) => write!(f, "{:?} {:?}", e, u),
         }
     }
 }
@@ -95,7 +90,5 @@ impl Debug for UnitSet {
 }
 
 impl Debug for UnitPart {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self.0) }
 }

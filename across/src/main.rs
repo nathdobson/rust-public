@@ -9,27 +9,29 @@
 pub mod puzzle;
 pub mod view;
 
-
 use std::env::args;
-use std::{fs, io};
 use std::error::Error;
 use std::fmt::{Debug, Formatter};
-use std::fmt;
+use std::{fmt, fs, io};
+
 use itertools::Itertools;
-use crate::puzzle::Puzzle;
+use termio::color::{BaseColor, Color};
 use termio::gui::gui::Gui;
 use termio::gui::run_local;
-use crate::view::PuzzleDiv;
-use util::mutrc::MutRc;
 use termio::screen::Style;
-use termio::color::{Color, BaseColor};
+use util::mutrc::MutRc;
+
+use crate::puzzle::Puzzle;
+use crate::view::PuzzleDiv;
 
 fn main() {
     run_local(|tree| {
         let puzzle = Puzzle::parse(&args().nth(1).unwrap());
         let mut gui = Gui::new(tree.clone(), PuzzleDiv::new(tree, puzzle));
-        gui.set_background(Style { background: Color::Bright(BaseColor::White), ..Style::default() });
+        gui.set_background(Style {
+            background: Color::Bright(BaseColor::White),
+            ..Style::default()
+        });
         MutRc::new(gui)
     });
 }
-

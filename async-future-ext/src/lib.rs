@@ -1,17 +1,19 @@
 use std::future::Future;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::Arc;
 use std::task::{Context, Poll, Wake};
+
 use tokio::pin;
 
 pub trait FutureExt: Future {
-    fn ready(self) -> Option<Self::Output> where Self: Sized {
+    fn ready(self) -> Option<Self::Output>
+    where
+        Self: Sized,
+    {
         struct Woken(AtomicBool);
         impl Wake for Woken {
-            fn wake(self: Arc<Self>) {
-                self.0.store(true, SeqCst);
-            }
+            fn wake(self: Arc<Self>) { self.0.store(true, SeqCst); }
         }
         let woken = Arc::new(Woken(AtomicBool::new(true)));
         let waker = woken.clone().into();

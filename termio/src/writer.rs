@@ -1,24 +1,22 @@
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::path::PathBuf;
 
-use rand::Rng;
-use rand::thread_rng;
+use arrayvec::ArrayString;
+use async_util::delay_writer::DelayWriter;
+use itertools::Itertools;
+use rand::{thread_rng, Rng};
 use util::io::{PipelineWriter, ProfiledWrite};
 use util::profile::Profile;
-
-use crate::color::Color;
-use crate::output::*;
-use crate::output::DoubleHeightTop;
-use crate::screen::{LineSetting, Rune, Screen, Style, Row};
-use crate::util::io::SafeWrite;
 use util::rect::Rect;
-use itertools::Itertools;
-use arrayvec::ArrayString;
-use std::borrow::Borrow;
+
 use crate::advance::advance_of_grapheme;
-use async_util::delay_writer::DelayWriter;
+use crate::color::Color;
+use crate::output::{DoubleHeightTop, *};
+use crate::screen::{LineSetting, Row, Rune, Screen, Style};
+use crate::util::io::SafeWrite;
 
 #[derive(Debug)]
 pub struct TermWriter {
@@ -35,22 +33,20 @@ pub fn move_cursor_raw((x1, y1): (isize, isize), (x2, y2): (isize, isize)) -> im
     AsDisplay(move |f| {
         let dx = x2 - x1;
         let dy = y2 - y1;
-        let only_x =
-            if dx == 0 {
-                Some("")
-            } else if x2 == 1 {
-                Some("\r")
-            } else {
-                None
-            };
-        let only_y =
-            if dy == 0 {
-                Some("")
-            } else if dy == 1 {
-                Some("\n")
-            } else {
-                None
-            };
+        let only_x = if dx == 0 {
+            Some("")
+        } else if x2 == 1 {
+            Some("\r")
+        } else {
+            None
+        };
+        let only_y = if dy == 0 {
+            Some("")
+        } else if dy == 1 {
+            Some("\n")
+        } else {
+            None
+        };
         if only_x.is_none() && only_y.is_none() {
             write!(f, "{}", CursorPosition(x2 as usize, y2 as usize))?;
             return Ok(());
@@ -86,12 +82,8 @@ impl TermWriter {
             get_text_size_count: 0,
         }
     }
-    pub fn writer(&mut self) -> &mut DelayWriter {
-        &mut self.inner
-    }
-    pub fn enabled(&self) -> bool {
-        self.enabled
-    }
+    pub fn writer(&mut self) -> &mut DelayWriter { &mut self.inner }
+    pub fn enabled(&self) -> bool { self.enabled }
     pub fn set_enabled(&mut self, enabled: bool) {
         if self.enabled != enabled {
             self.enabled = enabled;
@@ -100,7 +92,7 @@ impl TermWriter {
                 swrite!(self.inner, "{}", FocusTrackingEnable);
                 swrite!(self.inner, "{}", AlternateEnable);
                 swrite!(self.inner, "{}", CursorHide);
-                swrite!(self.inner, "{}", CursorPosition(1,1));
+                swrite!(self.inner, "{}", CursorPosition(1, 1));
                 swrite!(self.inner, "{}", Background(Color::Default));
                 swrite!(self.inner, "{}", SingleWidthLine);
             } else {
@@ -115,14 +107,16 @@ impl TermWriter {
         self.get_text_size_count += 1;
         swrite!(self.inner, "{}", ReportTextAreaSize);
     }
-    pub fn get_text_size_count(&self) -> usize {
-        self.get_text_size_count
-    }
+    pub fn get_text_size_count(&self) -> usize { self.get_text_size_count }
     pub fn get_cursor_position(&mut self) {
-        swrite!(self.inner,"{}",ReportCursorPosition);
+        swrite!(self.inner, "{}", ReportCursorPosition);
     }
     pub fn repair(&mut self) {
-        swrite!(self.inner, "{}", CursorPosition(self.cursor.0 as usize, self.cursor.1 as usize));
+        swrite!(
+            self.inner,
+            "{}",
+            CursorPosition(self.cursor.0 as usize, self.cursor.1 as usize)
+        );
         return;
     }
     pub fn move_cursor(&mut self, x: isize, y: isize) {
@@ -177,12 +171,11 @@ impl TermWriter {
         let row = &mut self.screen.rows[self.cursor.1 as usize];
         row.write(self.cursor.0, length, text, self.style);
         self.cursor.0 += length;
-        let max =
-            if row.line_setting == LineSetting::Normal {
-                self.bounds.xs().end
-            } else {
-                (self.bounds.xs().end + 10) / 2
-            };
+        let max = if row.line_setting == LineSetting::Normal {
+            self.bounds.xs().end
+        } else {
+            (self.bounds.xs().end + 10) / 2
+        };
         if self.cursor.0 > max {
             self.cursor.0 = max;
         }
@@ -194,7 +187,7 @@ impl TermWriter {
     }
     pub fn clear(&mut self) {
         self.screen.background = self.style;
-        swrite!(self.inner, "{}{}", EraseAll, CursorPosition(1,1));
+        swrite!(self.inner, "{}{}", EraseAll, CursorPosition(1, 1));
         self.screen.clear();
         self.cursor = (1, 1);
     }
@@ -232,4 +225,3 @@ impl TermWriter {
         }
     }
 }
-

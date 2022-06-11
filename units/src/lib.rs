@@ -11,18 +11,17 @@
 #![feature(min_type_alias_impl_trait)]
 
 mod ast;
+mod check;
+mod eval;
+mod factors;
+mod map;
+mod tests;
+mod unicode;
+mod unit;
 mod value;
 mod variants;
-mod eval;
-mod tests;
-mod check;
-mod factors;
-mod unit;
-mod unicode;
-mod map;
 
 #[macro_use]
 extern crate lalrpop_util;
 
 lalrpop_mod!(pub grammar); // synthesized by LALRPOP
-

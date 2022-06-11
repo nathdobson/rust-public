@@ -1,35 +1,36 @@
-use util::rect::Rect;
-use crate::screen::{Style, LineSetting, Screen};
-use crate::writer::TermWriter;
 use std::any::{Any, TypeId};
-//use util::any::{Upcast};
-use std::{fmt, thread, mem, io};
-use std::sync::{Arc, Mutex, Condvar, Weak};
-use crate::input::{MouseEvent, KeyEvent, Event};
-use crate::canvas::Canvas;
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, VecDeque};
-use crate::gui::layout::Constraint;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
-use std::time::{Instant, Duration};
-use std::sync::atomic::AtomicBool;
-use std::fmt::Debug;
-use util::lossy;
-use std::fmt::Formatter;
-use std::raw::TraitObject;
-use crate::gui::div::{Div, DivRc};
-use crate::gui::tree::{Tree, Dirty, TreeReceiver};
-use std::task::Context;
-use async_util::poll::{PollResult, poll_next};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio_stream::wrappers::{UnboundedReceiverStream, ReceiverStream};
-use async_util::delay_writer::DelayWriter;
-use tokio::io::AsyncWrite;
 use std::pin::Pin;
-use tokio::sync::mpsc;
-use crate::gui::BoxAsyncWrite;
-use async_util::poll::PollResult::{Noop, Abort};
+use std::raw::TraitObject;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::task::Context;
+use std::time::{Duration, Instant};
+//use util::any::{Upcast};
+use std::{fmt, io, mem, thread};
+
+use async_util::delay_writer::DelayWriter;
+use async_util::poll::PollResult::{Abort, Noop};
+use async_util::poll::{poll_next, PollResult};
 use async_util::timer::Sleep;
+use tokio::io::AsyncWrite;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+use util::lossy;
+use util::rect::Rect;
+
+use crate::canvas::Canvas;
+use crate::gui::div::{Div, DivRc};
+use crate::gui::layout::Constraint;
+use crate::gui::tree::{Dirty, Tree, TreeReceiver};
+use crate::gui::BoxAsyncWrite;
+use crate::input::{Event, KeyEvent, MouseEvent};
+use crate::screen::{LineSetting, Screen, Style};
+use crate::writer::TermWriter;
 
 const FRAME_BUFFER_SIZE: usize = 1;
 
@@ -53,10 +54,7 @@ fn is_sync() -> impl Sync { Option::<Gui>::None }
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum InputEvent {
-    MouseEvent {
-        event: MouseEvent,
-        inside: bool,
-    },
+    MouseEvent { event: MouseEvent, inside: bool },
     KeyEvent(KeyEvent),
 }
 
@@ -86,13 +84,9 @@ impl Gui {
         }
     }
 
-    pub fn mark_dirty(&mut self, dirty: Dirty) {
-        self.tree.mark_dirty(dirty);
-    }
+    pub fn mark_dirty(&mut self, dirty: Dirty) { self.tree.mark_dirty(dirty); }
 
-    pub fn tree(&self) -> &Tree {
-        &self.tree
-    }
+    pub fn tree(&self) -> &Tree { &self.tree }
 
     pub fn set_enabled(&mut self, enabled: bool) {
         if self.writer.enabled() {
@@ -101,9 +95,7 @@ impl Gui {
         }
     }
 
-    pub fn enabled(&self) -> bool {
-        self.writer.enabled()
-    }
+    pub fn enabled(&self) -> bool { self.writer.enabled() }
 
     pub fn paint(&mut self) {
         if !self.writer.enabled() {
@@ -143,12 +135,12 @@ impl Gui {
         }
     }
 
-    pub fn writer(&mut self) -> &mut DelayWriter {
-        self.writer.writer()
-    }
+    pub fn writer(&mut self) -> &mut DelayWriter { self.writer.writer() }
 
     pub fn layout(&mut self) {
-        self.root.write().layout(&Constraint { max_size: Some(self.size) });
+        self.root.write().layout(&Constraint {
+            max_size: Some(self.size),
+        });
         self.tree.mark_dirty(Dirty::Paint);
     }
 
@@ -172,7 +164,10 @@ impl Gui {
                         event.position.0 *= 2;
                     }
                 }
-                root.handle(&InputEvent::MouseEvent { event: event, inside: true });
+                root.handle(&InputEvent::MouseEvent {
+                    event: event,
+                    inside: true,
+                });
             }
             Event::Focus(_) => {}
             Event::WindowPosition(_, _) => {}
@@ -203,13 +198,15 @@ impl Gui {
         poll_next(cx, &mut self.tree_receiver.layout).map(|()| {
             self.layout();
         })?;
-        self.resize_timeout.poll_sleep(cx).map(|()|{
+        self.resize_timeout.poll_sleep(cx).map(|()| {
             self.mark_dirty(Dirty::Paint);
         })?;
         poll_next(cx, &mut self.tree_receiver.paint).map(|()| {
             self.paint();
         })?;
-        self.writer.writer().poll_flush(cx, Pin::new(&mut self.output))?;
+        self.writer
+            .writer()
+            .poll_flush(cx, Pin::new(&mut self.output))?;
         if self.event_receiver.is_none() && self.writer.writer().is_empty() {
             return Abort(io::Error::new(io::ErrorKind::Interrupted, "canceled"));
         }
@@ -218,7 +215,5 @@ impl Gui {
 }
 
 impl Debug for Gui {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Gui").finish()
-    }
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { f.debug_struct("Gui").finish() }
 }

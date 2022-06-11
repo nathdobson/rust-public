@@ -1,7 +1,9 @@
-use crate::database::{SnapshotCell, SnapshotValue};
-use tuple_list::Tuple;
-use std::hash::Hash;
 use std::fmt::Debug;
+use std::hash::Hash;
+
+use tuple_list::Tuple;
+
+use crate::database::{SnapshotCell, SnapshotValue};
 
 pub trait KeyList {}
 
@@ -11,4 +13,10 @@ impl KeyList for () {}
 
 pub trait Keys: Hash + Eq + Clone + Debug + Send + 'static {}
 
-impl<T> Keys for T where T: Hash + Eq + Clone + Debug + Send + 'static, T: Tuple, T::TupleList: KeyList {}
+impl<T> Keys for T
+where
+    T: Hash + Eq + Clone + Debug + Send + 'static,
+    T: Tuple,
+    T::TupleList: KeyList,
+{
+}

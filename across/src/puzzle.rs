@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
-use arrayvec::ArrayVec;
-use std::{fs, fmt};
-use itertools::{multizip, Itertools};
 use std::fmt::{Debug, Formatter};
+use std::{fmt, fs};
+
+use arrayvec::ArrayVec;
+use itertools::{multizip, Itertools};
 
 #[derive(Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Cell {
@@ -42,14 +43,18 @@ impl Puzzle {
         let [cell_text, clue_texts, meta, pretty_quote, pretty_author, pretty_title, pretty_answers]: [&str; 7] =
             data.split('\n').collect::<ArrayVec<_>>().into_inner().unwrap();
         let mut clues = BTreeMap::new();
-        for (letter, clue_text, pretty_answer)
-        in multizip(('A'.., clue_texts.split('|'), pretty_answers.split('|'))) {
-            clues.insert(letter, Clue {
+        for (letter, clue_text, pretty_answer) in
+            multizip(('A'.., clue_texts.split('|'), pretty_answers.split('|')))
+        {
+            clues.insert(
                 letter,
-                variables: vec![],
-                clue: clue_text.to_string(),
-                pretty_answer: pretty_answer.to_string(),
-            });
+                Clue {
+                    letter,
+                    variables: vec![],
+                    clue: clue_text.to_string(),
+                    pretty_answer: pretty_answer.to_string(),
+                },
+            );
         }
         let mut variable = 0;
         let mut cells = vec![];
@@ -57,8 +62,11 @@ impl Puzzle {
         let cell_answers = &cell_text[..cell_text.len() / 3];
         let cell_letters = &cell_text[cell_text.len() / 3..2 * cell_text.len() / 3];
         let cell_offsets = &cell_text[2 * cell_text.len() / 3..];
-        for (answer, letter, offset)
-        in multizip((cell_answers.chars(), cell_letters.chars(), cell_offsets.chars())) {
+        for (answer, letter, offset) in multizip((
+            cell_answers.chars(),
+            cell_letters.chars(),
+            cell_offsets.chars(),
+        )) {
             if answer.is_ascii_alphanumeric() {
                 variable += 1;
                 let offset = offset as usize - 'A' as usize;
@@ -67,12 +75,15 @@ impl Puzzle {
                     cvars.resize(offset + 1, 0);
                 }
                 cvars[offset] = variable;
-                variables.insert(variable, Variable {
+                variables.insert(
                     variable,
-                    cell: cells.len(),
-                    letter,
-                    offset,
-                });
+                    Variable {
+                        variable,
+                        cell: cells.len(),
+                        letter,
+                        offset,
+                    },
+                );
                 cells.push(Cell {
                     cell: cells.len(),
                     correct: answer,

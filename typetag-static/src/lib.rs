@@ -1,7 +1,14 @@
 #![feature(specialization, never_type)]
 #![feature(coerce_unsized)]
 #![feature(seek_stream_len)]
-#![allow(incomplete_features, unused_variables, dead_code, unused_imports, unused_macros, unused_mut)]
+#![allow(
+    incomplete_features,
+    unused_variables,
+    dead_code,
+    unused_imports,
+    unused_macros,
+    unused_mut
+)]
 #![deny(unused_must_use)]
 #![feature(once_cell)]
 
@@ -28,23 +35,24 @@
 //! assert_eq!(10, output.downcast_ref::<MyStruct>().unwrap().foo);
 //! ```
 
-use std::marker::PhantomData;
-use std::any::{Any, type_name, TypeId};
-use std::ops::{Deref, DerefMut, CoerceUnsized};
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use std::any::{type_name, Any, TypeId};
 use std::borrow::{Borrow, BorrowMut};
-use std::sync::Arc;
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::ops::{CoerceUnsized, Deref, DerefMut};
+use std::sync::Arc;
+
 use catalog::register;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[macro_use]
 mod macros;
-/// Support for assigning stable identifiers to types.
-pub mod tag;
-/// Support for JSON encoding.
-pub mod json;
 /// A serialization format similar to [`bincode`](https://crates.io/crates/bincode) that supports [`AnySerde`](crate::AnySerde).
 pub mod binary;
+/// Support for JSON encoding.
+pub mod json;
+/// Support for assigning stable identifiers to types.
+pub mod tag;
 
 // #[doc(hidden)]
 // pub mod util;
@@ -115,19 +123,28 @@ impl dyn AnySerde {
 }
 
 impl Serialize for BoxAnySerde {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_dyn(&**self)
     }
 }
 
 impl Serialize for ArcAnySerde {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_dyn(&**self)
     }
 }
 
 impl<'a> Serialize for &'a dyn AnySerde {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_dyn(*self)
     }
 }
@@ -137,21 +154,25 @@ impl Clone for BoxAnySerde {
 }
 
 impl<'de> Deserialize<'de> for BoxAnySerde {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         deserializer.deserialize_box()
     }
 }
 
 impl<'de> Deserialize<'de> for ArcAnySerde {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         deserializer.deserialize_arc()
     }
 }
 
 impl ArcAnySerde {
-    pub fn new<T: AnySerde>(x: T) -> Self {
-        ArcAnySerde(Arc::new(x))
-    }
+    pub fn new<T: AnySerde>(x: T) -> Self { ArcAnySerde(Arc::new(x)) }
 }
 
 impl Deref for ArcAnySerde {
@@ -180,13 +201,9 @@ impl<'de, D: Deserializer<'de>> AnyDeserializerDefault<'de> for D {
 }
 
 impl<'de, D: AnyDeserializer<'de>> AnyDeserializerDefault<'de> for D {
-    fn deserialize_box(self) -> Result<BoxAnySerde, D::Error> {
-        self.deserialize_box_impl()
-    }
+    fn deserialize_box(self) -> Result<BoxAnySerde, D::Error> { self.deserialize_box_impl() }
 
-    fn deserialize_arc(self) -> Result<ArcAnySerde, Self::Error> {
-        self.deserialize_arc_impl()
-    }
+    fn deserialize_arc(self) -> Result<ArcAnySerde, Self::Error> { self.deserialize_arc_impl() }
 }
 
 pub(crate) trait AnySerializerDefault: Serializer {
@@ -212,7 +229,11 @@ impl<T: AnySerializer> AnySerializerDefault for T {
 
 // Traits for scoping macro contents.
 #[doc(hidden)]
-pub trait JsonNopTrait { fn nop(); }
+pub trait JsonNopTrait {
+    fn nop();
+}
 
 #[doc(hidden)]
-pub trait BinaryNopTrait { fn nop(); }
+pub trait BinaryNopTrait {
+    fn nop();
+}

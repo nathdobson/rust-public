@@ -1,14 +1,17 @@
-use proc_macro::TokenStream;
-use quote::{IdentFragment, quote};
 use std::collections::{BTreeMap, HashMap};
-use proc_macro2::{Ident, Span};
-use syn::{Attribute, Error, Expr, ExprLit, Item, Lit, LitInt, parenthesized, parse2, parse_quote, Token};
+
+use proc_macro::TokenStream;
+use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
+use quote::{quote, IdentFragment};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::Result;
 use syn::spanned::Spanned;
-use proc_macro2::TokenStream as TokenStream2;
 use syn::token::Paren;
+use syn::{
+    parenthesized, parse2, parse_quote, Attribute, Error, Expr, ExprLit, Item, Lit, LitInt, Result,
+    Token,
+};
+
 use crate::attr_value::AttrValue;
 
 #[derive(Debug)]
@@ -35,16 +38,18 @@ pub struct AttrParens {
     stream: AttrStream,
 }
 
-
 #[derive(Debug)]
 pub struct AttrGroup<'a> {
     span: Span,
     map: BTreeMap<String, &'a Attribute>,
 }
 
-impl Default for AttrStream{
+impl Default for AttrStream {
     fn default() -> Self {
-        AttrStream{ span: Span::call_site(), map: Default::default() }
+        AttrStream {
+            span: Span::call_site(),
+            map: Default::default(),
+        }
     }
 }
 
@@ -106,12 +111,17 @@ impl AttrStream {
     pub fn new(attr: &Attribute) -> Result<Self> {
         if attr.tokens.is_empty() {
             let attr_path = &attr.path;
-            return Err(Error::new(attr.path.span(), format_args!("Expected {}(...)", quote!(#attr_path))));
+            return Err(Error::new(
+                attr.path.span(),
+                format_args!("Expected {}(...)", quote!(#attr_path)),
+            ));
         }
         Ok(syn::parse2::<AttrParens>(attr.tokens.clone())?.stream)
     }
     pub fn parse_entry<T: AttrValue>(&mut self, name: &str) -> Result<T> {
-        Ok(self.parse_entry_option::<T>(name)?.ok_or_else(|| Error::new(self.span, format_args!("Expected {} = ...", name)))?)
+        Ok(self
+            .parse_entry_option::<T>(name)?
+            .ok_or_else(|| Error::new(self.span, format_args!("Expected {} = ...", name)))?)
     }
     pub fn parse_entry_option<T: AttrValue>(&mut self, name: &str) -> Result<Option<T>> {
         if let Some(e) = self.map.remove(name) {
@@ -122,7 +132,10 @@ impl AttrStream {
     }
     pub fn finish(self) -> Result<()> {
         if let Some((key, value)) = self.map.iter().next() {
-            return Err(Error::new(value.key.span(), format_args!("Unexpected key `{}'", key)));
+            return Err(Error::new(
+                value.key.span(),
+                format_args!("Unexpected key `{}'", key),
+            ));
         }
         Ok(())
     }
@@ -148,7 +161,9 @@ impl<'a> AttrGroup<'a> {
         }
     }
     pub fn parse<T: ParseAttr>(&self, key: &str) -> Result<T> {
-        Ok(self.parse_option(key)?.ok_or_else(|| Error::new(self.span, format_args!("Expected #[{}(...)]", key)))?)
+        Ok(self
+            .parse_option(key)?
+            .ok_or_else(|| Error::new(self.span, format_args!("Expected #[{}(...)]", key)))?)
     }
 }
 

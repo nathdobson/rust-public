@@ -1,33 +1,35 @@
-use crate::binary::{Error, UnknownBinary};
-use crate::{AnySerializerDefault, AnyDeserializer, BoxAnySerde, AnySerde, ArcAnySerde};
-use serde::{Deserialize, Serialize, Serializer};
-use std::any::Any;
-use crate::binary::de::BinaryDeserializer;
-use crate::tag::{TypeTagHash, HasTypeTag, TypeTag};
-use crate::binary::ser::BinarySerializer;
-use serde::ser::SerializeTuple;
-use lazy_static::lazy_static;
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::any::TypeId;
-use serde::ser;
-use serde::de;
 //use crate::util::AnySingleton;
 use std::fmt::{Debug, Formatter};
 use std::io::Seek;
-use catalog::{Registry, Builder, BuilderFrom};
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use catalog::{Builder, BuilderFrom, Registry};
+use lazy_static::lazy_static;
+use serde::ser::SerializeTuple;
+use serde::{de, ser, Deserialize, Serialize, Serializer};
+
+use crate::binary::de::BinaryDeserializer;
+use crate::binary::ser::BinarySerializer;
+use crate::binary::{Error, UnknownBinary};
+use crate::tag::{HasTypeTag, TypeTag, TypeTagHash};
+use crate::{AnyDeserializer, AnySerde, AnySerializerDefault, ArcAnySerde, BoxAnySerde};
 
 impl<'a> AnySerializerDefault for BinarySerializer<'a> {
     fn serialize_dyn(mut self, value: &dyn AnySerde) -> Result<Self::Ok, Self::Error> {
         if let Some(unknown) = value.downcast_ref::<UnknownBinary>() {
             unknown.tag.serialize(self.reborrow())?;
-            self.reborrow().serialize_u64(unknown.content.len() as u64)?;
+            self.reborrow()
+                .serialize_u64(unknown.content.len() as u64)?;
             self.serialize_raw(&unknown.content)?;
             Ok(())
         } else {
             let id = value.type_id();
-            IMPLS.by_type_id.get(&id)
+            IMPLS
+                .by_type_id
+                .get(&id)
                 .ok_or(Error::MissingSerialize(value.inner_type_name().to_string()))?
                 .serialize_binary(self, value)
         }
@@ -75,35 +77,53 @@ impl<'a, 'de> AnyDeserializer<'de> for &'a mut BinaryDeserializer<'de> {
 pub trait AnyBinary: 'static + Send + Sync {
     fn inner_type_tag(&self) -> &'static TypeTag;
     fn inner_type_id(&self) -> TypeId;
-    fn serialize_binary<'a>(&self, serializer: BinarySerializer<'a>, value: &dyn AnySerde) -> Result<(), Error>;
-    fn deserialize_box_binary<'a, 'de>(&self, deserializer: &'a mut BinaryDeserializer<'de>) -> Result<BoxAnySerde, Error>;
-    fn deserialize_arc_binary<'a, 'de>(&self, deserializer: &'a mut BinaryDeserializer<'de>) -> Result<ArcAnySerde, Error>;
+    fn serialize_binary<'a>(
+        &self,
+        serializer: BinarySerializer<'a>,
+        value: &dyn AnySerde,
+    ) -> Result<(), Error>;
+    fn deserialize_box_binary<'a, 'de>(
+        &self,
+        deserializer: &'a mut BinaryDeserializer<'de>,
+    ) -> Result<BoxAnySerde, Error>;
+    fn deserialize_arc_binary<'a, 'de>(
+        &self,
+        deserializer: &'a mut BinaryDeserializer<'de>,
+    ) -> Result<ArcAnySerde, Error>;
 }
 
-impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde> AnyBinary for PhantomData<T> {
+impl<T: Serialize + for<'de> Deserialize<'de> + 'static + HasTypeTag + AnySerde> AnyBinary
+    for PhantomData<T>
+{
     fn inner_type_tag(&self) -> &'static TypeTag { T::type_tag() }
     fn inner_type_id(&self) -> TypeId { TypeId::of::<T>() }
-    fn serialize_binary<'a>(&self, mut serializer: BinarySerializer<'a>, value: &dyn AnySerde) -> Result<(), Error> {
+    fn serialize_binary<'a>(
+        &self,
+        mut serializer: BinarySerializer<'a>,
+        value: &dyn AnySerde,
+    ) -> Result<(), Error> {
         T::type_tag().hash.serialize(serializer.reborrow())?;
         serializer.serialize_with_length(value.downcast_ref::<T>().ok_or(Error::BadType)?)?;
         Ok(())
     }
-    fn deserialize_box_binary<'a, 'de>(&self, deserializer: &'a mut BinaryDeserializer<'de>) -> Result<BoxAnySerde, Error> {
+    fn deserialize_box_binary<'a, 'de>(
+        &self,
+        deserializer: &'a mut BinaryDeserializer<'de>,
+    ) -> Result<BoxAnySerde, Error> {
         Ok(Box::new(T::deserialize(deserializer)?))
     }
-    fn deserialize_arc_binary<'a, 'de>(&self, deserializer: &'a mut BinaryDeserializer<'de>) -> Result<ArcAnySerde, Error> {
+    fn deserialize_arc_binary<'a, 'de>(
+        &self,
+        deserializer: &'a mut BinaryDeserializer<'de>,
+    ) -> Result<ArcAnySerde, Error> {
         Ok(ArcAnySerde::new(T::deserialize(deserializer)?))
     }
 }
 
 impl AnySerde for UnknownBinary {
-    fn clone_box(&self) -> BoxAnySerde {
-        Box::new(self.clone())
-    }
+    fn clone_box(&self) -> BoxAnySerde { Box::new(self.clone()) }
 
-    fn inner_type_name(&self) -> &'static str {
-        "typetag_static::binary::UnknownBinary"
-    }
+    fn inner_type_name(&self) -> &'static str { "typetag_static::binary::UnknownBinary" }
 }
 
 pub struct Impls {
@@ -124,8 +144,14 @@ impl Builder for Impls {
 
 impl BuilderFrom<&'static dyn AnyBinary> for Impls {
     fn insert(&mut self, element: &'static dyn AnyBinary) {
-        assert!(self.by_type_id.insert(element.inner_type_id(), element).is_none());
-        assert!(self.by_type_tag_hash.insert(element.inner_type_tag().hash, element).is_none());
+        assert!(self
+            .by_type_id
+            .insert(element.inner_type_id(), element)
+            .is_none());
+        assert!(self
+            .by_type_tag_hash
+            .insert(element.inner_type_tag().hash, element)
+            .is_none());
     }
 }
 

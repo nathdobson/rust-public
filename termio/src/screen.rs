@@ -1,15 +1,17 @@
-use util::grid::Grid;
-use crate::color::Color;
-use util::rangemap::RangeMap;
-use crate::writer::TermWriter;
-use util::grid;
-use std::collections::{BTreeSet, BTreeMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use crate::output::*;
 use std::fmt::Debug;
-use arrayvec::ArrayString;
-use vec_map::VecMap;
 use std::mem::size_of;
+
+use arrayvec::ArrayString;
+use util::grid;
+use util::grid::Grid;
+use util::rangemap::RangeMap;
+use vec_map::VecMap;
+
+use crate::color::Color;
+use crate::output::*;
+use crate::writer::TermWriter;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 pub struct Row {
@@ -70,17 +72,12 @@ impl Rune {
 }
 
 impl Default for LineSetting {
-    fn default() -> Self {
-        LineSetting::Normal
-    }
+    fn default() -> Self { LineSetting::Normal }
 }
 
 impl Style {
-    fn new() -> Self {
-        Style::default()
-    }
+    fn new() -> Self { Style::default() }
 }
-
 
 impl Screen {
     pub fn new(size: (isize, isize), background: Style) -> Self {
@@ -91,7 +88,10 @@ impl Screen {
         }
     }
     pub fn default_rune(&self) -> Rune {
-        Rune { text: ArrayString::from(" ").unwrap(), style: self.background }
+        Rune {
+            text: ArrayString::from(" ").unwrap(),
+            style: self.background,
+        }
     }
     pub fn clear(&mut self) {
         let def = self.default_rune();
@@ -100,30 +100,27 @@ impl Screen {
         }
     }
     pub fn size(&self) -> (isize, isize) {
-        (self.rows[0].runes.len() as isize - 1, self.rows.len() as isize - 1)
+        (
+            self.rows[0].runes.len() as isize - 1,
+            self.rows.len() as isize - 1,
+        )
     }
 
-    pub fn title(&mut self) -> &mut String {
-        &mut self.title
-    }
+    pub fn title(&mut self) -> &mut String { &mut self.title }
 }
 
 impl Row {
     pub fn new(width: isize, background: Style) -> Self {
-        Row { runes: vec![Rune::new(background); width as usize + 1], line_setting: Default::default() }
+        Row {
+            runes: vec![Rune::new(background); width as usize + 1],
+            line_setting: Default::default(),
+        }
     }
-    pub fn rune_mut(&mut self, x: isize) -> &mut Rune {
-        &mut self.runes[x as usize]
-    }
+    pub fn rune_mut(&mut self, x: isize) -> &mut Rune { &mut self.runes[x as usize] }
 
     pub fn write(&mut self, x: isize, dx: isize, text: &str, style: Style) {
-        let text = ArrayString::from(text).unwrap_or_else(|_| {
-            ArrayString::from("�").unwrap()
-        });
-        *self.rune_mut(x) = Rune {
-            text,
-            style,
-        };
+        let text = ArrayString::from(text).unwrap_or_else(|_| ArrayString::from("�").unwrap());
+        *self.rune_mut(x) = Rune { text, style };
         for x1 in x + 1..(x + dx).min(self.runes.len() as isize) {
             self.runes[x1 as usize] = Rune {
                 text: ArrayString::new(),
@@ -135,11 +132,14 @@ impl Row {
 
 impl fmt::Debug for Rune {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}{}{}",
-               Foreground(self.style.foreground),
-               Background(self.style.background),
-               self.text,
-               NoFormat)
+        write!(
+            f,
+            "{}{}{}{}",
+            Foreground(self.style.foreground),
+            Background(self.style.background),
+            self.text,
+            NoFormat
+        )
     }
 }
 

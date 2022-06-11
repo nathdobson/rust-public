@@ -1,11 +1,12 @@
-use crate::screen::Style;
-use std::fmt::{Display, Arguments};
 use std::collections::BTreeMap;
-use std::fmt::Write;
-use std::{iter, fmt};
+use std::fmt::{Arguments, Display, Write};
+use std::{fmt, iter};
+
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+
 use crate::color::Color;
-use serde::{Serialize, Deserialize};
+use crate::screen::Style;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct __UseDefaultDefaultToBuildStyleOption {}
@@ -22,7 +23,7 @@ pub struct StyleOption {
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Clone, Serialize, Deserialize)]
 pub struct StyleString {
-    vector: Vec<(StyleOption, String)>
+    vector: Vec<(StyleOption, String)>,
 }
 
 pub struct StyleFormatter<'a> {
@@ -58,14 +59,8 @@ impl StyleOption {
 }
 
 impl StyleString {
-    pub fn new() -> StyleString {
-        StyleString {
-            vector: vec![],
-        }
-    }
-    pub fn inner(&self) -> &[(StyleOption, String)] {
-        &self.vector
-    }
+    pub fn new() -> StyleString { StyleString { vector: vec![] } }
+    pub fn inner(&self) -> &[(StyleOption, String)] { &self.vector }
 }
 
 impl<'a> StyleFormatter<'a> {
@@ -87,9 +82,7 @@ impl<'a> StyleFormatter<'a> {
             style: style.or(self.style),
         }
     }
-    pub fn write_fmt(&mut self, args: Arguments) {
-        self.writer.style_write(self.style, &args);
-    }
+    pub fn write_fmt(&mut self, args: Arguments) { self.writer.style_write(self.style, &args); }
 }
 
 impl Default for StyleOption {
@@ -130,16 +123,20 @@ pub trait StyleFormatExt: StyleFormat {
 
 impl<T: StyleFormat> StyleFormatExt for T {}
 
-
 impl<'a, T: StyleFormat + ?Sized> StyleFormat for &'a T {
-    fn style_format(&self, formatter: StyleFormatter) {
-        (*self).style_format(formatter);
-    }
+    fn style_format(&self, formatter: StyleFormatter) { (*self).style_format(formatter); }
 }
 
-pub struct StyleConcat<I>(I) where I: Iterator + Clone, I::Item: StyleFormat;
+pub struct StyleConcat<I>(I)
+where
+    I: Iterator + Clone,
+    I::Item: StyleFormat;
 
-impl<'a, I> StyleFormat for StyleConcat<I> where I: Iterator + Clone, I::Item: StyleFormat {
+impl<'a, I> StyleFormat for StyleConcat<I>
+where
+    I: Iterator + Clone,
+    I::Item: StyleFormat,
+{
     fn style_format(&self, mut formatter: StyleFormatter) {
         for x in self.0.clone() {
             x.style_format(formatter.push());
@@ -147,20 +144,41 @@ impl<'a, I> StyleFormat for StyleConcat<I> where I: Iterator + Clone, I::Item: S
     }
 }
 
-pub struct StyleJoin<'a, I>(I, &'a dyn StyleFormat) where I: Iterator + Clone, I::Item: StyleFormat;
+pub struct StyleJoin<'a, I>(I, &'a dyn StyleFormat)
+where
+    I: Iterator + Clone,
+    I::Item: StyleFormat;
 
-pub trait IteratorExt: Iterator where Self::Item: StyleFormat {
-    fn style_join(self, sep: &dyn StyleFormat) -> StyleJoin<Self> where Self: Sized + Clone {
+pub trait IteratorExt: Iterator
+where
+    Self::Item: StyleFormat,
+{
+    fn style_join(self, sep: &dyn StyleFormat) -> StyleJoin<Self>
+    where
+        Self: Sized + Clone,
+    {
         StyleJoin(self, sep)
     }
-    fn style_concat(self) -> StyleConcat<Self> where Self: Sized + Clone {
+    fn style_concat(self) -> StyleConcat<Self>
+    where
+        Self: Sized + Clone,
+    {
         StyleConcat(self)
     }
 }
 
-impl<I> IteratorExt for I where I: Iterator + Clone, I::Item: StyleFormat {}
+impl<I> IteratorExt for I
+where
+    I: Iterator + Clone,
+    I::Item: StyleFormat,
+{
+}
 
-impl<'a, I> StyleFormat for StyleJoin<'a, I> where I: Iterator + Clone, I::Item: StyleFormat {
+impl<'a, I> StyleFormat for StyleJoin<'a, I>
+where
+    I: Iterator + Clone,
+    I::Item: StyleFormat,
+{
     fn style_format(&self, mut formatter: StyleFormatter) {
         let mut it = self.0.clone().peekable();
         while let Some(next) = it.next() {

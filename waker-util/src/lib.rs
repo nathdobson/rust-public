@@ -1,22 +1,20 @@
 #![allow(unused_imports)]
 
-
-use std::task::{Waker, RawWakerVTable, RawWaker};
-use tokio::pin;
-
-#[cfg(loom)]
-pub(crate) use loom::sync::atomic::AtomicUsize;
+#[cfg(not(loom))]
+pub(crate) use std::sync::atomic::AtomicPtr;
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::AtomicUsize;
+use std::task::{RawWaker, RawWakerVTable, Waker};
 
 #[cfg(loom)]
 pub(crate) use loom::sync::atomic::AtomicPtr;
-#[cfg(not(loom))]
-pub(crate) use std::sync::atomic::AtomicPtr;
+#[cfg(loom)]
+pub(crate) use loom::sync::atomic::AtomicUsize;
+use tokio::pin;
 
 const fn noop_raw_waker() -> RawWaker {
-    const RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-        |_| noop_raw_waker(), |_| (), |_| (), |_| ());
+    const RAW_WAKER_VTABLE: RawWakerVTable =
+        RawWakerVTable::new(|_| noop_raw_waker(), |_| (), |_| (), |_| ());
     RawWaker::new(null(), &RAW_WAKER_VTABLE)
 }
 
@@ -30,12 +28,12 @@ pub fn noop_waker_ref() -> &'static Waker {
     unsafe { mem::transmute::<&SyncRawWaker, &Waker>(&NOOP_WAKER) }
 }
 
-use std::sync::atomic::Ordering::*;
-use std::{mem, cmp};
-use std::ptr::{null_mut, null};
-use std::sync::atomic::Ordering;
-use std::mem::size_of;
 use std::hash::{Hash, Hasher};
+use std::mem::size_of;
+use std::ptr::{null, null_mut};
+use std::sync::atomic::Ordering;
+use std::sync::atomic::Ordering::*;
+use std::{cmp, mem};
 
 pub struct AtomicWaker {
     state: AtomicUsize,
@@ -47,17 +45,13 @@ pub struct AtomicWaker {
 pub struct HashWaker(pub Waker);
 
 impl HashWaker {
-    fn key(&self) -> [u8; size_of::<Waker>()] {
-        unsafe { mem::transmute_copy(self) }
-    }
+    fn key(&self) -> [u8; size_of::<Waker>()] { unsafe { mem::transmute_copy(self) } }
 }
 
 impl Eq for HashWaker {}
 
 impl PartialEq for HashWaker {
-    fn eq(&self, other: &Self) -> bool {
-        self.key() == other.key()
-    }
+    fn eq(&self, other: &Self) -> bool { self.key() == other.key() }
 }
 
 impl PartialOrd for HashWaker {
@@ -67,24 +61,16 @@ impl PartialOrd for HashWaker {
 }
 
 impl Ord for HashWaker {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.key().cmp(&other.key())
-    }
+    fn cmp(&self, other: &Self) -> cmp::Ordering { self.key().cmp(&other.key()) }
 }
 
 impl Hash for HashWaker {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.key().hash(state);
-    }
+    fn hash<H: Hasher>(&self, state: &mut H) { self.key().hash(state); }
 }
 
-unsafe fn from_waker(waker: Waker) -> (*mut (), *mut RawWakerVTable) {
-    mem::transmute(waker)
-}
+unsafe fn from_waker(waker: Waker) -> (*mut (), *mut RawWakerVTable) { mem::transmute(waker) }
 
-unsafe fn to_waker(waker: (*mut (), *mut RawWakerVTable)) -> Waker {
-    mem::transmute(waker)
-}
+unsafe fn to_waker(waker: (*mut (), *mut RawWakerVTable)) -> Waker { mem::transmute(waker) }
 
 const EMPTY: usize = 0;
 const SLEEPING: usize = 1;
@@ -92,11 +78,23 @@ const REGISTERING: usize = 2;
 const WAKING: usize = 3;
 
 trait AtomicExt {
-    fn compare_transact_weak(&self, current: &mut usize, new: usize, success: Ordering, failure: Ordering) -> bool;
+    fn compare_transact_weak(
+        &self,
+        current: &mut usize,
+        new: usize,
+        success: Ordering,
+        failure: Ordering,
+    ) -> bool;
 }
 
 impl AtomicExt for AtomicUsize {
-    fn compare_transact_weak(&self, current: &mut usize, new: usize, success: Ordering, failure: Ordering) -> bool {
+    fn compare_transact_weak(
+        &self,
+        current: &mut usize,
+        new: usize,
+        success: Ordering,
+        failure: Ordering,
+    ) -> bool {
         match self.compare_exchange_weak(*current, new, success, failure) {
             Ok(_) => {
                 *current = new;
@@ -123,10 +121,9 @@ impl AtomicWaker {
         unsafe {
             match self.state.load(Relaxed) {
                 EMPTY => None,
-                SLEEPING => {
-                    Some(mem::transmute::<(*mut (), *mut RawWakerVTable), RawWaker>(
-                        (self.data.load(Relaxed), self.vtable.load(Relaxed))))
-                }
+                SLEEPING => Some(mem::transmute::<(*mut (), *mut RawWakerVTable), RawWaker>(
+                    (self.data.load(Relaxed), self.vtable.load(Relaxed)),
+                )),
                 _ => panic!(),
             }
         }
@@ -137,26 +134,47 @@ impl AtomicWaker {
             loop {
                 match old_state {
                     EMPTY => {
-                        if self.state.compare_transact_weak(&mut old_state, REGISTERING, Acquire, Relaxed) {
+                        if self.state.compare_transact_weak(
+                            &mut old_state,
+                            REGISTERING,
+                            Acquire,
+                            Relaxed,
+                        ) {
                             break;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     SLEEPING => {
-                        if self.state.compare_transact_weak(&mut old_state, REGISTERING, Acquire, Relaxed) {
+                        if self.state.compare_transact_weak(
+                            &mut old_state,
+                            REGISTERING,
+                            Acquire,
+                            Relaxed,
+                        ) {
                             let old_vtable = self.vtable.load(Relaxed);
                             let old_data = self.data.load(Relaxed);
                             mem::drop(to_waker((old_data, old_vtable)));
                             break;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     REGISTERING => panic!(),
                     WAKING => {
-                        if self.state.compare_transact_weak(&mut old_state, REGISTERING, Acquire, Relaxed) {
+                        if self.state.compare_transact_weak(
+                            &mut old_state,
+                            REGISTERING,
+                            Acquire,
+                            Relaxed,
+                        ) {
                             let old_vtable = self.vtable.load(Relaxed);
                             let old_data = self.data.load(Relaxed);
                             to_waker((old_data, old_vtable)).wake();
                             break;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     _ => unreachable!(),
                 }
@@ -173,9 +191,16 @@ impl AtomicWaker {
                     SLEEPING => panic!(),
                     WAKING => panic!(),
                     REGISTERING => {
-                        if self.state.compare_transact_weak(&mut old_state, SLEEPING, Release, Relaxed) {
+                        if self.state.compare_transact_weak(
+                            &mut old_state,
+                            SLEEPING,
+                            Release,
+                            Relaxed,
+                        ) {
                             break;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     _ => panic!(),
                 }
@@ -189,14 +214,26 @@ impl AtomicWaker {
                 match old_state {
                     EMPTY => return,
                     SLEEPING => {
-                        if self.state.compare_transact_weak(&mut old_state, WAKING, Acquire, Relaxed) {
+                        if self.state.compare_transact_weak(
+                            &mut old_state,
+                            WAKING,
+                            Acquire,
+                            Relaxed,
+                        ) {
                             break;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     REGISTERING => {
-                        if self.state.compare_transact_weak(&mut old_state, EMPTY, Relaxed, Relaxed) {
+                        if self
+                            .state
+                            .compare_transact_weak(&mut old_state, EMPTY, Relaxed, Relaxed)
+                        {
                             return;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     WAKING => panic!(),
                     _ => panic!(),
@@ -209,14 +246,24 @@ impl AtomicWaker {
                     EMPTY => return,
                     SLEEPING => return,
                     REGISTERING => {
-                        if self.state.compare_transact_weak(&mut old_state, EMPTY, Relaxed, Relaxed) {
+                        if self
+                            .state
+                            .compare_transact_weak(&mut old_state, EMPTY, Relaxed, Relaxed)
+                        {
                             return;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     WAKING => {
-                        if self.state.compare_transact_weak(&mut old_state, EMPTY, Release, Relaxed) {
+                        if self
+                            .state
+                            .compare_transact_weak(&mut old_state, EMPTY, Release, Relaxed)
+                        {
                             break;
-                        } else { continue; }
+                        } else {
+                            continue;
+                        }
                     }
                     _ => panic!(),
                 }
@@ -228,20 +275,21 @@ impl AtomicWaker {
 
 #[cfg(test)]
 pub mod test {
-    use std::task::{RawWakerVTable, Waker, RawWaker, Context, Poll, Wake};
-    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
-    use crate::waker::AtomicWaker;
+    use std::cmp::Ordering;
+    use std::future::Future;
     use std::mem;
-    use tokio::pin;
+    use std::sync::atomic::AtomicBool;
+    #[cfg(not(loom))]
+    pub(crate) use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+    use std::sync::Arc;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Wake, Waker};
 
     #[cfg(loom)]
     pub(crate) use loom::sync::atomic::AtomicUsize;
-    #[cfg(not(loom))]
-    pub(crate) use std::sync::atomic::AtomicUsize;
-    use std::future::Future;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
-    use std::cmp::Ordering;
+    use tokio::pin;
+
+    use crate::waker::AtomicWaker;
 
     pub struct TestWaker {
         refs: AtomicUsize,
@@ -257,9 +305,7 @@ pub mod test {
     );
 
     impl TestWaker {
-        pub fn new() -> (&'static TestWaker, Waker) {
-            Self::from_vtable(&VTABLE)
-        }
+        pub fn new() -> (&'static TestWaker, Waker) { Self::from_vtable(&VTABLE) }
         fn from_vtable(vtable: &'static RawWakerVTable) -> (&'static TestWaker, Waker) {
             let inner = Box::leak(Box::new(Self {
                 refs: AtomicUsize::new(1),
@@ -270,9 +316,7 @@ pub mod test {
             (inner, waker)
         }
 
-        fn raw(&self) -> RawWaker {
-            RawWaker::new(self as *const Self as *const (), self.vtable)
-        }
+        fn raw(&self) -> RawWaker { RawWaker::new(self as *const Self as *const (), self.vtable) }
 
         unsafe fn waker_clone(self: *const Self) -> RawWaker {
             assert!((*self).refs.fetch_add(1, Relaxed) > 0);
@@ -293,9 +337,7 @@ pub mod test {
             assert!((*self).refs.fetch_sub(1, Relaxed) > 0);
         }
 
-        fn load(&self) -> (usize, usize) {
-            (self.refs.load(Relaxed), self.wakes.load(Relaxed))
-        }
+        fn load(&self) -> (usize, usize) { (self.refs.load(Relaxed), self.wakes.load(Relaxed)) }
     }
 
     // pub fn run_local_test<F: Future>(fut: F) -> F::Output {
@@ -316,8 +358,6 @@ pub mod test {
     //     }
     //     panic!("Deadlock")
     // }
-
-
 
     #[test]
     fn test() {
@@ -350,41 +390,39 @@ pub mod test {
     #[test]
     #[cfg(loom)]
     fn test_loom() {
-        use loom::sync::Arc;
         use loom::sync::atomic::AtomicUsize;
-        use loom::sync::atomic::Ordering::{Acquire, Release, Relaxed};
+        use loom::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+        use loom::sync::Arc;
         use loom::thread;
-        loom::model(|| {
-            unsafe {
-                let table1: &'static mut RawWakerVTable = Box::leak(Box::new(VTABLE.clone()));
-                let table2: &'static mut RawWakerVTable = Box::leak(Box::new(VTABLE.clone()));
-                let (inner1, waker1) = TestWaker::new(table1);
-                let (inner2, waker2) = TestWaker::new(table2);
+        loom::model(|| unsafe {
+            let table1: &'static mut RawWakerVTable = Box::leak(Box::new(VTABLE.clone()));
+            let table2: &'static mut RawWakerVTable = Box::leak(Box::new(VTABLE.clone()));
+            let (inner1, waker1) = TestWaker::new(table1);
+            let (inner2, waker2) = TestWaker::new(table2);
 
-                let atomic_waker = Arc::new(AtomicWaker::new());
-                let handle = thread::spawn({
-                    let atomic_waker = atomic_waker.clone();
-                    move || {
-                        atomic_waker.wake();
-                        atomic_waker.wake();
-                    }
-                });
-                atomic_waker.register(&waker1);
-                mem::drop(waker1);
-                atomic_waker.register(&waker2);
-                mem::drop(waker2);
-                handle.join().unwrap();
-                if let Some(stored) = atomic_waker.state() {
-                    assert_eq!(stored, inner2.raw());
-                    match (inner1.load(), inner2.load()) {
-                        ((0, 0 | 1), (1, 0)) => {}
-                        unexpected => panic!("{:?}", unexpected),
-                    }
-                } else {
-                    match (inner1.load(), inner2.load()) {
-                        ((0, 0 | 1), (0, 1)) => {}
-                        unexpected => panic!("{:?}", unexpected),
-                    }
+            let atomic_waker = Arc::new(AtomicWaker::new());
+            let handle = thread::spawn({
+                let atomic_waker = atomic_waker.clone();
+                move || {
+                    atomic_waker.wake();
+                    atomic_waker.wake();
+                }
+            });
+            atomic_waker.register(&waker1);
+            mem::drop(waker1);
+            atomic_waker.register(&waker2);
+            mem::drop(waker2);
+            handle.join().unwrap();
+            if let Some(stored) = atomic_waker.state() {
+                assert_eq!(stored, inner2.raw());
+                match (inner1.load(), inner2.load()) {
+                    ((0, 0 | 1), (1, 0)) => {}
+                    unexpected => panic!("{:?}", unexpected),
+                }
+            } else {
+                match (inner1.load(), inner2.load()) {
+                    ((0, 0 | 1), (0, 1)) => {}
+                    unexpected => panic!("{:?}", unexpected),
                 }
             }
         });

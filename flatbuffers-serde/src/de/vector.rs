@@ -43,7 +43,9 @@ impl<'de> VectorDeserializer<'de> {
 impl<'a, 'de> FlatDeserializer<'de> for &'a mut VectorDeserializer<'de> {
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         println!("deserialize_option({:?})", self);
-        let deserializer = self.deserialize_fixed::<FollowOrNull<ForwardsUOffset<IdentityDeserializer>>>().unwrap();
+        let deserializer = self
+            .deserialize_fixed::<FollowOrNull<ForwardsUOffset<IdentityDeserializer>>>()
+            .unwrap();
         if let Some(deserializer) = deserializer {
             visitor.visit_some(Deserializer::new(deserializer))
         } else {
@@ -59,13 +61,18 @@ impl<'a, 'de> FlatDeserializer<'de> for &'a mut VectorDeserializer<'de> {
         self.deserialize_fixed::<ForwardsUOffset<T>>()
     }
     fn deserialize_enum<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        self.deserialize_fixed::<ForwardsUOffset<IdentityDeserializer>>().unwrap().deserialize_enum(visitor)
+        self.deserialize_fixed::<ForwardsUOffset<IdentityDeserializer>>()
+            .unwrap()
+            .deserialize_enum(visitor)
     }
 }
 
 impl<'de> SeqAccess<'de> for VectorDeserializer<'de> {
     type Error = Error;
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error> where T: DeserializeSeed<'de> {
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: DeserializeSeed<'de>,
+    {
         if self.len == 0 {
             Ok(None)
         } else {

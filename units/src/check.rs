@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+
 use ustr::Ustr;
-use crate::ast::{Block, Stmt, Expr, Opcode, UnitSet};
+
+use crate::ast::{Block, Expr, Opcode, Stmt, UnitSet};
 use crate::factors::Factors;
 use crate::unit::{UnitCtx, UnitError};
-use std::fmt::{Display, Formatter};
 
 #[derive(Clone, Debug)]
 pub enum Type {
@@ -31,11 +33,16 @@ pub enum TypeError {
 
 pub type TypeResult<T> = Result<T, TypeError>;
 
-impl From<UnitError> for TypeError { fn from(x: UnitError) -> Self { TypeError::UnitError(x) } }
+impl From<UnitError> for TypeError {
+    fn from(x: UnitError) -> Self { TypeError::UnitError(x) }
+}
 
 impl TypeCtx {
     pub fn new(unit_ctx: UnitCtx) -> Self {
-        TypeCtx { types: HashMap::new(), unit_ctx }
+        TypeCtx {
+            types: HashMap::new(),
+            unit_ctx,
+        }
     }
     pub fn check(&mut self, block: &Block) -> TypeResult<Type> {
         let mut result = None;
@@ -76,21 +83,15 @@ impl TypeCtx {
     }
     pub fn check_expr(&self, expr: &Expr) -> TypeResult<Type> {
         Ok(match expr {
-            Expr::Number(_) =>
-                Type::NumType(Factors::new()),
-            Expr::Var(x) =>
-                self.types.get(x).ok_or(TypeError::Undefined)?.clone(),
-            Expr::Op(x, Opcode::Mul, y) =>
-                match (self.check_expr(x)?, self.check_expr(y)?) {
-                    (Type::NumType(d1), Type::NumType(d2)) =>
-                        Type::NumType(&d1 * &d2)
-                }
-            Expr::Op(x, Opcode::Div, y) =>
-                match (self.check_expr(x)?, self.check_expr(y)?) {
-                    (Type::NumType(d1), Type::NumType(d2)) =>
-                        Type::NumType(&d1 / &d2)
-                }
-            Expr::Op(x, Opcode::Add | Opcode::Sub, y) =>
+            Expr::Number(_) => Type::NumType(Factors::new()),
+            Expr::Var(x) => self.types.get(x).ok_or(TypeError::Undefined)?.clone(),
+            Expr::Op(x, Opcode::Mul, y) => match (self.check_expr(x)?, self.check_expr(y)?) {
+                (Type::NumType(d1), Type::NumType(d2)) => Type::NumType(&d1 * &d2),
+            },
+            Expr::Op(x, Opcode::Div, y) => match (self.check_expr(x)?, self.check_expr(y)?) {
+                (Type::NumType(d1), Type::NumType(d2)) => Type::NumType(&d1 / &d2),
+            },
+            Expr::Op(x, Opcode::Add | Opcode::Sub, y) => {
                 match (self.check_expr(x)?, self.check_expr(y)?) {
                     (Type::NumType(d1), Type::NumType(d2)) => {
                         if d1 == d2 {
@@ -100,8 +101,10 @@ impl TypeCtx {
                         }
                     }
                 }
+            }
             Expr::Call(fun, es) => {
-                let ts = es.iter()
+                let ts = es
+                    .iter()
                     .map(|e| self.check_expr(e))
                     .collect::<TypeResult<Vec<_>>>()?;
                 self.check_fun(*fun, ts)?
@@ -114,16 +117,20 @@ impl TypeCtx {
                         }
                     }
                 }
-                let conversion = self.unit_ctx.unit_data_for_factors(
-                    &self.unit_ctx.factors_for_unit_set(u))?;
+                let conversion = self
+                    .unit_ctx
+                    .unit_data_for_factors(&self.unit_ctx.factors_for_unit_set(u))?;
                 Type::NumType(conversion.dimension)
             }
             Expr::AsUnits(e, u) => {
                 let t = self.check_expr(e)?;
-                let d1 = match &t { Type::NumType(d1) => d1 };
+                let d1 = match &t {
+                    Type::NumType(d1) => d1,
+                };
                 for unit_set in u {
-                    let conversion = self.unit_ctx.unit_data_for_factors(
-                        &self.unit_ctx.factors_for_unit_set(unit_set))?;
+                    let conversion = self
+                        .unit_ctx
+                        .unit_data_for_factors(&self.unit_ctx.factors_for_unit_set(unit_set))?;
                     if &conversion.dimension != d1 {
                         return Err(TypeError::AsBadUnit);
                     }
@@ -132,9 +139,7 @@ impl TypeCtx {
             }
         })
     }
-    pub fn check_fun(&self, fun: Ustr, ts: Vec<Type>) -> TypeResult<Type> {
-        todo!()
-    }
+    pub fn check_fun(&self, fun: Ustr, ts: Vec<Type>) -> TypeResult<Type> { todo!() }
 }
 
 impl Display for TypeError {
@@ -146,7 +151,9 @@ impl Display for TypeError {
             TypeError::Undefined => write!(f, "Undefined variable"),
             TypeError::BadOp => write!(f, "Adding or subtracting different dimensions"),
             TypeError::BadReturn(f1, f2) => write!(f, "Returning `{:?}' as `{:?}'", f2, f1),
-            TypeError::UnitsWithUnits => write!(f, "`with units' applied to term already with units"),
+            TypeError::UnitsWithUnits => {
+                write!(f, "`with units' applied to term already with units")
+            }
             TypeError::UnitError(u) => write!(f, "{}", u),
             TypeError::AsBadUnit => write!(f, "Explicit `as' between dimensions"),
         }

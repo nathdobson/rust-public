@@ -1,23 +1,20 @@
 #![allow(non_snake_case, non_upper_case_globals)]
 
 use std::borrow::Borrow;
-use std::fmt;
-use std::fmt::{Arguments, Display, Error, Formatter};
+use std::collections::VecDeque;
 use std::fmt::rt::v1::Argument;
-use std::io;
+use std::fmt::{Arguments, Display, Error, Formatter};
 use std::io::{BufWriter, Write};
 use std::ops::Deref;
+use std::{fmt, io};
 
-use crate::Direction;
 use crate::color::Color;
-use std::collections::VecDeque;
+use crate::Direction;
 
 pub struct AsDisplay<F: Fn(&mut Formatter) -> Result<(), Error>>(pub F);
 
 impl<F: Fn(&mut Formatter) -> Result<(), Error>> Display for AsDisplay<F> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        self.0(f)
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { self.0(f) }
 }
 
 macro_rules! concat {
@@ -32,12 +29,10 @@ macro_rules! concat {
 }
 
 pub fn OneParameter(prefix: &'static str, param: usize, suffix: &'static str) -> impl Display {
-    AsDisplay(move |f| {
-        match param {
-            0 => Ok(()),
-            1 => write!(f, "{}{}", prefix, suffix),
-            _ => write!(f, "{}{}{}", prefix, param, suffix),
-        }
+    AsDisplay(move |f| match param {
+        0 => Ok(()),
+        1 => write!(f, "{}{}", prefix, suffix),
+        _ => write!(f, "{}{}{}", prefix, param, suffix),
     })
 }
 
@@ -67,31 +62,25 @@ pub fn Insert(count: usize) -> impl Display { OneParameter("\x1B[", count, "@") 
 
 pub fn Repeat(count: usize) -> impl Display { OneParameter("\x1B[", count, "b") }
 
-
 pub fn ScrollUp(x: usize) -> impl Display { OneParameter("\x1B[", x, "S") }
 
 pub fn ScrollDown(x: usize) -> impl Display { OneParameter("\x1B[", x, "T") }
 
 pub fn MoveWindow(x: usize, y: usize) -> impl Display { concat!("\x1B[3;", x, ";", y, "t") }
 
-pub fn ResizeWindow(w: usize, h: usize) -> impl Display { concat!( "\x1B[4;", h, ";", w, "t") }
-
+pub fn ResizeWindow(w: usize, h: usize) -> impl Display { concat!("\x1B[4;", h, ";", w, "t") }
 
 pub fn Foreground(color: Color) -> impl Display {
-    AsDisplay(move |f| {
-        match color.into_u8() {
-            None => write!(f, "\x1b[39m"),
-            Some(x) => write!(f, "\x1B[38;5;{}m", x),
-        }
+    AsDisplay(move |f| match color.into_u8() {
+        None => write!(f, "\x1b[39m"),
+        Some(x) => write!(f, "\x1B[38;5;{}m", x),
     })
 }
 
 pub fn Background(color: Color) -> impl Display {
-    AsDisplay(move |f| {
-        match color.into_u8() {
-            None => write!(f, "\x1b[49m"),
-            Some(x) => write!(f, "\x1B[48;5;{}m", x),
-        }
+    AsDisplay(move |f| match color.into_u8() {
+        None => write!(f, "\x1b[49m"),
+        Some(x) => write!(f, "\x1B[48;5;{}m", x),
     })
 }
 
@@ -144,11 +133,11 @@ pub const MinimizeWindow: &'static str = "\x1B[2t";
 pub const MaximizeWindow: &'static str = "\x1B[1t";
 pub const EraseAll: &'static str = "\x1B[2J";
 
-pub fn ScrollRegion(start: usize, end: usize) -> impl Display { concat!("\x1B[", start, ";", end, "r") }
-
-pub fn WindowTitle<'a>(title: &'a str) -> impl Display + 'a {
-    concat!("\x1B]0;", title, "\x07")
+pub fn ScrollRegion(start: usize, end: usize) -> impl Display {
+    concat!("\x1B[", start, ";", end, "r")
 }
+
+pub fn WindowTitle<'a>(title: &'a str) -> impl Display + 'a { concat!("\x1B]0;", title, "\x07") }
 
 pub fn draw_box(c11: bool, c21: bool, c12: bool, c22: bool) -> char {
     match (c11, c21, c12, c22) {

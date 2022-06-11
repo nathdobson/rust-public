@@ -1,7 +1,8 @@
-use crate::gui::div::{DivRc, DivImpl, Div};
-use crate::gui::tree::{Tree, Dirty};
-use crate::gui::layout::{Layout, Constraint, Align};
 use std::collections::HashMap;
+
+use crate::gui::div::{Div, DivImpl, DivRc};
+use crate::gui::layout::{Align, Constraint, Layout};
+use crate::gui::tree::{Dirty, Tree};
 
 #[derive(Debug, Clone)]
 pub struct SelectDiv {
@@ -16,7 +17,11 @@ pub struct Select {
 }
 
 impl Select {
-    pub fn new(tree: Tree, mut selected: Option<DivRc>, mut children: Vec<SelectDiv>) -> DivRc<Self> {
+    pub fn new(
+        tree: Tree,
+        mut selected: Option<DivRc>,
+        mut children: Vec<SelectDiv>,
+    ) -> DivRc<Self> {
         for child in children.iter_mut() {
             child.div.write().set_visible(false);
         }
@@ -59,6 +64,9 @@ impl DivImpl for Select {
             let mut div = child.div.write();
             div.set_position_aligned((0, 0), child.align, size);
         }
-        Layout { size, line_settings: HashMap::new() }
+        Layout {
+            size,
+            line_settings: HashMap::new(),
+        }
     }
 }

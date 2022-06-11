@@ -1,6 +1,6 @@
+use std::ffi::OsStr;
 use std::process::Command;
 use std::{env, fs};
-use std::ffi::{OsStr};
 
 #[must_use]
 pub fn build(input_dir: &str) -> bool {
@@ -61,4 +61,3 @@ pub fn build(input_dir: &str) -> bool {
     }
     success
 }
-

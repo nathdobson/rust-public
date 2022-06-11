@@ -1,20 +1,18 @@
-use std::{fmt, io, mem};
 use std::collections::BTreeSet;
 use std::io::{Error, ErrorKind};
 use std::mem::MaybeUninit;
 use std::ops::BitOr;
 use std::pin::Pin;
 use std::time::Instant;
-
-use itertools::Itertools;
-use pin_project::pin_project;
+use std::{fmt, io, mem};
 
 use async_util::parser::Parser;
+use itertools::Itertools;
+use pin_project::pin_project;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::Direction;
 use crate::tokenizer::Tokenizer;
-use tokio::io::AsyncRead;
-use tokio::io::AsyncReadExt;
+use crate::Direction;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Mouse {
@@ -54,9 +52,18 @@ pub mod modifiers {
     use crate::input::Modifier;
 
     pub const PLAIN: Modifier = Modifier::new();
-    pub const OPTION: Modifier = Modifier { option: true, ..Modifier::new() };
-    pub const CONTROL: Modifier = Modifier { control: true, ..Modifier::new() };
-    pub const SHIFT: Modifier = Modifier { shift: true, ..Modifier::new() };
+    pub const OPTION: Modifier = Modifier {
+        option: true,
+        ..Modifier::new()
+    };
+    pub const CONTROL: Modifier = Modifier {
+        control: true,
+        ..Modifier::new()
+    };
+    pub const SHIFT: Modifier = Modifier {
+        shift: true,
+        ..Modifier::new()
+    };
 }
 
 impl BitOr<Modifier> for Modifier {
@@ -123,10 +130,16 @@ impl fmt::Debug for Modifier {
 
 impl KeyEvent {
     pub fn typed(c: char) -> Self {
-        KeyEvent { key: Key::Type(c), modifier: Modifier::default() }
+        KeyEvent {
+            key: Key::Type(c),
+            modifier: Modifier::default(),
+        }
     }
     pub fn key(key: Key) -> Self {
-        KeyEvent { modifier: Default::default(), key }
+        KeyEvent {
+            modifier: Default::default(),
+            key,
+        }
     }
     pub fn control(mut self) -> Self {
         self.modifier.control = true;
@@ -155,7 +168,7 @@ fn known(modifier: Modifier, key: Key) -> EventResult {
 impl<R: AsyncRead> EventReader<R> {
     pub fn new(inner: R) -> EventReader<R> {
         EventReader {
-            inner: Parser::new(inner)
+            inner: Parser::new(inner),
         }
     }
     pub async fn read(mut self: Pin<&mut Self>) -> io::Result<Event> {
@@ -185,10 +198,10 @@ impl<R: AsyncRead> EventReader<R> {
         })
     }
     async fn read_maybe_impl(mut self: Pin<&mut Self>) -> io::Result<EventResult> {
+        use crate::input::modifiers::*;
         use crate::input::Event::Focus;
         use crate::input::Key::*;
         use crate::Direction::*;
-        use crate::input::modifiers::*;
         Ok(match self.as_mut().read_char().await? {
             b1 @ '\t' | b1 @ '\r' | b1 @ ' '..='~' | b1 @ '\u{0080}'.. => known(PLAIN, Type(b1)),
             b1 @ '\x01'..='\x1a' => known(CONTROL, Type(char::from(((b1 as u8) - 1) + b'a'))),
@@ -208,76 +221,80 @@ impl<R: AsyncRead> EventReader<R> {
                         'D' => known(OPTION | SHIFT, Arrow(Left)),
                         'Z' => known(OPTION | SHIFT, Type('\t')),
                         _ => Err(Unknown),
-                    }
+                    },
                     _ => Err(Unknown),
-                }
+                },
                 'O' => match self.as_mut().read_char().await? {
                     'P' => known(PLAIN, Func(1)),
                     'Q' => known(PLAIN, Func(2)),
                     'R' => known(PLAIN, Func(3)),
                     'S' => known(PLAIN, Func(4)),
                     _ => Err(Unknown),
-                }
+                },
                 'f' => known(OPTION, Arrow(Right)),
                 'b' => known(OPTION, Arrow(Left)),
                 '\x08' => known(OPTION | SHIFT, Delete),
                 '(' => known(OPTION, ForwardDelete),
-                b2 @ '\t' | b2 @ '\r' | b2 @ ' '..='\x7e' =>
-                    known(OPTION, Type(b2)),
-                b2 @ '\x01'..='\x1A' => known(CONTROL | OPTION, Type(char::from((b2 as u8 - 1) + b'a'))),
+                b2 @ '\t' | b2 @ '\r' | b2 @ ' '..='\x7e' => known(OPTION, Type(b2)),
+                b2 @ '\x01'..='\x1A' => {
+                    known(CONTROL | OPTION, Type(char::from((b2 as u8 - 1) + b'a')))
+                }
                 '\x00' => known(CONTROL | OPTION, Type(' ')),
                 '\x1c' => known(CONTROL | OPTION, Type('\\')),
                 '\x1d' => known(CONTROL | OPTION, Type(']')),
                 '\x1e' => known(CONTROL | OPTION, Type('^')),
                 '\x1f' => known(CONTROL | OPTION, Type('-')),
                 '\x7f' => known(OPTION, Delete),
-                _ => Err(Unknown)
-            }
+                _ => Err(Unknown),
+            },
         })
     }
     async fn read_csi(mut self: Pin<&mut Self>) -> io::Result<EventResult> {
+        use crate::input::modifiers::*;
         use crate::input::Event::*;
         use crate::input::Key::*;
         use crate::Direction::*;
-        use crate::input::modifiers::*;
         let params = self.as_mut().read_numbers().await?;
-        Ok(match (params.as_slice(), self.as_mut().read_char().await?) {
-            (&[], 'A') => known(PLAIN, Arrow(Up)),
-            (&[], 'B') => known(PLAIN, Arrow(Down)),
-            (&[1, 5], 'C') => known(CONTROL, Arrow(Right)),
-            (&[1, 2], 'C') => known(SHIFT, Arrow(Right)),
-            (&[], 'C') => known(PLAIN, Arrow(Right)),
-            (&[1, 5], 'D') => known(CONTROL, Arrow(Left)),
-            (&[1, 2], 'D') => known(SHIFT, Arrow(Left)),
-            (&[3], '~') => known(PLAIN, ForwardDelete),
-            (&[3, 5], '~') => known(CONTROL, ForwardDelete),
-            (&[3, 2], '~') => known(SHIFT, ForwardDelete),
-            (&[], 'D') => known(PLAIN, Arrow(Left)),
-            (&[15], '~') => known(PLAIN, Func(5)),
-            (&[17], '~') => known(PLAIN, Func(6)),
-            (&[18], '~') => known(PLAIN, Func(7)),
-            (&[19], '~') => known(PLAIN, Func(8)),
-            (&[20], '~') => known(PLAIN, Func(9)),
-            (&[21], '~') => known(PLAIN, Func(10)),
-            (&[23], '~') => known(PLAIN, Func(11)),
-            (&[24], '~') => known(PLAIN, Func(12)),
-            (&[], 'M') => self.as_mut().read_button().await?,
-            (&[], 'I') => Ok(Focus(true)),
-            (&[], 'O') => Ok(Focus(false)),
-            (&[], 'Z') => known(SHIFT, Type('\t')),
-            (&[y, x], 'R') => Ok(CursorPosition(x, y)),
-            (&[3, x, y], 't') => Ok(WindowPosition(x, y)),
-            (&[4, h, w], 't') => Ok(WindowSize(w, h)),
-            (&[8, h, w], 't') => Ok(TextAreaSize(w, h)),
-            (&[9, h, w], 't') => Ok(ScreenSize(w, h)),
-            _ => Err(Unknown),
-        })
+        Ok(
+            match (params.as_slice(), self.as_mut().read_char().await?) {
+                (&[], 'A') => known(PLAIN, Arrow(Up)),
+                (&[], 'B') => known(PLAIN, Arrow(Down)),
+                (&[1, 5], 'C') => known(CONTROL, Arrow(Right)),
+                (&[1, 2], 'C') => known(SHIFT, Arrow(Right)),
+                (&[], 'C') => known(PLAIN, Arrow(Right)),
+                (&[1, 5], 'D') => known(CONTROL, Arrow(Left)),
+                (&[1, 2], 'D') => known(SHIFT, Arrow(Left)),
+                (&[3], '~') => known(PLAIN, ForwardDelete),
+                (&[3, 5], '~') => known(CONTROL, ForwardDelete),
+                (&[3, 2], '~') => known(SHIFT, ForwardDelete),
+                (&[], 'D') => known(PLAIN, Arrow(Left)),
+                (&[15], '~') => known(PLAIN, Func(5)),
+                (&[17], '~') => known(PLAIN, Func(6)),
+                (&[18], '~') => known(PLAIN, Func(7)),
+                (&[19], '~') => known(PLAIN, Func(8)),
+                (&[20], '~') => known(PLAIN, Func(9)),
+                (&[21], '~') => known(PLAIN, Func(10)),
+                (&[23], '~') => known(PLAIN, Func(11)),
+                (&[24], '~') => known(PLAIN, Func(12)),
+                (&[], 'M') => self.as_mut().read_button().await?,
+                (&[], 'I') => Ok(Focus(true)),
+                (&[], 'O') => Ok(Focus(false)),
+                (&[], 'Z') => known(SHIFT, Type('\t')),
+                (&[y, x], 'R') => Ok(CursorPosition(x, y)),
+                (&[3, x, y], 't') => Ok(WindowPosition(x, y)),
+                (&[4, h, w], 't') => Ok(WindowSize(w, h)),
+                (&[8, h, w], 't') => Ok(TextAreaSize(w, h)),
+                (&[9, h, w], 't') => Ok(ScreenSize(w, h)),
+                _ => Err(Unknown),
+            },
+        )
     }
     async fn read_button(mut self: Pin<&mut Self>) -> io::Result<Result<Event, Unknown>> {
         let (mut flags, mut x, mut y) = (
             self.as_mut().read_u8().await?,
             self.as_mut().read_u8().await?,
-            self.as_mut().read_u8().await?);
+            self.as_mut().read_u8().await?,
+        );
         if flags < 32 || x < 32 || y < 32 {
             return Ok(Err(Unknown));
         }
@@ -307,7 +324,12 @@ impl<R: AsyncRead> EventReader<R> {
             n => Mouse::Down(n),
         };
         let position = (x as isize, y as isize);
-        Ok(Ok(Event::MouseEvent(MouseEvent { modifier, mouse, motion, position })))
+        Ok(Ok(Event::MouseEvent(MouseEvent {
+            modifier,
+            mouse,
+            motion,
+            position,
+        })))
     }
     async fn read_char(mut self: Pin<&mut Self>) -> io::Result<char> {
         let b1 = self.as_mut().read_u8().await?;
@@ -318,7 +340,8 @@ impl<R: AsyncRead> EventReader<R> {
         }
         let slice = &mut buf[1..w];
         self.as_mut().project().inner.read_exact(slice).await?;
-        let s = std::str::from_utf8(&mut buf[0..w]).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+        let s = std::str::from_utf8(&mut buf[0..w])
+            .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
         Ok(s.chars().exactly_one().unwrap())
     }
     async fn peek(mut self: Pin<&mut Self>) -> io::Result<Option<u8>> {
@@ -329,7 +352,10 @@ impl<R: AsyncRead> EventReader<R> {
         }
         Ok(Some(buf[0]))
     }
-    async fn read_while(mut self: Pin<&mut Self>, mut pred: impl FnMut(u8) -> bool) -> io::Result<Vec<u8>> {
+    async fn read_while(
+        mut self: Pin<&mut Self>,
+        mut pred: impl FnMut(u8) -> bool,
+    ) -> io::Result<Vec<u8>> {
         let mut result = vec![];
         while let Some(c) = self.as_mut().peek().await? {
             if !pred(c) {
@@ -347,8 +373,10 @@ impl<R: AsyncRead> EventReader<R> {
         } else {
             return Ok(Some(
                 std::str::from_utf8(&vec)
-                    .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?.parse()
-                    .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?));
+                    .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?
+                    .parse()
+                    .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?,
+            ));
         }
     }
     async fn read_numbers(mut self: Pin<&mut Self>) -> io::Result<Vec<isize>> {
@@ -393,6 +421,4 @@ static UTF8_CHAR_WIDTH: [u8; 256] = [
 
 /// Given a first byte, determines how many bytes are in this UTF-8 character.
 #[inline]
-pub fn utf8_char_width(b: u8) -> usize {
-    UTF8_CHAR_WIDTH[b as usize] as usize
-}
+pub fn utf8_char_width(b: u8) -> usize { UTF8_CHAR_WIDTH[b as usize] as usize }

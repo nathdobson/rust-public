@@ -1,12 +1,13 @@
 #![feature(future_poll_fn)]
 
-use std::sync::Arc;
-use futures::task::AtomicWaker;
-use std::future::poll_fn;
-use std::sync::atomic::{Ordering, AtomicI64};
-use std::task::Poll;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::future::poll_fn;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
+use std::task::Poll;
+
+use futures::task::AtomicWaker;
 
 #[derive(Debug)]
 struct Inner {
@@ -19,7 +20,6 @@ pub struct Acquirer(Arc<Inner>);
 
 #[derive(Debug)]
 pub struct Releaser(Arc<Inner>);
-
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash, Debug)]
 pub struct AcquireError;
@@ -68,7 +68,8 @@ impl Acquirer {
             } else {
                 Poll::Pending
             }
-        }).await
+        })
+        .await
     }
 }
 
@@ -76,7 +77,11 @@ impl Releaser {
     pub fn release(&self, release: u64) {
         assert!(release <= i64::MAX as u64);
         let release = release as i64;
-        self.0.available.fetch_add(release, Ordering::AcqRel).checked_add(release).expect("overflowing semaphore");
+        self.0
+            .available
+            .fetch_add(release, Ordering::AcqRel)
+            .checked_add(release)
+            .expect("overflowing semaphore");
         self.0.waker.wake();
     }
 }
@@ -90,9 +95,10 @@ impl Drop for Releaser {
 
 #[cfg(test)]
 mod test {
-    use crate::semaphore;
-    use std::time::Duration;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use crate::semaphore;
 
     #[tokio::test]
     async fn test() {

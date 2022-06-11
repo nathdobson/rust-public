@@ -1,21 +1,26 @@
-use serde::{Serialize, Deserialize};
-use flatbuffers::{FlatBufferBuilder, WIPOffset, Verifiable, Verifier, InvalidFlatbuffer, Follow, Push, Table, VOffsetT, ForwardsUOffset, TableUnfinishedWIPOffset, UnionWIPOffset};
-use crate::tag::{HasTypeTag, TypeTag, HasFlatTypeTag};
+use core::mem;
+use std::any::type_name;
+use std::convert::TryInto;
+use std::default::default;
+use std::fmt::{Debug, Display, Formatter};
+
+use flatbuffers::{
+    FlatBufferBuilder, Follow, ForwardsUOffset, InvalidFlatbuffer, Push, Table,
+    TableUnfinishedWIPOffset, UnionWIPOffset, VOffsetT, Verifiable, Verifier, WIPOffset,
+};
+use registry::registry;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+use crate::buffer::{Covariant, FlatBuffer};
+use crate::de::deserialize_raw;
 use crate::de::error::Error;
-use std::fmt::{Debug, Formatter, Display};
 use crate::de::identity::IdentityDeserializer;
 use crate::de::wrapper::Deserializer;
-use crate::ser::wrapper::{Serializer, Stack};
-use sha2::{Sha256, Digest};
-use std::convert::TryInto;
-use core::mem;
-use crate::ser::serialize_raw;
 use crate::flat_util::FlatUnion;
-use crate::de::deserialize_raw;
-use std::default::default;
-use std::any::type_name;
-use registry::registry;
-use crate::buffer::{Covariant, FlatBuffer};
+use crate::ser::serialize_raw;
+use crate::ser::wrapper::{Serializer, Stack};
+use crate::tag::{HasFlatTypeTag, HasTypeTag, TypeTag};
 
 pub struct AnyFlat<'a> {
     table: flatbuffers::Table<'a>,
@@ -56,7 +61,8 @@ impl<'a> AnyFlat<'a> {
 
     #[inline]
     pub fn type_tag_hash(&self) -> Option<&'a TypeTagHash> {
-        self.table.get::<TypeTagHash>(AnyFlat::VT_TYPE_TAG_HASH, None)
+        self.table
+            .get::<TypeTagHash>(AnyFlat::VT_TYPE_TAG_HASH, None)
     }
     #[inline]
     unsafe fn data_raw<T: Follow<'a> + 'a>(&self) -> Option<T::Inner> {
@@ -74,13 +80,25 @@ impl<'a> AnyFlat<'a> {
         let data = unsafe { self.follow_raw::<FlatUnion>(T::type_tag()) }?;
         deserialize_raw(data.buf, data.loc)
     }
-    pub fn create<'b, T: HasTypeTag>(fbb: &'b mut FlatBufferBuilder<'a>, value: WIPOffset<T>) -> WIPOffset<AnyFlat<'a>> {
-        Self::create_raw(fbb, T::type_tag().type_tag_hash(), WIPOffset::new(value.value()))
+    pub fn create<'b, T: HasTypeTag>(
+        fbb: &'b mut FlatBufferBuilder<'a>,
+        value: WIPOffset<T>,
+    ) -> WIPOffset<AnyFlat<'a>> {
+        Self::create_raw(
+            fbb,
+            T::type_tag().type_tag_hash(),
+            WIPOffset::new(value.value()),
+        )
     }
-    pub fn follow<T: HasTypeTag + HasFlatTypeTag + Follow<'a> + 'a>(&self) -> Result<T::Inner, TypeMismatch> {
+    pub fn follow<T: HasTypeTag + HasFlatTypeTag + Follow<'a> + 'a>(
+        &self,
+    ) -> Result<T::Inner, TypeMismatch> {
         unsafe { self.follow_raw::<T>(T::type_tag()) }
     }
-    pub unsafe fn follow_raw<T: Follow<'a> + 'a>(&self, to: &'static TypeTag) -> Result<T::Inner, TypeMismatch> {
+    pub unsafe fn follow_raw<T: Follow<'a> + 'a>(
+        &self,
+        to: &'static TypeTag,
+    ) -> Result<T::Inner, TypeMismatch> {
         let from = self.type_tag_hash().unwrap();
         if from == &to.type_tag_hash() {
             Ok(self.data_raw::<T>().unwrap())
@@ -103,31 +121,31 @@ impl<'a> AnyFlat<'a> {
 
 impl<'a> Push for &'a TypeTagHash {
     type Output = TypeTagHash;
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        dst.copy_from_slice(&self.0)
-    }
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) { dst.copy_from_slice(&self.0) }
 }
 
 impl<'a> Follow<'a> for AnyFlat<'a> {
     type Inner = AnyFlat<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self { table: Table { buf, loc } }
+        Self {
+            table: Table { buf, loc },
+        }
     }
 }
 
 impl<'a> Follow<'a> for TypeTagHash {
     type Inner = &'a TypeTagHash;
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        unsafe { mem::transmute::<&'a [u8; 16], &'a TypeTagHash>(buf[loc..loc + 16].try_into().unwrap()) }
+        unsafe {
+            mem::transmute::<&'a [u8; 16], &'a TypeTagHash>(buf[loc..loc + 16].try_into().unwrap())
+        }
     }
 }
 
 impl Verifiable for AnyFlat<'_> {
     #[inline]
-    fn run_verifier(
-        v: &mut Verifier, pos: usize,
-    ) -> Result<(), InvalidFlatbuffer> {
+    fn run_verifier(v: &mut Verifier, pos: usize) -> Result<(), InvalidFlatbuffer> {
         v.visit_table(pos)?
             .visit_union::<TypeTagHash, _>(
                 "type_tag_hash",
@@ -146,7 +164,8 @@ impl Verifiable for AnyFlat<'_> {
                     } else {
                         Ok(())
                     }
-                })?
+                },
+            )?
             .finish();
         Ok(())
     }
@@ -161,7 +180,10 @@ impl<'a> Verifiable for TypeTagHash {
 impl std::fmt::Debug for AnyFlat<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut ds = f.debug_struct("AnyFlat");
-        ds.field("type_tag_hash", &self.type_tag_hash().cloned().map(TypeTag::lookup_hash));
+        ds.field(
+            "type_tag_hash",
+            &self.type_tag_hash().cloned().map(TypeTag::lookup_hash),
+        );
         ds.finish_non_exhaustive()
     }
 }
@@ -176,10 +198,13 @@ impl Debug for TypeTagHash {
 }
 
 unsafe impl<'a> Covariant for AnyFlat<'a> {
-    type Super<'b> where AnyFlat<'a>: 'b = AnyFlat<'b>;
+    type Super<'b>
+    where
+        AnyFlat<'a>: 'b,
+    = AnyFlat<'b>;
 }
 
-fn test(x: FlatBuffer<AnyFlat<'static>>) -> impl Debug {x}
+fn test(x: FlatBuffer<AnyFlat<'static>>) -> impl Debug { x }
 
 registry!(
     value crate::tag::TYPE_TAGS => type_tag!(type AnyFlat<'a>, name "flatbuffer_serde::any::AnyFlat", kinds [flat]);

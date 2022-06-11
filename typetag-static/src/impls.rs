@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+
 use catalog::register;
 
 macro_rules! impls {

@@ -2,23 +2,24 @@
 #![feature(trivial_bounds)]
 #![allow(dead_code, unused_imports, unused_variables, unused_mut)]
 
+use core::mem;
+use std::any::Any;
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::marker::PhantomData;
-use std::pin::Pin;
-use std::task::{Context, Poll, RawWakerVTable, RawWaker, Waker};
-use std::collections::VecDeque;
-use std::cell::{RefCell, Cell};
-use std::sync::atomic::{AtomicBool, Ordering};
-use slab::Slab;
-use bit_set::BitSet;
-use core::mem;
-use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+use bit_set::BitSet;
+use futures::FutureExt;
+use slab::Slab;
 use tokio::select;
-use std::any::Any;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::RecvError;
-use std::fmt::{Debug, Formatter};
 
 pub enum JoinError {
     Canceled,
@@ -37,7 +38,7 @@ impl Debug for JoinError {
 pub type Result<T> = std::result::Result<T, JoinError>;
 
 struct LocalPool {
-    tasks: Slab<Cell<Option<Pin<Box<dyn 'static + Future<Output=()>>>>>>,
+    tasks: Slab<Cell<Option<Pin<Box<dyn 'static + Future<Output = ()>>>>>>,
     queue: VecDeque<usize>,
     woken: bit_set::BitSet,
     canceled: bit_set::BitSet,
@@ -151,22 +152,19 @@ fn wake(id: usize) {
 }
 
 impl From<RecvError> for JoinError {
-    fn from(x: RecvError) -> Self {
-        JoinError::Canceled
-    }
+    fn from(x: RecvError) -> Self { JoinError::Canceled }
 }
 
 impl From<Box<dyn 'static + Send + Any>> for JoinError {
-    fn from(x: Box<dyn 'static + Send + Any>) -> Self {
-        JoinError::Panic(x)
-    }
+    fn from(x: Box<dyn 'static + Send + Any>) -> Self { JoinError::Panic(x) }
 }
 
-pub async fn run() -> ! {
-    RunLocal.await
-}
+pub async fn run() -> ! { RunLocal.await }
 
-pub async fn run_until<F>(f: F) -> F::Output where F: Future {
+pub async fn run_until<F>(f: F) -> F::Output
+where
+    F: Future,
+{
     let result = select! {
         x = RunLocal => x,
         x = f => x,
@@ -180,7 +178,10 @@ pub async fn run_until<F>(f: F) -> F::Output where F: Future {
     result
 }
 
-pub fn spawn<F: Future + 'static>(fut: F) -> JoinHandle<F::Output> where F::Output: 'static {
+pub fn spawn<F: Future + 'static>(fut: F) -> JoinHandle<F::Output>
+where
+    F::Output: 'static,
+{
     LOCAL_POOL.with(|local_pool_cell| {
         let mut local_pool = local_pool_cell.borrow_mut();
         let (tx, rx) = oneshot::channel();
@@ -189,16 +190,24 @@ pub fn spawn<F: Future + 'static>(fut: F) -> JoinHandle<F::Output> where F::Outp
             let runner = async move {
                 tx.send(AssertUnwindSafe(fut).catch_unwind().await).ok();
             };
-            local_pool.tasks[task_id].set(Some(Box::pin(runner) as Pin<Box::<dyn 'static + Future<Output=()>>>));
+            local_pool.tasks[task_id].set(Some(
+                Box::pin(runner) as Pin<Box<dyn 'static + Future<Output = ()>>>
+            ));
             local_pool.woken.insert(task_id);
             local_pool.queue.push_back(task_id);
             local_pool.waker.take().map(|x| x.wake());
-            JoinHandle { task_id, receiver: rx }
+            JoinHandle {
+                task_id,
+                receiver: rx,
+            }
         } else {
             mem::drop(local_pool);
             mem::drop(fut);
             mem::drop(tx);
-            JoinHandle { task_id: 0, receiver: rx }
+            JoinHandle {
+                task_id: 0,
+                receiver: rx,
+            }
         }
     })
 }

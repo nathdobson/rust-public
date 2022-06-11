@@ -1,7 +1,9 @@
 use core::fmt::{Display, Formatter};
-use crate::tag::TypeTag;
-use crate::any_generated::{TypeTagHash, TypeMismatch};
+
 use flatbuffers::InvalidFlatbuffer;
+
+use crate::any_generated::{TypeMismatch, TypeTagHash};
+use crate::tag::TypeTag;
 
 #[derive(Debug)]
 pub enum Error {
@@ -15,11 +17,8 @@ pub enum Error {
 }
 
 impl From<TypeMismatch> for Error {
-    fn from(x: TypeMismatch) -> Self {
-        Error::TypeMismatch(x)
-    }
+    fn from(x: TypeMismatch) -> Self { Error::TypeMismatch(x) }
 }
-
 
 impl std::error::Error for Error {}
 
@@ -38,7 +37,10 @@ impl Display for Error {
 }
 
 impl serde::de::Error for Error {
-    fn custom<T>(msg: T) -> Self where T: Display {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: Display,
+    {
         Error::Custom(msg.to_string())
     }
 }

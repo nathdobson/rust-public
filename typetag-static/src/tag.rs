@@ -1,7 +1,7 @@
-use sha2::{Sha256, Digest};
 use std::convert::TryInto;
-use serde::Serialize;
-use serde::Deserialize;
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// A globally unique hash for a TypeTag. This hash provides sufficient entropy that accidental
 /// collisions are not a concern.
@@ -21,7 +21,11 @@ impl TypeTag {
         hasher.update(name);
         TypeTag {
             name,
-            hash: TypeTagHash(hasher.finalize().as_slice()[0..16].try_into().expect("wrong length")),
+            hash: TypeTagHash(
+                hasher.finalize().as_slice()[0..16]
+                    .try_into()
+                    .expect("wrong length"),
+            ),
         }
     }
 }

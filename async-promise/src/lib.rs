@@ -1,14 +1,14 @@
 #![feature(once_cell)]
 #![feature(never_type)]
 
-use std::sync::Arc;
-use async_weighted_semaphore::{Semaphore, TryAcquireError};
-use std::lazy::SyncOnceCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::RecvError;
-use std::sync::mpsc::TryRecvError;
 use std::future::Future;
+use std::lazy::SyncOnceCell;
 use std::mem;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{RecvError, TryRecvError};
+use std::sync::Arc;
+
+use async_weighted_semaphore::{Semaphore, TryAcquireError};
 
 #[derive(Debug)]
 pub struct Promise<T = ()>(Arc<Inner<T>>);
@@ -36,17 +36,16 @@ impl<T> Promise<T> {
             value: SyncOnceCell::new(),
         }))
     }
-    pub fn complete(&self, value: T) -> Result<(), T> where T: Sized {
+    pub fn complete(&self, value: T) -> Result<(), T>
+    where
+        T: Sized,
+    {
         self.0.value.set(value)?;
         self.0.ready.poison();
         Ok(())
     }
-    pub fn receiver(&self) -> Receiver<T> {
-        Receiver(self.0.clone())
-    }
-    pub async fn recv(&self) -> Result<&T, RecvError> {
-        recv(&self.0).await
-    }
+    pub fn receiver(&self) -> Receiver<T> { Receiver(self.0.clone()) }
+    pub async fn recv(&self) -> Result<&T, RecvError> { recv(&self.0).await }
 }
 
 impl Promise<!> {
@@ -55,7 +54,7 @@ impl Promise<!> {
         mem::drop(self);
         receiver.recv().await.err();
     }
-    pub fn outlive<F: Future>(&self, f: F) -> impl Future<Output=F::Output> {
+    pub fn outlive<F: Future>(&self, f: F) -> impl Future<Output = F::Output> {
         let this = self.clone();
         async move {
             let result = f.await;
@@ -70,23 +69,25 @@ impl Promise<!> {
     }
 }
 
-impl Receiver<!> { pub async fn recv_none(&self) { self.recv().await.err(); } }
+impl Receiver<!> {
+    pub async fn recv_none(&self) { self.recv().await.err(); }
+}
 
 impl Promise<()> {
     pub fn complete_ok(&self) { self.complete(()).ok(); }
     pub async fn recv_ok(&self) -> bool { self.recv().await.is_ok() }
 }
 
-impl Receiver<()> { pub async fn recv_ok(&self) -> bool { self.recv().await.is_ok() } }
+impl Receiver<()> {
+    pub async fn recv_ok(&self) -> bool { self.recv().await.is_ok() }
+}
 
 impl<T> Receiver<T> {
-    pub async fn recv(&self) -> Result<&T, RecvError> {
-        recv(&self.0).await
-    }
+    pub async fn recv(&self) -> Result<&T, RecvError> { recv(&self.0).await }
     pub fn try_recv(&self) -> Result<&T, TryRecvError> {
         match self.0.ready.try_acquire(1).unwrap_err() {
             TryAcquireError::WouldBlock => Err(TryRecvError::Empty),
-            TryAcquireError::Poisoned => self.0.value.get().ok_or(TryRecvError::Disconnected)
+            TryAcquireError::Poisoned => self.0.value.get().ok_or(TryRecvError::Disconnected),
         }
     }
 }
@@ -107,24 +108,25 @@ impl<T> Drop for Promise<T> {
 }
 
 impl<T> Clone for Receiver<T> {
-    fn clone(&self) -> Self {
-        Receiver(self.0.clone())
-    }
+    fn clone(&self) -> Self { Receiver(self.0.clone()) }
 }
 
 #[cfg(test)]
 mod test {
     use std::mem;
     use std::sync::mpsc::RecvError;
-    use crate::Promise;
+
     use async_future_ext::FutureExt;
 
+    use crate::Promise;
 
     #[tokio::test]
     async fn test_success() {
         let promise = Promise::<usize>::new();
         #[allow(unused_must_use)]
-            { promise.receiver().clone(); }
+        {
+            promise.receiver().clone();
+        }
         assert!(promise.recv().ready().is_none());
         assert_eq!(Ok(()), promise.complete(1));
         assert_eq!(Err(2), promise.complete(2));

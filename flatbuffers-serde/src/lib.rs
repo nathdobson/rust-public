@@ -15,29 +15,32 @@
 #![feature(log_syntax)]
 #![feature(generic_associated_types)]
 
-use std::marker::PhantomData;
-use std::any::{TypeId, Any};
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use sha2::Sha256;
+use std::marker::PhantomData;
+
 use registry::registry;
+use sha2::Sha256;
 
 #[macro_use]
 pub mod macros;
 
 pub mod reexport;
 
-mod ser;
 mod de;
 mod flat_util;
+mod ser;
 
-pub mod test_generated { include!(concat!(env!("OUT_DIR"), "/test_generated.rs")); }
+pub mod test_generated {
+    include!(concat!(env!("OUT_DIR"), "/test_generated.rs"));
+}
 
 pub mod any_generated;
+pub mod buffer;
 pub mod tag;
 #[cfg(test)]
 mod test;
 pub mod vec_slice;
-pub mod buffer;
 
 registry! {
     require tag;

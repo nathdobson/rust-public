@@ -92,6 +92,4 @@
 //     run_local(|tree, tree_receiver| Example::new_gui(tree, tree_receiver)).await;
 // }
 
-fn main(){
-    todo!()
-}
+fn main() { todo!() }

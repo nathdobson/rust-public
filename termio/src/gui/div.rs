@@ -1,33 +1,35 @@
-use std::fmt::Debug;
 use std::any::Any;
-use util::atomic_refcell::{AtomicRefCell, AtomicRefMut, AtomicRef};
-use std::rc::Rc;
-use util::shared::{Shared, ObjectInner};
-use util::rect::Rect;
-use std::collections::{HashMap, HashSet};
-use crate::screen::LineSetting;
-use std::sync::{Arc, Weak};
-use crate::gui::layout::{Constraint, Layout, Align};
-use std::ops::{Deref, DerefMut, CoerceUnsized};
-use std::cmp::Ordering;
-use std::marker::Unsize;
-use std::raw::TraitObject;
-use std::mem;
-use crate::gui::gui::InputEvent;
-use crate::canvas::Canvas;
-use crate::input::MouseEvent;
-use crate::gui::tree::{Tree, Dirty};
-use crate::gui::event::{BoxFnMut};
-use std::hash::{Hash, Hasher};
-use std::ptr::{null, null_mut};
-use util::mutrc::{MutRc, MutWeak};
 use std::borrow::BorrowMut;
-use util::any;
-use util::any::{TypeInfo, Downcast, Upcast, RawAny};
-use crate::gui::div::sealed::DivTypeInfo;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::marker::Unsize;
+use std::mem;
+use std::ops::{CoerceUnsized, Deref, DerefMut};
+use std::ptr::{null, null_mut};
+use std::raw::TraitObject;
+use std::rc::Rc;
+use std::sync::{Arc, Weak};
 use std::task::Context;
+
 use async_util::poll::PollResult;
 use async_util::poll::PollResult::Noop;
+use util::any;
+use util::any::{Downcast, RawAny, TypeInfo, Upcast};
+use util::atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
+use util::mutrc::{MutRc, MutWeak};
+use util::rect::Rect;
+use util::shared::{ObjectInner, Shared};
+
+use crate::canvas::Canvas;
+use crate::gui::div::sealed::DivTypeInfo;
+use crate::gui::event::BoxFnMut;
+use crate::gui::gui::InputEvent;
+use crate::gui::layout::{Align, Constraint, Layout};
+use crate::gui::tree::{Dirty, Tree};
+use crate::input::MouseEvent;
+use crate::screen::LineSetting;
 
 pub trait DivImpl: 'static + Send + Sync + Debug + DivTypeInfo {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout;
@@ -61,9 +63,7 @@ pub type DivRef<'a, T> = AtomicRef<'a, Div<T>>;
 pub type DivRefMut<'a, T> = AtomicRefMut<'a, Div<T>>;
 
 impl<T: DivImpl> DivRc<T> {
-    pub fn new(tree: Tree, inner: T) -> Self {
-        Self::new_cyclic(tree, |_| inner)
-    }
+    pub fn new(tree: Tree, inner: T) -> Self { Self::new_cyclic(tree, |_| inner) }
     pub fn new_cyclic(tree: Tree, inner: impl FnOnce(DivWeak<T>) -> T) -> Self {
         DivRc(MutRc::new_cyclic(|this| {
             let this = DivWeak(this.clone());
@@ -90,13 +90,9 @@ impl<T: DivImpl + ?Sized> DivRc<T> {
 
 impl<T: DivImpl + ?Sized> Div<T> {
     pub fn div_rc(&self) -> DivRc<T> { self.this.upgrade().unwrap().downcast_div() }
-    pub fn div_weak(&self) -> DivWeak<T> {
-        self.this.clone().downcast_div()
-    }
+    pub fn div_weak(&self) -> DivWeak<T> { self.this.clone().downcast_div() }
     pub fn mark_dirty(&mut self, dirty: Dirty) { self.tree_mut().mark_dirty(dirty) }
-    pub fn bounds(&self) -> Rect {
-        self.bounds
-    }
+    pub fn bounds(&self) -> Rect { self.bounds }
     pub fn set_bounds(&mut self, bounds: Rect) {
         if self.bounds != bounds {
             self.bounds = bounds;
@@ -109,21 +105,15 @@ impl<T: DivImpl + ?Sized> Div<T> {
             self.mark_dirty(Dirty::Paint);
         }
     }
-    pub fn visible(&self) -> bool {
-        self.visible
-    }
+    pub fn visible(&self) -> bool { self.visible }
     pub fn line_setting(&self, row: isize) -> Option<LineSetting> {
         self.line_settings.get(&row).cloned()
     }
     pub fn set_line_settings(&mut self, line_settings: HashMap<isize, LineSetting>) {
         self.line_settings = line_settings;
     }
-    pub fn mouse_focus(&self) -> bool {
-        self.mouse_focus
-    }
-    pub fn set_mouse_focus(&mut self, mouse_focus: bool) {
-        self.mouse_focus = mouse_focus;
-    }
+    pub fn mouse_focus(&self) -> bool { self.mouse_focus }
+    pub fn set_mouse_focus(&mut self, mouse_focus: bool) { self.mouse_focus = mouse_focus; }
     pub fn tree(&self) -> &Tree { &self.tree }
     pub fn tree_mut(&mut self) -> &mut Tree { &mut self.tree }
     //pub fn event_sender(&self) -> &EventSender { self.tree().event_sender() }
@@ -138,22 +128,27 @@ impl<T: DivImpl + ?Sized> Div<T> {
     pub fn set_position(&mut self, position: (isize, isize)) {
         self.set_bounds(Rect::from_position_size(position, self.bounds().size()));
     }
-    pub fn set_position_aligned(&mut self, position: (isize, isize), align: (Align, Align), contain_size: (isize, isize)) {
-        self.set_position
-        ((
+    pub fn set_position_aligned(
+        &mut self,
+        position: (isize, isize),
+        align: (Align, Align),
+        contain_size: (isize, isize),
+    ) {
+        self.set_position((
             align.0.align(position.0, self.size().0, contain_size.0),
             align.1.align(position.1, self.size().1, contain_size.1),
         ));
     }
 
-    pub fn children<'a>(&'a self) -> impl 'a + Iterator<Item=&'a DivRc> {
-        self.children.iter()
-    }
-    pub fn children_mut<'a>(&'a mut self) -> impl 'a + Iterator<Item=DivRc> {
+    pub fn children<'a>(&'a self) -> impl 'a + Iterator<Item = &'a DivRc> { self.children.iter() }
+    pub fn children_mut<'a>(&'a mut self) -> impl 'a + Iterator<Item = DivRc> {
         self.children.iter().cloned()
     }
     pub fn add(&mut self, mut child: DivRc) {
-        assert!(child.write().parent.replace(self.this.clone()).is_none(), "Multiple parents");
+        assert!(
+            child.write().parent.replace(self.this.clone()).is_none(),
+            "Multiple parents"
+        );
         assert!(self.children.insert(child));
     }
     pub fn remove(&mut self, child: &DivRc) {
@@ -176,7 +171,8 @@ impl<T: DivImpl + ?Sized> Div<T> {
             if child.visible() {
                 for y in 0..child.size().1 {
                     if let Some(line_setting) = child.line_setting(y) {
-                        line_settings.entry(child.position().1 + y)
+                        line_settings
+                            .entry(child.position().1 + y)
                             .and_modify(|old| *old = old.merge(line_setting, &y))
                             .or_insert(line_setting);
                     }
@@ -194,7 +190,8 @@ impl<T: DivImpl + ?Sized> Div<T> {
                 child.paint(
                     canvas
                         .push_bounds(child.bounds())
-                        .push_translate(child.position()));
+                        .push_translate(child.position()),
+                );
             }
         }
         self.self_paint_above(canvas.push());
@@ -215,8 +212,10 @@ impl<T: DivImpl + ?Sized> Div<T> {
                     if child.visible() {
                         let event = InputEvent::MouseEvent {
                             event: MouseEvent {
-                                position: (event.position.0 - child.position().0,
-                                           event.position.1 - child.position().1),
+                                position: (
+                                    event.position.0 - child.position().0,
+                                    event.position.1 - child.position().1,
+                                ),
                                 ..event.clone()
                             },
                             inside: child.bounds().contains(event.position),
@@ -275,26 +274,28 @@ impl<T: DivImpl + ?Sized> Div<T> {
     fn upcast_div_mut(&mut self) -> &mut Div { Upcast::upcast(self) }
     fn downcast_div(&self) -> &Div { Downcast::downcast(self).unwrap() }
     fn downcast_div_mut(&mut self) -> &mut Div { Downcast::downcast(self).unwrap() }
-    pub unsafe fn raw_get(this: *const Self) -> *const T {
-        &raw const (*this).inner
-    }
+    pub unsafe fn raw_get(this: *const Self) -> *const T { &raw const (*this).inner }
 }
 
 mod sealed {
-    use crate::gui::div::{DivImpl, Div};
     use std::any::TypeId;
-    use util::atomic_refcell::AtomicRefCell;
+
     use util::any::TypeInfo;
+    use util::atomic_refcell::AtomicRefCell;
 
-    pub trait DivTypeInfo { fn div_type_info(self: *const Div<Self>) -> TypeInfo; }
+    use crate::gui::div::{Div, DivImpl};
 
-    impl<T: DivImpl> DivTypeInfo for T { fn div_type_info(self: *const Div<Self>) -> TypeInfo { TypeInfo::of::<Div<T>>() } }
+    pub trait DivTypeInfo {
+        fn div_type_info(self: *const Div<Self>) -> TypeInfo;
+    }
+
+    impl<T: DivImpl> DivTypeInfo for T {
+        fn div_type_info(self: *const Div<Self>) -> TypeInfo { TypeInfo::of::<Div<T>>() }
+    }
 }
 
 impl<T: DivImpl + ?Sized> DivRc<T> {
-    pub fn upcast_div(self) -> DivRc {
-        DivRc(Upcast::upcast(self.0))
-    }
+    pub fn upcast_div(self) -> DivRc { DivRc(Upcast::upcast(self.0)) }
     pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivRc<T2> {
         DivRc(Downcast::downcast(self.0).unwrap())
     }
@@ -302,9 +303,7 @@ impl<T: DivImpl + ?Sized> DivRc<T> {
 }
 
 impl<T: DivImpl + ?Sized> DivWeak<T> {
-    pub fn upcast_div(self) -> DivWeak {
-        DivWeak(Upcast::upcast(self.0))
-    }
+    pub fn upcast_div(self) -> DivWeak { DivWeak(Upcast::upcast(self.0)) }
     pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivWeak<T2> {
         DivWeak(Downcast::downcast(self.0).unwrap())
     }
@@ -324,9 +323,7 @@ impl<T: ?Sized> PartialOrd for DivRc<T> {
 }
 
 impl<T: ?Sized> Ord for DivRc<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.as_ptr().cmp(&other.0.as_ptr())
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.0.as_ptr().cmp(&other.0.as_ptr()) }
 }
 
 impl<T: ?Sized> Eq for DivWeak<T> {}
@@ -342,9 +339,7 @@ impl<T: ?Sized> PartialOrd for DivWeak<T> {
 }
 
 impl<T: ?Sized> Ord for DivWeak<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.as_ptr().cmp(&other.0.as_ptr())
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.0.as_ptr().cmp(&other.0.as_ptr()) }
 }
 
 impl<T: ?Sized> Deref for Div<T> {
@@ -365,17 +360,23 @@ impl<T: ?Sized> Clone for DivWeak<T> {
 }
 
 impl<T: ?Sized> Hash for DivRc<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_ptr().hash(state)
-    }
+    fn hash<H: Hasher>(&self, state: &mut H) { self.0.as_ptr().hash(state) }
 }
 
 impl<T: ?Sized> Hash for DivWeak<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_ptr().hash(state)
-    }
+    fn hash<H: Hasher>(&self, state: &mut H) { self.0.as_ptr().hash(state) }
 }
 
-impl<T, U> CoerceUnsized<DivRc<U>> for DivRc<T> where T: Unsize<U> + ?Sized, U: ?Sized {}
+impl<T, U> CoerceUnsized<DivRc<U>> for DivRc<T>
+where
+    T: Unsize<U> + ?Sized,
+    U: ?Sized,
+{
+}
 
-impl<T, U> CoerceUnsized<DivWeak<U>> for DivWeak<T> where T: Unsize<U> + ?Sized, U: ?Sized {}
+impl<T, U> CoerceUnsized<DivWeak<U>> for DivWeak<T>
+where
+    T: Unsize<U> + ?Sized,
+    U: ?Sized,
+{
+}

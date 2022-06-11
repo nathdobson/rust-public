@@ -1,6 +1,6 @@
 #![feature(allocator_api)]
 
-use std::alloc::{Allocator, AllocError, Layout};
+use std::alloc::{AllocError, Allocator, Layout};
 use std::cell::{Cell, UnsafeCell};
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
@@ -12,5 +12,10 @@ struct InlineAllocator<T> {
 }
 
 impl<T> InlineAllocator<T> {
-    pub fn new() -> Self { InlineAllocator { allocated: Cell::new(false), value: UnsafeCell::new(MaybeUninit::new()) } }
+    pub fn new() -> Self {
+        InlineAllocator {
+            allocated: Cell::new(false),
+            value: UnsafeCell::new(MaybeUninit::new()),
+        }
+    }
 }

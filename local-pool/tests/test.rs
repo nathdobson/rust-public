@@ -1,8 +1,9 @@
-use local_pool::{run_until};
 use std::time::Duration;
-use futures::executor::block_on;
 
-registry!{
+use futures::executor::block_on;
+use local_pool::run_until;
+
+registry! {
     require status;
 }
 

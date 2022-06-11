@@ -6,30 +6,27 @@
 #![allow(dead_code)]
 #![deny(unused_must_use)]
 
-use parking_lot::Mutex;
-use parking_lot::MutexGuard;
-use std::future::Future;
 use core::mem;
-use std::ptr::null;
 use std::collections::VecDeque;
-use std::task::{Waker, Poll, Context};
-use std::future::poll_fn;
+use std::future::{poll_fn, Future};
 use std::pin::Pin;
-use std::thread;
+use std::ptr::null;
 use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
+use std::thread;
+
+use parking_lot::{Mutex, MutexGuard};
 
 pub struct WakerGuard(Waker);
 
 #[must_use]
 pub struct Notifier(Option<Waker>);
 
-impl ! Send for WakerGuard {}
+impl !Send for WakerGuard {}
 
 impl WakerGuard {
-    pub fn new() -> impl Future<Output=Self> + Send {
-        poll_fn(|cx| {
-            Poll::Ready(WakerGuard(cx.waker().clone()))
-        })
+    pub fn new() -> impl Future<Output = Self> + Send {
+        poll_fn(|cx| Poll::Ready(WakerGuard(cx.waker().clone())))
     }
 }
 
@@ -145,7 +142,7 @@ impl Condvar {
         &'a self,
         waker: WakerGuard,
         guard: MutexGuard<'a, T>,
-    ) -> impl Future<Output=(WakerGuard, MutexGuard<'a, T>)> + Send + 'a {
+    ) -> impl Future<Output = (WakerGuard, MutexGuard<'a, T>)> + Send + 'a {
         let mutex: &'a Mutex<T> = MutexGuard::mutex(&guard);
 
         let index;
@@ -184,16 +181,18 @@ impl Condvar {
         &'a self,
         mutex: &'a Mutex<T>,
         mut cond: F,
-    ) -> impl Future<Output=MutexGuard<'a, T>> + Send + 'a {
+    ) -> impl Future<Output = MutexGuard<'a, T>> + Send + 'a {
         async move {
-            self.lock_when_some(mutex, move |state| cond(state).then_some(())).await.0
+            self.lock_when_some(mutex, move |state| cond(state).then_some(()))
+                .await
+                .0
         }
     }
     pub fn lock_when_some<'a, T: Send, O: Send, F: 'a + Send + FnMut(&mut T) -> Option<O>>(
         &'a self,
         mutex: &'a Mutex<T>,
         mut cond: F,
-    ) -> impl Future<Output=(MutexGuard<'a, T>, O)> + Send + 'a {
+    ) -> impl Future<Output = (MutexGuard<'a, T>, O)> + Send + 'a {
         async move {
             let mut fut = None;
             loop {
@@ -218,33 +217,36 @@ impl Condvar {
 
 #[cfg(test)]
 mod test {
-    use parking_lot::Mutex;
-    use parking_lot::MutexGuard;
     use std::future::Future;
     use std::sync::Arc;
+
+    use parking_lot::{Mutex, MutexGuard};
     use tokio;
+
     use crate::Condvar;
 
     #[tokio::test]
-    async fn test() {
-        test_impl().await
-    }
+    async fn test() { test_impl().await }
 
-    fn test_impl() -> impl Future<Output=()> + Send {
+    fn test_impl() -> impl Future<Output = ()> + Send {
         async {
             let p = Arc::new((Mutex::new(0), Condvar::new()));
             let t1 = tokio::spawn({
                 let p = p.clone();
                 async move {
                     for i in 0..5 {
-                        let (mut lock, _) = p.1.lock_when(&p.0, |x| if (*x) % 2 == 0 { Some(()) } else { None }).await;
+                        let (mut lock, _) =
+                            p.1.lock_when(&p.0, |x| if (*x) % 2 == 0 { Some(()) } else { None })
+                                .await;
                         *lock += 1;
                         p.1.notify(&mut lock, 1);
                     }
                 }
             });
             for i in 0..5 {
-                let (mut lock, _) = p.1.lock_when(&p.0, |x| if (*x) % 2 == 1 { Some(()) } else { None }).await;
+                let (mut lock, _) =
+                    p.1.lock_when(&p.0, |x| if (*x) % 2 == 1 { Some(()) } else { None })
+                        .await;
                 *lock += 1;
                 p.1.notify(&mut lock, 1);
             }

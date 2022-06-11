@@ -1,26 +1,27 @@
-use crate::canvas::Canvas;
-use crate::input::{MouseEvent, Mouse};
-use crate::gui::gui::{InputEvent};
-use std::{iter, fmt};
 use std::collections::{BTreeMap, HashMap};
-use crate::screen::{Style, LineSetting};
-use crate::color::Color;
-use crate::gui::layout::{Constraint, Layout};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use crate::gui::tree;
-use crate::gui::event::{BoxFnMut};
-use crate::gui::div::{Div, DivRc, DivImpl};
-use crate::gui::tree::{Tree, Dirty};
-use crate::advance::{advance_of_grapheme, advance_of_string};
-use crate::string::StyleString;
-use async_util::timer::Sleep;
-use async_util::poll::PollResult;
+use std::sync::Arc;
 use std::task::Context;
+use std::time::{Duration, Instant};
+use std::{fmt, iter};
+
+use async_util::poll::PollResult;
 use async_util::poll::PollResult::Noop;
+use async_util::timer::Sleep;
+
+use crate::advance::{advance_of_grapheme, advance_of_string};
+use crate::canvas::Canvas;
+use crate::color::Color;
+use crate::gui::div::{Div, DivImpl, DivRc};
+use crate::gui::event::BoxFnMut;
+use crate::gui::gui::InputEvent;
+use crate::gui::layout::{Constraint, Layout};
+use crate::gui::tree;
+use crate::gui::tree::{Dirty, Tree};
+use crate::input::{Mouse, MouseEvent};
+use crate::screen::{LineSetting, Style};
+use crate::string::StyleString;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub enum PaintState {
@@ -56,14 +57,17 @@ pub struct SmallButtonPaint {
 
 impl<T: ButtonPaint> Button<T> {
     pub fn new_from_paint(tree: Tree, paint: T, event: BoxFnMut) -> DivRc<Self> {
-        DivRc::new(tree, Button {
-            event,
-            over: false,
-            down: false,
-            timeout: Sleep::new(),
-            state: PaintState::Normal,
-            paint,
-        })
+        DivRc::new(
+            tree,
+            Button {
+                event,
+                over: false,
+                down: false,
+                timeout: Sleep::new(),
+                state: PaintState::Normal,
+                paint,
+            },
+        )
     }
 }
 
@@ -80,19 +84,16 @@ impl Button<SmallButtonPaint> {
 }
 
 impl<T: ButtonPaint> Button<T> {
-    pub fn state(&self) -> PaintState {
-        self.state
-    }
+    pub fn state(&self) -> PaintState { self.state }
     fn sync(self: &mut Div<Self>) {
         let sleeping = self.timeout.sleeping();
-        let new_state =
-            if self.down || sleeping {
-                PaintState::Down
-            } else if self.over {
-                PaintState::Over
-            } else {
-                PaintState::Normal
-            };
+        let new_state = if self.down || sleeping {
+            PaintState::Down
+        } else if self.over {
+            PaintState::Over
+        } else {
+            PaintState::Normal
+        };
         if self.state != new_state {
             self.state = new_state;
             self.mark_dirty(Dirty::Paint);
@@ -160,16 +161,21 @@ impl ButtonPaint for TextButtonPaint {
             PaintState::Over => self.over_style,
             PaintState::Down => self.down_style,
         };
-        w.draw((0, 0),
-               &iter::once('▛')
-                   .chain(iter::repeat('▀').take(self.text.len()))
-                   .chain(iter::once('▜')).collect::<String>());
-        w.draw((0, 1),
-               &format!("▌{}▐", self.text, ));
-        w.draw((0, 2),
-               &iter::once('▙')
-                   .chain(iter::repeat('▄').take(self.text.len()))
-                   .chain(iter::once('▟')).collect::<String>());
+        w.draw(
+            (0, 0),
+            &iter::once('▛')
+                .chain(iter::repeat('▀').take(self.text.len()))
+                .chain(iter::once('▜'))
+                .collect::<String>(),
+        );
+        w.draw((0, 1), &format!("▌{}▐", self.text,));
+        w.draw(
+            (0, 2),
+            &iter::once('▙')
+                .chain(iter::repeat('▄').take(self.text.len()))
+                .chain(iter::once('▟'))
+                .collect::<String>(),
+        );
     }
 
     fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout {
@@ -180,7 +186,6 @@ impl ButtonPaint for TextButtonPaint {
     }
 }
 
-
 impl ButtonPaint for SmallButtonPaint {
     fn button_paint(self: &Button<Self>, mut w: Canvas) {
         w.style = match self.state() {
@@ -188,7 +193,7 @@ impl ButtonPaint for SmallButtonPaint {
             PaintState::Over => self.over_style,
             PaintState::Down => self.down_style,
         };
-        w.draw((0, 0), &format!("{}", self.text, ));
+        w.draw((0, 0), &format!("{}", self.text,));
     }
 
     fn button_layout(self: &mut Button<Self>, constraint: &Constraint) -> Layout {
@@ -198,7 +203,6 @@ impl ButtonPaint for SmallButtonPaint {
         }
     }
 }
-
 
 impl<T: ButtonPaint> DivImpl for Button<T> {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout {
@@ -223,9 +227,7 @@ impl<T: ButtonPaint> DivImpl for Button<T> {
         true
     }
 
-    fn self_paint_below(self: &Div<Self>, canvas: Canvas) {
-        self.button_paint(canvas)
-    }
+    fn self_paint_below(self: &Div<Self>, canvas: Canvas) { self.button_paint(canvas) }
 
     fn self_poll_elapse(self: &mut Div<Self>, cx: &mut Context) -> PollResult {
         self.timeout.poll_sleep(cx).map(|()| {
@@ -247,6 +249,8 @@ impl<T: ButtonPaint> DerefMut for Button<T> {
 
 impl<T: ButtonPaint> Debug for Button<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Button").field("paint", &self.paint).finish()
+        f.debug_struct("Button")
+            .field("paint", &self.paint)
+            .finish()
     }
 }

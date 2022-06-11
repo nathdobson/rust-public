@@ -1,9 +1,10 @@
-use crate::values::Values;
-use ordered_float::OrderedFloat;
-use std::ops::Range;
-use crate::database::Snapshot;
 use std::iter;
-use crate::database::SnapshotRow;
+use std::ops::Range;
+
+use ordered_float::OrderedFloat;
+
+use crate::database::{Snapshot, SnapshotRow};
+use crate::values::Values;
 
 #[derive(Debug)]
 pub struct Buckets {
@@ -39,7 +40,10 @@ impl Values for Buckets {
     type Point = Point;
 
     fn add_point(&self, set: &mut Self::Set, point: &Self::Point) {
-        let index = self.values.binary_search(&OrderedFloat(point.value)).into_ok_or_err();
+        let index = self
+            .values
+            .binary_search(&OrderedFloat(point.value))
+            .into_ok_or_err();
         set.0.resize((index + 1).max(set.0.len()), 0.0);
         set.0[index] += point.weight;
     }
@@ -51,8 +55,5 @@ impl Values for Buckets {
         }
     }
 
-    fn clear(&self, set: &mut Self::Set) {
-        set.0.clear();
-    }
-
+    fn clear(&self, set: &mut Self::Set) { set.0.clear(); }
 }
