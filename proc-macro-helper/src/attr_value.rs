@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::hash::Hash;
+
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
@@ -57,6 +60,18 @@ impl AttrValue for String {
 impl<T: AttrValue> AttrValue for Vec<T> {
     fn from_tokens(input: TokenStream2) -> Result<Self> {
         fn parser<T: AttrValue>(stream: ParseStream) -> Result<Vec<T>> {
+            Ok(Punctuated::<TokenStream2, Comma>::parse_terminated(stream)?
+                .into_iter()
+                .map(|x| T::from_tokens(x))
+                .collect::<Result<_>>()?)
+        }
+        Parser::parse2(parser::<T>, input)
+    }
+}
+
+impl<T: AttrValue + Hash + Eq> AttrValue for HashSet<T> {
+    fn from_tokens(input: TokenStream2) -> Result<Self> {
+        fn parser<T: AttrValue + Hash + Eq>(stream: ParseStream) -> Result<HashSet<T>> {
             Ok(Punctuated::<TokenStream2, Comma>::parse_terminated(stream)?
                 .into_iter()
                 .map(|x| T::from_tokens(x))
