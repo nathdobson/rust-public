@@ -1,0 +1,12 @@
+[package]
+name = "proc-macro-helper"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+quote = "1.0.18"
+proc-macro2 = { version = "1.0.37", features = ["span-locations"] }
+syn = { version = "1.0.92", features = ["full", "extra-traits","printing"] }
+prettyplease = {version="0.1.11"}
