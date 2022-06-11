@@ -10,6 +10,6 @@ parking_lot = { git = "https://github.com/Amanieu/parking_lot/", rev = "80194730
 ordered-float = "3.0.0"
 rusqlite = "0.27.0"
 lazy_static = "1.4.0"
-serde = { version = "1.0.136", features = ["derive"] }
+serde = { version = "1.0.137", features = ["derive"] }
 by_address = "1.0.4"
 tuple_list = "0.1.3"

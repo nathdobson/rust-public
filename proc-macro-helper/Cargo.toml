@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 quote = "1.0.18"
-proc-macro2 = { version = "1.0.37", features = ["span-locations"] }
-syn = { version = "1.0.92", features = ["full", "extra-traits","printing"] }
-prettyplease = {version="0.1.11"}
+proc-macro2 = { version = "1.0.39", features = ["span-locations"] }
+syn = { version = "1.0.96", features = ["full", "extra-traits","printing"] }
+prettyplease = "0.1.11"

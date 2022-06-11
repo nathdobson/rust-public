@@ -16,12 +16,12 @@ defer = "0.1.0"
 atomic_refcell = "0.1.8"
 by_address = "1.0.4"
 futures = "0.3.21"
-serde = "1.0.136"
+serde = "1.0.137"
 lazy_static = "1.4.0"
 ondrop = "0.1.0"
-libc = "0.2.125"
+libc = "0.2.126"
 
 #
 [dev-dependencies]
 crossbeam = "0.8.1"
-serde_json = "1.0.80"
+serde_json = "1.0.81"
