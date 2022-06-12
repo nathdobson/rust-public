@@ -1,4 +1,4 @@
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::format_ident;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -7,7 +7,7 @@ use syn::{
     parse_quote, AngleBracketedGenericArguments, Arm, Attribute, AttributeArgs, ConstParam, Error,
     Expr, ExprCall, ExprField, ExprMatch, ExprPath, ExprStruct, FieldPat, FieldValue, Fields,
     GenericArgument, GenericParam, Generics, Index, Item, ItemEnum, ItemStruct, LifetimeDef,
-    Member, Pat, PatIdent, PatStruct, Path, Result, Type, TypeParam, Variant,
+    Member, Pat, PatIdent, PatStruct, Path, Result, Type, TypeParam, Variant, Visibility,
 };
 
 #[derive(Debug)]
@@ -62,6 +62,13 @@ fn handle_unknown_item(item: &Item) -> Result<!> {
 }
 
 impl HelperItem {
+    pub fn vis(&self) -> &Visibility {
+        match &self.item {
+            Item::Struct(s) => &s.vis,
+            Item::Enum(e) => &e.vis,
+            _ => unreachable!(),
+        }
+    }
     pub fn ident(&self) -> &Ident {
         match &self.item {
             Item::Struct(s) => &s.ident,
@@ -179,6 +186,10 @@ impl HelperItem {
         }
         Ok(HelperItem { item })
     }
+}
+
+impl Spanned for HelperItem {
+    fn span(&self) -> Span { self.item.span() }
 }
 
 impl HelperStruct {
