@@ -6,81 +6,63 @@ use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::token::Comma;
-use syn::{parse2, Error, Expr, ExprLit, Lit, LitInt, Path, Result};
+use syn::{parse2, Error, Expr, ExprLit, Lit, LitInt, LitStr, Path, Result};
 
-pub trait AttrValue: Sized {
-    fn from_tokens(input: TokenStream2) -> Result<Self>;
+pub trait ParseAttrValue: Sized {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self>;
 }
 
-impl AttrValue for Expr {
-    fn from_tokens(input: TokenStream2) -> Result<Self> { parse2(input) }
+impl ParseAttrValue for Expr {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> { Self::parse(stream) }
 }
 
-impl AttrValue for Path {
-    fn from_tokens(input: TokenStream2) -> Result<Self> { parse2(input) }
+impl ParseAttrValue for Path {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> { Self::parse(stream) }
 }
 
-impl AttrValue for usize {
-    fn from_tokens(input: TokenStream2) -> Result<Self> {
-        <LitInt>::from_tokens(input)?.base10_parse()
+impl ParseAttrValue for usize {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> {
+        LitInt::parse(stream)?.base10_parse()
     }
 }
 
-impl AttrValue for LitInt {
-    fn from_tokens(input: TokenStream2) -> Result<Self> {
-        match Lit::from_tokens(input)? {
-            Lit::Int(int) => Ok(int),
-            expr => Err(Error::new(expr.span(), "expected Lit::Int"))?,
-        }
+impl ParseAttrValue for LitInt {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> { LitInt::parse(stream) }
+}
+
+impl ParseAttrValue for Lit {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> { Lit::parse(stream) }
+}
+
+impl ParseAttrValue for ExprLit {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> { ExprLit::parse(stream) }
+}
+
+impl ParseAttrValue for String {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> {
+        Ok(<LitStr as Parse>::parse(stream)?.value())
     }
 }
 
-impl AttrValue for Lit {
-    fn from_tokens(input: TokenStream2) -> Result<Self> { Ok(ExprLit::from_tokens(input)?.lit) }
-}
-
-impl AttrValue for ExprLit {
-    fn from_tokens(input: TokenStream2) -> Result<Self> {
-        match Expr::from_tokens(input)? {
-            Expr::Lit(lit) => Ok(lit),
-            expr => Err(Error::new(expr.span(), "expected Expr::Lit"))?,
-        }
-    }
-}
-
-impl AttrValue for String {
-    fn from_tokens(input: TokenStream2) -> Result<Self> {
-        match Lit::from_tokens(input)? {
-            Lit::Str(x) => Ok(x.value()),
-            expr => Err(Error::new(expr.span(), "expected Lit::Str"))?,
-        }
-    }
-}
-
-impl<T: AttrValue> AttrValue for Vec<T> {
-    fn from_tokens(input: TokenStream2) -> Result<Self> {
-        fn parser<T: AttrValue>(stream: ParseStream) -> Result<Vec<T>> {
-            Ok(Punctuated::<TokenStream2, Comma>::parse_terminated(stream)?
+impl<T: ParseAttrValue> ParseAttrValue for Vec<T> {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> {
+        Ok(
+            Punctuated::<T, Comma>::parse_terminated_with(stream, |s2| T::parse_attr_value(s2))?
                 .into_iter()
-                .map(|x| T::from_tokens(x))
-                .collect::<Result<_>>()?)
-        }
-        Parser::parse2(parser::<T>, input)
+                .collect(),
+        )
     }
 }
-
-impl<T: AttrValue + Hash + Eq> AttrValue for HashSet<T> {
-    fn from_tokens(input: TokenStream2) -> Result<Self> {
-        fn parser<T: AttrValue + Hash + Eq>(stream: ParseStream) -> Result<HashSet<T>> {
-            Ok(Punctuated::<TokenStream2, Comma>::parse_terminated(stream)?
+impl<T: ParseAttrValue + Hash + Eq> ParseAttrValue for HashSet<T> {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> {
+        Ok(
+            Punctuated::<T, Comma>::parse_terminated_with(stream, |s2| T::parse_attr_value(s2))?
                 .into_iter()
-                .map(|x| T::from_tokens(x))
-                .collect::<Result<_>>()?)
-        }
-        Parser::parse2(parser::<T>, input)
+                .collect(),
+        )
     }
 }
 
-impl AttrValue for Ident {
-    fn from_tokens(input: TokenStream2) -> Result<Self> { parse2(input) }
+impl ParseAttrValue for Ident {
+    fn parse_attr_value(stream: ParseStream) -> Result<Self> { Ident::parse(stream) }
 }

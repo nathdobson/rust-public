@@ -7,14 +7,14 @@ use proc_macro_helper_test::{my_attr_macro, MyClone, MyDerive};
 #[test]
 fn test_my_derive() {
     #[derive(MyDerive)]
-    #[my_attr(my_key = 2)]
+    #[my_attr(my_key1 = 2, my_key2 = 3)]
     struct Foo;
     assert_eq!(MY_DERIVE, 2);
 }
 
 #[test]
 fn test_my_attr_macro() {
-    #[my_attr_macro(my_key = 3)]
+    #[my_attr_macro(my_key1 = 3, my_key2 = 4)]
     struct Foo;
     assert_eq!(MY_ATTR_MACRO, 3);
 }

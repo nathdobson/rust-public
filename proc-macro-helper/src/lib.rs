@@ -9,6 +9,7 @@
 #![feature(backtrace)]
 #![feature(backtrace_frames)]
 #![feature(never_type)]
+#![feature(once_cell)]
 
 extern crate proc_macro;
 
@@ -31,12 +32,14 @@ use syn::{
     Error, Expr, GenericArgument, GenericParam, Generics, Item, ItemEnum, ItemStruct,
     PathArguments, Result, Token, Type,
 };
+use crate::attr_table::{parse_attr_table_from_tokens, ParseAttrTable};
 
-use crate::attrs::{AttrGroup, AttrStream, ParseAttr, ParseAttrGroup};
+use crate::attr_group::{AttrGroup, ParseAttrGroup};
 use crate::helper::HelperItem;
 
+pub mod attr_table;
 pub mod attr_value;
-pub mod attrs;
+pub mod attr_group;
 pub mod helper;
 #[cfg(test)]
 mod tests;
@@ -49,25 +52,27 @@ pub fn proc_macro_derive_shim<A: ParseAttrGroup>(
     catch_unwind_as_compiler_error(|| {
         let helper = HelperItem::new(item)?;
         let attrs = AttrGroup::new(helper.item.span(), &helper.attrs())?;
-        Result::Ok(imp(A::parse(&attrs)?, helper)?)
+        Result::Ok(imp(A::parse_attr_group(&attrs)?, helper)?)
     })
-    .unwrap_or_else(|x| x.into_compile_error())
+    .unwrap_or_else(|x| {
+        Error::new(x.span(), format_args!("error from proc macro: {}", x)).into_compile_error()
+    })
     .into()
 }
 
-pub fn proc_macro_attr_shim<A: ParseAttr>(
+pub fn proc_macro_attr_shim<A: ParseAttrTable>(
     attrs: TokenStream,
     input: TokenStream,
     imp: impl FnOnce(A, HelperItem) -> Result<TokenStream2>,
 ) -> TokenStream {
     let item: Item = parse_macro_input!(input as Item);
     catch_unwind_as_compiler_error(|| {
-        let mut stream: AttrStream = syn::parse2(attrs.into())?;
-        let attrs = A::parse_attr(&mut stream)?;
-        stream.finish()?;
+        let attrs = parse_attr_table_from_tokens(attrs.into())?;
         Result::Ok(imp(attrs, HelperItem::new(item)?)?)
     })
-    .unwrap_or_else(|x| x.into_compile_error())
+    .unwrap_or_else(|x| {
+        Error::new(x.span(), format_args!("error from proc macro: {}", x)).into_compile_error()
+    })
     .into()
 }
 

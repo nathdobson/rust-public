@@ -6,8 +6,8 @@
 use std::collections::{HashMap, HashSet};
 use std::lazy::SyncOnceCell;
 
-use registry::{Builder, BuilderFrom, Registry};
-use registry_macros::register;
+use catalog::{Builder, BuilderFrom, Registry};
+use catalog_macros::register;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -73,7 +73,7 @@ fn register_fn() -> TestEntry {
     }
 }
 
-#[register(TEST_REGISTRY, crate = ::arena_buffers::reexport::registry)]
+#[register(TEST_REGISTRY, crate = catalog)]
 static TEST_ENTRY: TestEntry = TestEntry {
     key: "c",
     value: "c",
@@ -86,7 +86,7 @@ static TEST_ENTRY_LAZY1: TestEntryLazy = TestEntryLazy::new();
 static TEST_ENTRY_LAZY2: TestEntryLazy = TestEntryLazy::new();
 
 mod foo {
-    use registry_macros::register;
+    use catalog_macros::register;
 
     use crate::TestEntry;
 
