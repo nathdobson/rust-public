@@ -57,7 +57,7 @@ fn item_sort(item: &Item) -> &'static str {
 fn handle_unknown_item(item: &Item) -> Result<!> {
     Result::Err(Error::new(
         item.span(),
-        format_args!("unsupported item {}", item_sort(item)),
+        format_args!("unsupported item `{}'", item_sort(item)),
     ))
 }
 
@@ -182,6 +182,7 @@ impl HelperItem {
         match item {
             Item::Struct(_) => {}
             Item::Enum(_) => {}
+            Item::Impl(_) => {}
             _ => handle_unknown_item(&item)?,
         }
         Ok(HelperItem { item })
