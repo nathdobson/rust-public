@@ -44,6 +44,7 @@ impl<T> ReentrantRefCell<T> {
             .compare_exchange(0, tid.into_usize(), Acquire, Relaxed)?;
         Ok(LockGuard(&self.owner))
     }
+    pub fn pin_outer(&self) { mem::forget(self.lock(FastThreadId::get()).expect("Already locked")) }
     #[inline(never)]
     pub fn with_outer<F, O>(&self, f: F) -> O
     where
