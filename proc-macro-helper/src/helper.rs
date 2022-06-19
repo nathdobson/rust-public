@@ -101,7 +101,7 @@ impl HelperItem {
                 }
                 GenericParam::Lifetime(l) => {
                     let lt = &l.lifetime;
-                    generic_args.push(parse_quote!(#l));
+                    generic_args.push(parse_quote!(#lt));
                 }
                 GenericParam::Const(c) => todo!(),
             }
