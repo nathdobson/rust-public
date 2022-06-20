@@ -20,7 +20,7 @@ impl<T, F> CovLazy<T, F> {
             value: CovCell::new(None),
         }
     }
-    pub fn into_inner(mut self) -> T
+    pub fn into_inner(self) -> T
     where
         F: FnOnce() -> T,
     {
