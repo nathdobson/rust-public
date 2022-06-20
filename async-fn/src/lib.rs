@@ -20,6 +20,7 @@ macro_rules! define_async_fn_once {
             type Fut<$lt> : ::std::future::Future<Output = Self::Output>;
             fn $method_name<$lt>(self, $($input: $input_ty),*) -> Self::Fut<$lt>;
         }
+        #[doc(hidden)]
         #[macro_export]
         macro_rules! $macro {
             ({
