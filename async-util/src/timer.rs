@@ -10,10 +10,9 @@ use lazy_static::lazy_static;
 use priority_queue::PriorityQueue;
 use serde::{Deserialize, Serialize};
 use util::time::SerialInstant;
-
+use waker_util::HashWaker;
 use crate::poll::PollResult;
 use crate::poll::PollResult::{Noop, Yield};
-use crate::waker::HashWaker;
 
 struct State {
     queue: PriorityQueue<HashWaker, SerialInstant>,

@@ -8,22 +8,19 @@ use std::marker::Unsize;
 use std::mem;
 use std::ops::{CoerceUnsized, Deref, DerefMut};
 use std::ptr::{null, null_mut};
-use std::raw::TraitObject;
 use std::rc::Rc;
 use std::sync::{Arc, Weak};
 use std::task::Context;
 
 use async_util::poll::PollResult;
 use async_util::poll::PollResult::Noop;
-use util::any;
-use util::any::{Downcast, RawAny, TypeInfo, Upcast};
 use util::atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 use util::mutrc::{MutRc, MutWeak};
 use util::rect::Rect;
 use util::shared::{ObjectInner, Shared};
 
 use crate::canvas::Canvas;
-use crate::gui::div::sealed::DivTypeInfo;
+// use crate::gui::div::sealed::DivTypeInfo;
 use crate::gui::event::BoxFnMut;
 use crate::gui::gui::InputEvent;
 use crate::gui::layout::{Align, Constraint, Layout};
@@ -31,7 +28,7 @@ use crate::gui::tree::{Dirty, Tree};
 use crate::input::MouseEvent;
 use crate::screen::LineSetting;
 
-pub trait DivImpl: 'static + Send + Sync + Debug + DivTypeInfo {
+pub trait DivImpl: 'static + Send + Sync + Debug {
     fn layout_impl(self: &mut Div<Self>, constraint: &Constraint) -> Layout;
     fn self_handle(self: &mut Div<Self>, event: &InputEvent) -> bool { false }
     fn self_paint_below(self: &Div<Self>, canvas: Canvas) {}
@@ -68,7 +65,7 @@ impl<T: DivImpl> DivRc<T> {
         DivRc(MutRc::new_cyclic(|this| {
             let this = DivWeak(this.clone());
             Div {
-                this: this.clone().upcast_div(),
+                this: this.clone(),
                 parent: None,
                 tree,
                 bounds: Rect::default(),
@@ -89,8 +86,8 @@ impl<T: DivImpl + ?Sized> DivRc<T> {
 }
 
 impl<T: DivImpl + ?Sized> Div<T> {
-    pub fn div_rc(&self) -> DivRc<T> { self.this.upgrade().unwrap().downcast_div() }
-    pub fn div_weak(&self) -> DivWeak<T> { self.this.clone().downcast_div() }
+    pub fn div_rc(&self) -> DivRc<T> { todo!() }
+    pub fn div_weak(&self) -> DivWeak<T> { todo!() }
     pub fn mark_dirty(&mut self, dirty: Dirty) { self.tree_mut().mark_dirty(dirty) }
     pub fn bounds(&self) -> Rect { self.bounds }
     pub fn set_bounds(&mut self, bounds: Rect) {
@@ -265,48 +262,47 @@ impl<T: DivImpl + ?Sized> DivRc<T> {
     // }
 }
 
-unsafe impl RawAny for Div<dyn DivImpl> {
-    fn raw_type_info(self: *const Self) -> TypeInfo { self.div_type_info() }
-}
+// unsafe impl RawAny for Div<dyn DivImpl> {
+//     fn raw_type_info(self: *const Self) -> TypeInfo { self.div_type_info() }
+// }
 
 impl<T: DivImpl + ?Sized> Div<T> {
-    fn upcast_div(&self) -> &Div { Upcast::upcast(self) }
-    fn upcast_div_mut(&mut self) -> &mut Div { Upcast::upcast(self) }
-    fn downcast_div(&self) -> &Div { Downcast::downcast(self).unwrap() }
-    fn downcast_div_mut(&mut self) -> &mut Div { Downcast::downcast(self).unwrap() }
+    // fn upcast_div(&self) -> &Div { Upcast::upcast(self) }
+    // fn upcast_div_mut(&mut self) -> &mut Div { Upcast::upcast(self) }
+    fn downcast_div(&self) -> &Div { todo!() }
+    fn downcast_div_mut(&mut self) -> &mut Div { todo!() }
     pub unsafe fn raw_get(this: *const Self) -> *const T { &raw const (*this).inner }
 }
 
 mod sealed {
     use std::any::TypeId;
 
-    use util::any::TypeInfo;
     use util::atomic_refcell::AtomicRefCell;
 
     use crate::gui::div::{Div, DivImpl};
 
-    pub trait DivTypeInfo {
-        fn div_type_info(self: *const Div<Self>) -> TypeInfo;
-    }
-
-    impl<T: DivImpl> DivTypeInfo for T {
-        fn div_type_info(self: *const Div<Self>) -> TypeInfo { TypeInfo::of::<Div<T>>() }
-    }
+    // pub trait DivTypeInfo {
+    //     fn div_type_info(self: *const Div<Self>) -> TypeInfo;
+    // }
+    //
+    // impl<T: DivImpl> DivTypeInfo for T {
+    //     fn div_type_info(self: *const Div<Self>) -> TypeInfo { TypeInfo::of::<Div<T>>() }
+    // }
 }
 
 impl<T: DivImpl + ?Sized> DivRc<T> {
-    pub fn upcast_div(self) -> DivRc { DivRc(Upcast::upcast(self.0)) }
-    pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivRc<T2> {
-        DivRc(Downcast::downcast(self.0).unwrap())
-    }
+    // pub fn upcast_div(self) -> DivRc { DivRc(Upcast::upcast(self.0)) }
+    // pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivRc<T2> {
+    //     DivRc(Downcast::downcast(self.0).unwrap())
+    // }
     pub fn downgrade(&self) -> DivWeak<T> { DivWeak(MutRc::downgrade(&self.0)) }
 }
 
 impl<T: DivImpl + ?Sized> DivWeak<T> {
-    pub fn upcast_div(self) -> DivWeak { DivWeak(Upcast::upcast(self.0)) }
-    pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivWeak<T2> {
-        DivWeak(Downcast::downcast(self.0).unwrap())
-    }
+    // pub fn upcast_div(self) -> DivWeak { DivWeak(Upcast::upcast(self.0)) }
+    // pub fn downcast_div<T2: DivImpl + ?Sized>(self) -> DivWeak<T2> {
+    //     DivWeak(Downcast::downcast(self.0).unwrap())
+    // }
     pub fn upgrade(&self) -> Option<DivRc<T>> { Some(DivRc(self.0.upgrade()?)) }
 }
 

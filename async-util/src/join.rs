@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering::{Acquire, Release};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread;
+use waker_util::AtomicWaker;
 
 use pin_project::pin_project;
 use tokio::pin;
@@ -16,7 +17,6 @@ use tokio::sync::oneshot;
 use tokio::task::yield_now;
 
 use crate::futureext::FutureExt;
-use crate::waker::AtomicWaker;
 
 pub trait JoinHandle: Future {
     fn abort(self);

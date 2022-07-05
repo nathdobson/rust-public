@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::future::{poll_fn, Future};
 use std::hash::Hash;
 use std::io;
-use std::ops::Try;
+use std::ops::{ControlFlow, FromResidual, Try};
 use std::pin::Pin;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -11,46 +12,91 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use tokio::sync::oneshot;
 use tokio_stream::Stream;
+use waker_util::AtomicWaker;
 
 use crate::fused::Fused;
 use crate::futureext::FutureExt;
 use crate::poll::PollResult::{Abort, Noop, Yield};
-use crate::waker::AtomicWaker;
 
-pub enum PollError<Y = (), E = !> {
+// use crate::poll::PollResult::{Abort, Noop, Yield};
+//
+pub enum PollError<Y = (), E = PollNever> {
     Yield(Y),
     Abort(E),
 }
-
+//
 #[must_use]
-pub enum PollResult<Y = (), E = !> {
+pub enum PollResult<Y = (), E = PollNever> {
     Noop,
     Yield(Y),
     Abort(E),
 }
 
-impl<Y, E> Try for PollResult<Y, E> {
-    type Ok = ();
-    type Error = PollError<Y, E>;
+pub enum PollNever {}
 
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
-        match self {
-            Noop => Ok(()),
-            Yield(y) => Err(PollError::Yield(y)),
-            Abort(e) => Err(PollError::Abort(e)),
-        }
-    }
-
-    fn from_error(v: Self::Error) -> Self {
-        match v {
-            PollError::Yield(y) => PollResult::Yield(y),
-            PollError::Abort(e) => PollResult::Abort(e),
-        }
-    }
-
-    fn from_ok(v: ()) -> Self { Self::Noop }
+impl From<PollNever> for std::io::Error {
+    fn from(x: PollNever) -> Self { match x {} }
 }
 
+impl<Y, E, F> FromResidual<PollResult<Infallible, E>> for PollResult<Y, F>
+where
+    F: From<E>,
+{
+    fn from_residual(residual: PollResult<Infallible, E>) -> Self {
+        match residual {
+            Noop => Noop,
+            Yield(x) => Yield(match x {}),
+            Abort(x) => Abort(x.into()),
+        }
+    }
+}
+
+impl<Y, E, F> FromResidual<Result<Infallible, E>> for PollResult<Y, F>
+where
+    F: From<E>,
+{
+    fn from_residual(residual: Result<Infallible, E>) -> Self {
+        match residual {
+            Ok(x) => match x {},
+            Err(e) => PollResult::Abort(e.into()),
+        }
+    }
+}
+
+impl<Y, E> Try for PollResult<Y, E> {
+    type Output = Y;
+    type Residual = PollResult<Infallible, E>;
+
+    fn from_output(output: Self::Output) -> Self { PollResult::Yield(output) }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> { todo!() }
+}
+
+//
+
+//
+// impl<Y, E> Try for PollResult<Y, E> {
+//     type Ok = ();
+//     type Error = PollError<Y, E>;
+//
+//     fn into_result(self) -> Result<Self::Ok, Self::Error> {
+//         match self {
+//             Noop => Ok(()),
+//             Yield(y) => Err(PollError::Yield(y)),
+//             Abort(e) => Err(PollError::Abort(e)),
+//         }
+//     }
+//
+//     fn from_error(v: Self::Error) -> Self {
+//         match v {
+//             PollError::Yield(y) => PollResult::Yield(y),
+//             PollError::Abort(e) => PollResult::Abort(e),
+//         }
+//     }
+//
+//     fn from_ok(v: ()) -> Self { Self::Noop }
+// }
+//
 impl<Y, E> PollResult<Y, E> {
     pub fn map<Y2>(self, f: impl FnOnce(Y) -> Y2) -> PollResult<Y2, E> {
         match self {
@@ -61,14 +107,14 @@ impl<Y, E> PollResult<Y, E> {
     }
 }
 
-impl<Y> From<PollError<Y, !>> for PollError<Y, io::Error> {
-    fn from(x: PollError<Y, !>) -> Self {
-        match x {
-            PollError::Yield(y) => PollError::Yield(y),
-            PollError::Abort(e) => match e {},
-        }
-    }
-}
+// impl<Y> From<PollError<Y, !>> for PollError<Y, io::Error> {
+//     fn from(x: PollError<Y, !>) -> Self {
+//         match x {
+//             PollError::Yield(y) => PollError::Yield(y),
+//             PollError::Abort(e) => match e {},
+//         }
+//     }
+// }
 
 pub async fn poll_loop<E, F: for<'a, 'b> FnMut(&'a mut Context<'b>) -> PollResult<(), E>>(
     mut fun: F,

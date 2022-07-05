@@ -2,8 +2,8 @@ use std::io::Take;
 use std::marker::Unsize;
 use std::sync::{Arc, Weak};
 
-use crate::take_cell::TakeCell;
-use crate::weak_vec::WeakVec;
+// use crate::take_cell::TakeCell;
+// use crate::weak_vec::WeakVec;
 
 pub struct TakeBag<U: ?Sized>(WeakVec<TakeCell<U>>);
 

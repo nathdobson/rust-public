@@ -6,27 +6,23 @@
     never_type,
     write_all_vectored,
     vec_into_raw_parts,
-    raw,
     can_vector,
-    bound_cloned,
     backtrace,
     type_name_of_val
 )]
 #![allow(unused_imports)]
 #![feature(arbitrary_self_types, unboxed_closures)]
-#![feature(arc_new_cyclic)]
-#![feature(unsafe_cell_raw_get)]
 #![feature(raw_ref_op)]
 #![feature(box_syntax)]
 #![feature(associated_type_defaults)]
 #![feature(specialization)]
 #![feature(slice_ptr_len)]
 #![feature(slice_index_methods)]
-#![feature(maybe_uninit_extra)]
 #![feature(fn_traits)]
 #![feature(allocator_api)]
 #![allow(incomplete_features)]
 #![allow(unused_variables)]
+#![allow(unreachable_code)]
 
 use std::collections::BTreeMap;
 use std::marker::{PhantomData, Unsize};
@@ -34,7 +30,7 @@ use std::mem;
 use std::ops::Deref;
 use std::sync::Arc;
 
-pub mod any;
+// pub mod any;
 pub mod atomic_refcell;
 pub mod completable;
 pub mod dirty;
@@ -43,7 +39,7 @@ pub mod fun;
 pub mod grid;
 pub mod io;
 pub mod itertools;
-pub mod listen;
+// pub mod listen;
 pub mod lossy;
 pub mod mutrc;
 pub mod pmpsc;
@@ -57,14 +53,14 @@ pub mod shared_cell;
 pub mod slice;
 pub mod socket;
 pub mod sums;
-pub mod take_cell;
-pub mod take_vec;
+// pub mod take_cell;
+// pub mod take_vec;
 pub mod time;
 pub mod tree;
 pub mod union;
 pub mod version;
 pub mod watch;
-pub mod weak_vec;
+// pub mod weak_vec;
 pub mod web;
 
 pub fn btree_set_keys<'a, Q: 'a + ?Sized, V>(

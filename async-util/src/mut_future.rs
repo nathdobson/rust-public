@@ -9,12 +9,12 @@ use tokio::time::sleep;
 use util::dirty::Dirty;
 use util::mutrc::{MutRc, ReadGuard, WriteGuard};
 use util::time::SerialInstant;
+use waker_util::AtomicWaker;
 
 use crate::dirty;
 use crate::dirty::Sender;
 use crate::spawn::Spawn;
 use crate::timer::poll_elapse;
-use crate::waker::AtomicWaker;
 
 pub struct MutFuture<T: 'static> {
     inner: MutRc<T>,

@@ -12,7 +12,6 @@
 #![feature(box_syntax)]
 #![feature(arc_new_cyclic)]
 #![feature(map_first_last)]
-#![feature(async_stream)]
 #![feature(slice_concat_trait)]
 #![feature(generic_associated_types)]
 #![feature(future_poll_fn)]
@@ -22,13 +21,13 @@
 #![allow(incomplete_features)]
 #![feature(backtrace)]
 #![feature(ready_macro)]
-#![feature(try_trait)]
+#![feature(try_trait_v2)]
 
 //pub mod bytes;
 pub mod coop;
 pub mod promise;
 pub mod parser;
-pub mod waker;
+// pub mod waker;
 pub mod pipe;
 pub mod timer;
 //pub mod priority;
@@ -41,5 +40,5 @@ pub mod fused;
 pub mod spmc_dirty;
 pub mod poll;
 pub mod delay_writer;
-pub mod condvar;
+// pub mod condvar;
 pub mod spsc_semaphore;

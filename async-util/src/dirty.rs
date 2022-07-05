@@ -11,9 +11,9 @@ use tokio::sync::Barrier;
 use tokio::task::yield_now;
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tokio_stream::{Stream, StreamExt};
+use waker_util::AtomicWaker;
 
 use crate::futureext::FutureExt;
-use crate::waker::AtomicWaker;
 
 const STATE_CLEAN: usize = 0;
 const STATE_DIRTY: usize = 1;

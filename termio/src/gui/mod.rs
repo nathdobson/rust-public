@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::{io, mem, thread};
 
-use async_backtrace::spawn;
 use async_util::coop::Cancel;
 use async_util::futureext::FutureExt;
 use async_util::pipe::unbounded;
@@ -90,13 +89,13 @@ impl GuiBuilder {
         self.output = Some(output);
         self
     }
-    pub fn build(mut self, div: DivRc) -> Gui {
+    pub fn build(mut self, div: DivRc) -> (impl Future<Output = ()>, Gui) {
         let (event_sender, event_receiver) = mpsc::channel(1000);
         self.set_tree();
         let cancel = self.cancel();
         let (tree, tree_receiver) = self.tree.unwrap();
         let input = self.input.take().unwrap_or_else(|| Box::pin(piped_stdin()));
-        spawn(async move {
+        let event_loop = async move {
             let reader = EventReader::new(input);
             pin!(reader);
             loop {
@@ -111,8 +110,11 @@ impl GuiBuilder {
                     Err(_) => break,
                 }
             }
-        });
+        };
         let output = self.output.take().unwrap_or_else(|| Box::pin(stdout()));
-        Gui::new(tree, tree_receiver, event_receiver, output, div)
+        (
+            event_loop,
+            Gui::new(tree, tree_receiver, event_receiver, output, div),
+        )
     }
 }

@@ -1,15 +1,15 @@
 use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::AcqRel;
+use std::sync::atomic::Ordering::{AcqRel, Acquire, Release};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
 use tokio::sync::Notify;
 use tokio_stream::Stream;
-use util::weak_vec::WeakVec;
+use weak_vec::WeakVec;
+use waker_util::AtomicWaker;
 
 use crate::dirty;
-use crate::waker::AtomicWaker;
 
 pub struct Sender {
     generation: Arc<AtomicUsize>,
@@ -33,7 +33,7 @@ impl Sender {
 
 impl Receiver {
     fn try_poll_next(&mut self) -> Poll<Option<()>> {
-        let new_count = self.count.load(AcqRel);
+        let new_count = self.count.load(Acquire);
         if new_count == 1 {
             Poll::Ready(None)
         } else if new_count == self.old_count {
@@ -57,5 +57,5 @@ impl Stream for Receiver {
 impl Unpin for Receiver {}
 
 impl Drop for Sender {
-    fn drop(&mut self) { self.generation.store(1, AcqRel); }
+    fn drop(&mut self) { self.generation.store(1, Release); }
 }

@@ -10,7 +10,7 @@ use std::ops::CoerceUnsized;
 use std::sync::{Arc, Mutex, Weak};
 use std::{fmt, hash, mem};
 
-use crate::any::Pointy;
+// use crate::any::Pointy;
 use crate::atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 
 pub struct MutRc<T: ?Sized>(Arc<AtomicRefCell<T>>);
@@ -64,8 +64,7 @@ impl MutRc<dyn Any + 'static + Send + Sync> {
     pub fn downcast<T: Any>(self) -> Result<MutRc<T>, Self> {
         unsafe {
             if self.read().is::<T>() {
-                let raw: raw::TraitObject = mem::transmute(self);
-                Ok(mem::transmute(raw.data))
+                todo!();
             } else {
                 Err(self)
             }
@@ -146,10 +145,10 @@ where
 {
 }
 
-unsafe impl<T: ?Sized> Pointy for MutRc<T> {
-    type Target = T;
-}
-
-unsafe impl<T: ?Sized> Pointy for MutWeak<T> {
-    type Target = T;
-}
+// unsafe impl<T: ?Sized> Pointy for MutRc<T> {
+//     type Target = T;
+// }
+//
+// unsafe impl<T: ?Sized> Pointy for MutWeak<T> {
+//     type Target = T;
+// }

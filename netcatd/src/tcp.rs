@@ -11,7 +11,6 @@ use std::task::Context;
 use std::time::Duration;
 use std::{error, io, mem, str, thread};
 
-use async_backtrace::{spawn, trace_annotate};
 use async_util::coop::{Cancel, Canceled};
 use async_util::poll::PollResult::{Abort, Noop, Yield};
 use async_util::poll::{poll_next, PollResult};
@@ -85,11 +84,11 @@ impl NetcatListener {
             eprintln!("proxy error: {}", e);
         }
     }
-    pub async fn listen(self, address: &str) -> io::Result<()> {
+    pub async fn listen(self, address: &str) -> io::Result<impl Future> {
         let listener = TcpListener::bind(address).await?;
         let sender = self.request_sender.clone();
         let cancel = self.server_cancel.clone();
-        spawn(async move {
+        Ok(async move {
             loop {
                 match cancel.checked(listener.accept()).await {
                     Err(Canceled) => break,
@@ -105,8 +104,7 @@ impl NetcatListener {
                 };
             }
             println!("Server stopped accepting");
-        });
-        Ok(())
+        })
     }
 }
 

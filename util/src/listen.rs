@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, Weak};
 use std::{fmt, mem};
 
-use crate::weak_vec::WeakVec;
+// use crate::weak_vec::WeakVec;
 
 pub struct Listenable<T> {
     listeners: WeakVec<dyn Sync + Send + Fn(&mut T)>,

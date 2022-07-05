@@ -1,7 +1,6 @@
 use std::io;
 use std::io::{Error, Write};
 use std::pin::Pin;
-use std::stream::Stream;
 use std::sync::atomic::AtomicPtr;
 use std::task::{Context, Poll};
 
@@ -11,7 +10,7 @@ use tokio::task::yield_now;
 
 use crate::futureext::FutureExt;
 use crate::pipe::bounded;
-use crate::waker::{noop_waker_ref, AtomicWaker};
+use waker_util::noop_waker_ref;
 
 pub struct PipeWrite {
     write: bounded::PipeWrite,

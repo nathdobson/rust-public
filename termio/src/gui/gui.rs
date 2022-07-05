@@ -5,7 +5,6 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use std::raw::TraitObject;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::task::Context;

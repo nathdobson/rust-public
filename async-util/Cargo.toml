@@ -20,6 +20,9 @@ pin-project = "1.0.10"
 tokio-stream = "0.1.9"
 async-channel = "1.6.1"
 serde = { version = "1.0.137", features = ["derive"] }
+futures-core = "0.3.21"
+waker-util = { path = "../waker-util" }
+weak-vec = { path = "../weak-vec" }
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.5.6"

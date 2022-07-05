@@ -73,8 +73,7 @@ impl SharedMut<dyn Any + 'static + Send + Sync> {
     pub fn downcast<T: Any>(self) -> Result<SharedMut<T>, Self> {
         unsafe {
             if self.borrow().is::<T>() {
-                let raw: raw::TraitObject = mem::transmute(self);
-                Ok(mem::transmute(raw.data))
+                todo!()
             } else {
                 Err(self)
             }
@@ -331,6 +330,7 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
+        todo!();
         Pin::new(&mut &**self).poll_read(cx, buf)
     }
 }
@@ -365,14 +365,17 @@ where
         cx: &'b mut Context<'_>,
         buf: &'b [u8],
     ) -> Poll<io::Result<usize>> {
+        todo!();
         Pin::new(&mut &**self).poll_write(cx, buf)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        todo!();
         Pin::new(&mut &**self).poll_flush(cx)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        todo!();
         Pin::new(&mut &**self).poll_close(cx)
     }
 }

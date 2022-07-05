@@ -1,7 +1,6 @@
 #![feature(half_open_range_patterns)]
 #![feature(arc_new_cyclic)]
 #![feature(once_cell)]
-#![feature(raw)]
 #![feature(exclusive_range_pattern)]
 #![feature(str_internals)]
 #![feature(fmt_internals)]
@@ -13,7 +12,6 @@
 #![feature(box_syntax)]
 #![feature(never_type)]
 #![feature(raw_ref_op)]
-#![feature(async_stream)]
 #![feature(future_poll_fn)]
 #![deny(unused_must_use)]
 #![allow(

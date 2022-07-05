@@ -7,9 +7,11 @@ use std::task::{Context, Poll};
 use tokio::io::AsyncWrite;
 use util::io::SafeWrite;
 use util::slice::SlicePair;
-
+use crate::poll::PollResult;
 use crate::poll::PollResult::{Noop, Yield};
-use crate::poll::{PollError, PollResult};
+
+// use crate::poll::PollResult::{Noop, Yield};
+// use crate::poll::{PollError, PollResult};
 
 #[derive(Debug)]
 pub struct DelayWriter(VecDeque<u8>);
@@ -39,11 +41,7 @@ impl DelayWriter {
     ) -> PollResult<(), io::Error> {
         let buf = SlicePair::from_deque(&self.0);
         if buf.len() > 0 {
-            match output
-                .as_mut()
-                .poll_write_vectored(cx, &buf.as_io())
-                .map_err(PollError::Abort)?
-            {
+            match output.as_mut().poll_write_vectored(cx, &buf.as_io())? {
                 Poll::Ready(written) => {
                     self.0.drain(..written);
                     if !self.0.is_empty() {
@@ -53,10 +51,7 @@ impl DelayWriter {
                 Poll::Pending => return Noop,
             }
         }
-        output
-            .poll_flush(cx)
-            .map_err(PollError::Abort)?
-            .is_pending();
+        output.poll_flush(cx)?.is_pending();
         Noop
     }
 }

@@ -10,8 +10,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::task::yield_now;
 use tokio::{join, try_join};
 use util::slice::{raw_split_at, raw_split_at_mut, vec_as_slice_raw, Slice, SlicePair};
-
-use crate::waker::AtomicWaker;
+use waker_util::AtomicWaker;
 
 struct Inner {
     memory: Vec<u8>,
